@@ -199,45 +199,106 @@ bracket the question rather than contradict it:
 The previous report found that SMI never resolves a 45 degree crossing and
 suspected `lambda_tikhonov`. Both regularizers were swept on identical data.
 
-### Tikhonov does nothing to angular resolution
+### Tikhonov does nothing to angular resolution, and very little to anything
 
-Noise-free, `lambda_nonneg = 10` throughout:
+`lambda_nonneg = 10` throughout. Complete sweep, all three noise levels:
 
-| lambda_tikhonov | 45° resolved | 60° error | CSF peak |
-|---|---|---|---|
-| 0.00 | 0/40 | 1.24° | 0.1015 |
-| 0.05 | 0/40 | 1.24° | 0.1015 |
-| 0.30 (shipped) | 0/40 | 1.24° | 0.1012 |
-| 0.80 | 0/40 | 1.24° | 0.0998 |
+| lambda_tikhonov | 45° resolved | 60° err | CSF peak | WM/CSF | 45° resolved | 60° err | CSF peak | WM/CSF |
+|---|---|---|---|---|---|---|---|---|
+| | **noise free** | | | | **SNR 30** | | | |
+| 0.00 | 0/40 | 1.24° | 0.1015 | 8.55 | 0/40 | 1.78° | 0.3215 | 2.57 |
+| 0.05 | 0/40 | 1.24° | 0.1015 | 8.55 | 0/40 | 1.78° | 0.3215 | 2.57 |
+| 0.10 | 0/40 | 1.24° | 0.1014 | 8.55 | 0/40 | 1.86° | 0.3211 | 2.57 |
+| 0.30 (shipped) | 0/40 | 1.24° | 0.1012 | 8.56 | 0/40 | 1.86° | 0.3207 | 2.57 |
+| 0.80 | 0/40 | 1.24° | 0.0998 | 8.62 | 0/40 | 1.78° | 0.3108 | 2.63 |
 
-Flat. The 45 degree crossing is lost at `lambda_tikhonov = 0`, with no noise.
+At SNR 15 it is the same story: 45 degrees never resolved, the 60 degree error
+moves between 2.61 and 2.71 degrees with no trend, the CSF peak between 0.3836
+and 0.3924, WM/CSF between 1.99 and 2.02.
+
+Flat everywhere. The 45 degree crossing is lost at `lambda_tikhonov = 0`, with
+no noise. Over the whole range 0 to 0.8, at every noise level, Tikhonov buys
+about 3% of CSF suppression and changes nothing else.
+
+**Note what this implies about the previous stabilization result.** At
+`lambda_tikhonov = 0` and SNR 15 the CSF peak is 0.3924, not the 1e13 blow-up
+`REPORT_fODF_modulation.md` section 4 documented for the unregularized fit. The
+non-negativity constraint was still on at 10 in every row above. So the
+regularization that is load-bearing against blow-ups is the **non-negativity
+constraint**, not the Tikhonov term — the two were never separated before.
 
 ### The non-negativity weight is the cause
 
-Noise-free, `lambda_tikhonov = 0.3` throughout:
+`lambda_tikhonov = 0.3` throughout. `lambda_nonneg = 0` means the constraint is
+switched off entirely.
 
-| lambda_nonneg | 45° resolved | 45° error | 60° error | CSF peak | WM/CSF |
-|---|---|---|---|---|---|
-| **off** | **40/40** | **1.69°** | 1.78° | 0.1625 | 8.77 |
-| 1 | **40/40** | 6.52° | 1.78° | 0.1012 | **12.04** |
-| 3 | 0/40 | – | 1.78° | 0.1012 | 10.35 |
-| **10 (shipped)** | **0/40** | – | 1.24° | 0.1012 | 8.56 |
-| 30 | 0/40 | – | 2.78° | 0.1012 | 7.75 |
+**Noise free**
 
-With the constraint off, SMI resolves the 45 degree crossing in **40 of 40**
-realisations at **1.69 degrees** — exactly the band-limited ground truth's own
-error. At `lambda_nonneg = 1` it still resolves 40/40, and the WM/CSF contrast
-is the best in the sweep. From 3 upward it never resolves.
+| lambda_nonneg | 45° resolved | 45° err | 60° err | single err | CSF peak | WM/CSF |
+|---|---|---|---|---|---|---|
+| **off** | **40/40** | **1.69°** | 1.78° | 0.75° | 0.1625 | 8.77 |
+| 1 | **40/40** | 6.52° | 1.78° | 0.75° | 0.1012 | **12.04** |
+| 3 | 0/40 | – | 1.78° | 0.75° | 0.1012 | 10.35 |
+| **10 (shipped)** | 0/40 | – | 1.24° | 0.75° | 0.1012 | 8.56 |
+| 30 | 0/40 | – | 2.78° | 0.75° | 0.1012 | 7.75 |
 
-**`lambda_nonneg = 10` is what closes the 45 degree crossing.** This does not
-contradict `REPORT_fODF_regularization_sweep.md`, which measured 10 as the
-optimum — that sweep optimised reconstruction error, not angular resolution, and
-nobody had traded the two against each other. `lambda_nonneg = 1` looks like a
-better operating point on this evidence, but the noise-free result alone is not
-enough to recommend it: the non-negativity constraint is what prevents the CSF
-blow-ups documented previously, and the SNR 30 and 15 arms of this sweep had not
-finished at the time of writing. **Do not change the default on this table
-alone.**
+**SNR 30**
+
+| lambda_nonneg | 45° resolved | 45° err | 60° err | single err | CSF peak | WM/CSF |
+|---|---|---|---|---|---|---|
+| **off** | 39/40 | 3.56° | 2.62° | 1.30° | **0.8118** | **1.54** |
+| 1 | 25/40 | 6.51° | 1.78° | 0.75° | 0.4497 | 2.46 |
+| **3** | 0/40 | – | **1.41°** | 0.75° | 0.3459 | **2.80** |
+| **10 (shipped)** | 0/40 | – | 1.86° | 0.75° | **0.3207** | 2.57 |
+| 30 | 0/40 | – | 3.85° | 0.75° | 0.3490 | 2.22 |
+
+With the constraint off and no noise, SMI resolves the 45 degree crossing in
+**40 of 40** realisations at **1.69 degrees** — exactly the band-limited ground
+truth's own error. **`lambda_nonneg = 10` is what closes the 45 degree
+crossing.** This does not contradict `REPORT_fODF_regularization_sweep.md`,
+which measured 10 as the optimum: that sweep optimised reconstruction error, not
+angular resolution, and nobody had traded the two against each other.
+
+**SNR 15**
+
+| lambda_nonneg | 45° resolved | 45° err | 60° err | single err | CSF peak | WM/CSF |
+|---|---|---|---|---|---|---|
+| **off** | 40/40 | 5.47° | 4.54° | 2.60° | **1.8729** | **0.61** |
+| 1 | 17/40 | 4.95° | 2.58° | 1.30° | 0.7144 | 1.43 |
+| **3** | 0/40 | – | **2.27°** | 0.75° | 0.4525 | **2.00** |
+| **10 (shipped)** | 0/40 | – | 2.71° | 0.75° | **0.3948** | 1.99 |
+| 30 | 0/40 | – | 4.42° | 0.75° | 0.4148 | 1.84 |
+
+Adding noise turns this into a genuine trade-off rather than a free lunch.
+
+**Switching the constraint off is not viable.** It still resolves 45 degrees
+(39/40 at SNR 30, 40/40 at SNR 15) and is the worst row in the sweep on
+everything else. At SNR 15 the CSF peak reaches 1.87 and WM/CSF contrast falls to
+**0.61** — white matter is dimmer than CSF — while the single-fibre error rises
+to 2.60 degrees. This is the same failure mode `REPORT_fODF_modulation.md`
+section 4 attributed to "no regularization", now localised to this term
+specifically.
+
+Two narrower conclusions survive at both noise levels:
+
+1. **The shipped `lambda_nonneg = 10` is not on the Pareto front.**
+   `lambda_nonneg = 3` matches or beats it on the scale-free metrics at both
+   SNRs — contrast 2.80 vs 2.57 at SNR 30 and 2.00 vs 1.99 at SNR 15, and 60
+   degree angular error better at both (1.41 vs 1.86, 2.27 vs 2.71) — while
+   giving up nothing, since both lose the 45 degree crossing entirely. The only
+   metric where 10 wins is the raw CSF peak, which is not scale free.
+2. **Buying back 45 degree crossings is expensive once there is noise.**
+   `lambda_nonneg = 1` recovers 40/40, then 25/40, then 17/40 as SNR falls, and
+   the contrast cost grows the whole way: 12.04 -> 2.46 -> 1.43 against
+   8.56 -> 2.57 -> 1.99 for the shipped value. At SNR 15 that is a 28% contrast
+   loss for fewer than half the crossings. Probably not a trade worth making.
+
+**The default is not changed in this commit.** A regularization default should
+not move on one simulation, least of all one whose 45 degree class is a
+deliberately hard corner case. The concrete next step is to re-run
+`example_fODF_regularization_sweep.m`'s own reconstruction-error metric across
+`lambda_nonneg` in {1, 3, 10}. If 3 holds up there too, that is a defensible
+change with two independent measurements behind it.
 
 ### Where the high-l power actually goes
 
@@ -283,8 +344,7 @@ sensitive to the kernel parameters.
   crossings in the healthy brain. That degeneracy is a real property of the
   criterion at this angular order and worth knowing, but it makes the resulting
   response useless as a comparison point.
-- The SNR 30 and 15 arms of the non-negativity sweep were still running when
-  this was written; only the noise-free arm is reported.
+- Both regularization sweeps are complete at all three noise levels.
 
 ## 7. Reproducing
 
