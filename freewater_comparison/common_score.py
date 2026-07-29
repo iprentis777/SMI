@@ -14,18 +14,18 @@ REL_THRESH = 0.35
 MIN_SEP = 25.0
 
 
-def cond_names():
-    with open(binio.DATA + '/cond_names.txt') as f:
+def cond_names(suf=''):
+    with open(binio.DATA + f'/cond_names{suf}.txt') as f:
         return [l.strip() for l in f if l.strip()]
 
 
-def gt_axes():
+def gt_axes(suf=''):
     """[3 x 3 x NCOND] true fibre axes, NaN-padded."""
-    return binio.load('gt_axes')
+    return binio.load('gt_axes' + suf)
 
 
-def cond_id():
-    return binio.load('cond_id').ravel().astype(int)
+def cond_id(suf=''):
+    return binio.load('cond_id' + suf).ravel().astype(int)
 
 
 def peaks_of(amp_col):
