@@ -154,6 +154,7 @@ The code provides some additional flexibility:
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 - Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
 - Anisotropy modulation of the fODF, so that its amplitude carries orientational coherence for tractography, see below.
+- Post hoc outlier capping of the fODF, removing isolated pathologically bright glyphs without touching orientation, see below.
 
 
 ### Regularized fODF deconvolution
@@ -327,6 +328,60 @@ The weight is clipped at 1, so it cannot rescue a blown-up voxel — `w*1e13` is
 - These are simulations. `p2` in real edema should be checked against a known ROI before this is relied on: the simulated edema class assumes fibers stay coherent, which is the assumption the whole approach rests on.
 
 Full methodology, all result tables and limitations are in `REPORT_fODF_modulation.md`.
+
+
+### fODF outlier capping
+Occasionally a single voxel comes back with an fODF amplitude orders of magnitude above everything around it. The deconvolution gain `g_2 = 1/||K_2||` blows up where the kernel is nearly isotropic, so a near-CSF voxel can reach enormous amplitudes; unregularized at SNR 15 the simulation reaches `2.2e14`. Those glyphs dominate any display and any amplitude threshold downstream.
+
+The cap is opt-in and off by default:
+
+```matlab
+options.flag_fit_fODF = 1;
+options.fODF_outlier.flag_cap       = 1;    % default 0 (off)
+options.fODF_outlier.orders         = 1;    % default: one order of magnitude
+options.fODF_outlier.ceiling        = 1;    % default: absolute ceiling on the peak
+options.fODF_outlier.min_neighbours = 6;    % default
+options.fODF_outlier.connectivity   = 26;   % default, or 6
+out = SMI.fit(dwi, options);
+
+out.plm_capped                % corrected coefficients, same convention as out.plm
+out.fODF_outlier.flagged      % which voxels were capped
+out.fODF_outlier.scale        % the scalar applied per voxel, 1 elsewhere
+out.fODF_outlier.peak_before  % peak amplitude map before the cap
+```
+
+A voxel is flagged when its peak exceeds `10^orders` times the **median** peak of its in-mask neighbours, **or** exceeds `ceiling`, and is then scaled **down** to `min(neighbourhood median, ceiling)`. The operation is strictly one sided: a voxel is never raised, so this can remove spurious amplitude but can never invent fibre density.
+
+`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or off** (verified, difference exactly 0), as with the modulation. The same operation is available post hoc as `SMI.cap_fODF_outliers(out,options)`.
+
+#### Why the neighbourhood test is not a tissue-type criterion
+The test is **relative**, and edema is spatially **contiguous**: an edematous voxel's neighbours are edematous too, so the local median moves with it and the ratio does not. A whole region being uniformly bright or dim never trips this; only isolated spikes do. That is a structural property of the statistic rather than a well-tuned threshold, and it is verified directly — a contiguous block raised by a uniform factor is never flagged, while isolated spikes in the same volume always are.
+
+#### Three details that are easy to get wrong
+- **The scale factor is not `target/peak`.** `plm` is stored with `p_00 = 1`, so the isotropic floor `1/(4*pi) = 0.0796` is not part of the blow-up — the excess is entirely in `l >= 2`. The correct factor is `s = (T - 1/(4*pi))/(peak - 1/(4*pi))`, applied to the `l >= 2` block. `T/peak` would shrink the floor too and undershoot.
+- **Median, not mean and standard deviation.** The median has a 50% breakdown point; an SD has none. One `1e13` voxel among 26 neighbours inflates the SD until the offender sits 0.2 SD above the mean and is never flagged, and blown-up voxels usually come in contiguous clusters.
+- **Scale the whole `l >= 2` block by one scalar.** That preserves peak orientation *exactly* (measured 0.000 deg for spikes of 40x, 5e3x and 1e11x). Clipping coefficients independently does not.
+
+#### Choosing the ceiling
+Measured at Lmax 6 on the free-water simulation branch (`claude/freewater-simulations`, not part of this PR):
+
+| | peak |
+|---|---|
+| hard physical max of a band-limited fODF, `sum (2l+1)/(4*pi)` | **2.228** |
+| ground truth single fibre, Watson `kappa = 16` | 1.459 |
+| what SMI actually recovers for single-fibre WM | 0.84-0.86 |
+| **fraction of simulated WM voxels above 0.5** | **60-64%** |
+| fraction of simulated WM voxels above 1.0 | 0% |
+
+A ceiling of 0.4-0.5 sits in the **middle** of the white matter distribution and would flatten most of it. The default `1` clears every legitimate voxel with headroom, but it is an **empirical** ceiling, not a physical one: it is below the true single-fibre peak of 1.459 and is only safe because SMI under-recovers the high `l` bands (`p6` returns at 28% of truth). If the deconvolution is ever sharpened, raise it — `2.228` is the value that is a genuine bound.
+
+#### Expect zero caps on a regularized fit
+With the shipped regularization the simulation has no outlier population at all: at SNR 15 the worst CSF voxel is 1.7x the median WM peak. Blow-ups only appear once the non-negativity constraint is off (max/median 11.0x). So `Ncap = 0` is the expected result, and a non-zero count on real data is itself the finding — it would mean the regularization is not behaving there as it does in simulation.
+
+#### Order of operations
+If both the cap and the modulation are enabled, **the cap runs first** and the modulation is applied to the corrected fODF. That ordering is forced: the cap works on absolute amplitudes and modulation rescales them, the same reason peak truncation has to precede modulation.
+
+Full methodology, all result tables and verification are in `REPORT_fODF_outlier_cap.md`.
 
 
 ## Useful tips

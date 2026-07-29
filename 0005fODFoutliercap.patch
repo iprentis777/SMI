@@ -1,0 +1,1101 @@
+From 7b86deaed8aa80b30c0fc61dbdf40524ec4b15c1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 29 Jul 2026 16:59:56 +0000
+Subject: [PATCH] Add a toggleable post hoc outlier cap on the fODF
+
+Removes isolated glyphs whose amplitude is pathologically large, without
+touching orientation and without keying on tissue type. A voxel is flagged
+when its peak exceeds 10^orders times the MEDIAN peak of its in-mask
+neighbours, or exceeds an absolute ceiling, and is then scaled down to
+min(neighbourhood median, ceiling). Strictly one sided: a voxel is never
+raised, so this can remove spurious amplitude but can never invent fibre
+density.
+
+The neighbourhood test is what makes this different from every per voxel
+weight tried before it. It is relative, and edema is spatially contiguous, so
+an edematous voxel's neighbours are edematous too and the ratio does not move.
+A whole region being uniformly bright or dim never trips it; only isolated
+spikes do. That is a structural property of the statistic rather than a
+well-tuned threshold, and it is verified directly: a contiguous block raised
+by a uniform factor is never flagged while isolated spikes in the same volume
+always are.
+
+Three details that are easy to get wrong and are handled explicitly. The
+scale factor is not target/peak: plm is stored with p_00 = 1, so the isotropic
+floor is not part of the blow-up and the correct factor is
+(T - 1/4pi)/(peak - 1/4pi) applied to the l>=2 block. The statistic is a
+median, not a mean and standard deviation, because an SD has no breakdown
+point and blown-up voxels come in contiguous clusters. And the whole l>=2
+block is scaled by one scalar, which preserves the peak vertex exactly.
+
+The ceiling defaults to 1, not the smaller values that look reasonable.
+Measured at Lmax 6: the hard physical max of a band-limited fODF is 2.228, a
+true single fibre peaks at 1.459, SMI recovers 0.84-0.86, and 60-64% of
+simulated WM voxels exceed 0.5. A ceiling of 0.4-0.5 would flatten most of
+the white matter. 1 is an empirical ceiling and the report says so: it is only
+safe because SMI under-recovers the high l bands.
+
+Note that with the shipped regularization the simulation has no outlier
+population at all (worst CSF voxel 1.7x the median WM peak), so Ncap = 0 is
+the expected result and a non-zero count on real data is itself the finding.
+
+Adds SMI.fODF_OutlierDefaults, SMI.cap_fODF_outliers and
+SMI.neighbour_median, the options.fODF_outlier parsing and call site, log
+entries, README section, REPORT_fODF_outlier_cap.md, and two test harnesses
+that both pass. out.plm, out.pl and out.kernel are bit identical whether the
+flag is on or off. Exactly one existing line changed, so that the modulation
+sees the corrected fODF when both are enabled; a fit that does not enable the
+cap is unchanged.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01A52D9ekJCgS1QxLT2DSfkM
+---
+ .gitignore                 |   1 +
+ README.md                  |  55 ++++++
+ REPORT_fODF_outlier_cap.md | 231 +++++++++++++++++++++++
+ SMI.m                      | 367 ++++++++++++++++++++++++++++++++++++-
+ test_SMI_outlier_cap.m     | 139 ++++++++++++++
+ test_fODF_outlier_cap.m    | 158 ++++++++++++++++
+ 6 files changed, 950 insertions(+), 1 deletion(-)
+ create mode 100644 .gitignore
+ create mode 100644 REPORT_fODF_outlier_cap.md
+ create mode 100644 test_SMI_outlier_cap.m
+ create mode 100644 test_fODF_outlier_cap.m
+
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..211b001
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1 @@
++log_SMI_*.txt
+diff --git a/README.md b/README.md
+index 02e2002..c827463 100644
+--- a/README.md
++++ b/README.md
+@@ -154,6 +154,7 @@ The code provides some additional flexibility:
+ - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
+ - Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
+ - Anisotropy modulation of the fODF, so that its amplitude carries orientational coherence for tractography, see below.
++- Post hoc outlier capping of the fODF, removing isolated pathologically bright glyphs without touching orientation, see below.
+ 
+ 
+ ### Regularized fODF deconvolution
+@@ -329,6 +330,60 @@ The weight is clipped at 1, so it cannot rescue a blown-up voxel — `w*1e13` is
+ Full methodology, all result tables and limitations are in `REPORT_fODF_modulation.md`.
+ 
+ 
++### fODF outlier capping
++Occasionally a single voxel comes back with an fODF amplitude orders of magnitude above everything around it. The deconvolution gain `g_2 = 1/||K_2||` blows up where the kernel is nearly isotropic, so a near-CSF voxel can reach enormous amplitudes; unregularized at SNR 15 the simulation reaches `2.2e14`. Those glyphs dominate any display and any amplitude threshold downstream.
++
++The cap is opt-in and off by default:
++
++```matlab
++options.flag_fit_fODF = 1;
++options.fODF_outlier.flag_cap       = 1;    % default 0 (off)
++options.fODF_outlier.orders         = 1;    % default: one order of magnitude
++options.fODF_outlier.ceiling        = 1;    % default: absolute ceiling on the peak
++options.fODF_outlier.min_neighbours = 6;    % default
++options.fODF_outlier.connectivity   = 26;   % default, or 6
++out = SMI.fit(dwi, options);
++
++out.plm_capped                % corrected coefficients, same convention as out.plm
++out.fODF_outlier.flagged      % which voxels were capped
++out.fODF_outlier.scale        % the scalar applied per voxel, 1 elsewhere
++out.fODF_outlier.peak_before  % peak amplitude map before the cap
++```
++
++A voxel is flagged when its peak exceeds `10^orders` times the **median** peak of its in-mask neighbours, **or** exceeds `ceiling`, and is then scaled **down** to `min(neighbourhood median, ceiling)`. The operation is strictly one sided: a voxel is never raised, so this can remove spurious amplitude but can never invent fibre density.
++
++`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or off** (verified, difference exactly 0), as with the modulation. The same operation is available post hoc as `SMI.cap_fODF_outliers(out,options)`.
++
++#### Why the neighbourhood test is not a tissue-type criterion
++The test is **relative**, and edema is spatially **contiguous**: an edematous voxel's neighbours are edematous too, so the local median moves with it and the ratio does not. A whole region being uniformly bright or dim never trips this; only isolated spikes do. That is a structural property of the statistic rather than a well-tuned threshold, and it is verified directly — a contiguous block raised by a uniform factor is never flagged, while isolated spikes in the same volume always are.
++
++#### Three details that are easy to get wrong
++- **The scale factor is not `target/peak`.** `plm` is stored with `p_00 = 1`, so the isotropic floor `1/(4*pi) = 0.0796` is not part of the blow-up — the excess is entirely in `l >= 2`. The correct factor is `s = (T - 1/(4*pi))/(peak - 1/(4*pi))`, applied to the `l >= 2` block. `T/peak` would shrink the floor too and undershoot.
++- **Median, not mean and standard deviation.** The median has a 50% breakdown point; an SD has none. One `1e13` voxel among 26 neighbours inflates the SD until the offender sits 0.2 SD above the mean and is never flagged, and blown-up voxels usually come in contiguous clusters.
++- **Scale the whole `l >= 2` block by one scalar.** That preserves peak orientation *exactly* (measured 0.000 deg for spikes of 40x, 5e3x and 1e11x). Clipping coefficients independently does not.
++
++#### Choosing the ceiling
++Measured at Lmax 6 on the free-water simulation branch (`claude/freewater-simulations`, not part of this PR):
++
++| | peak |
++|---|---|
++| hard physical max of a band-limited fODF, `sum (2l+1)/(4*pi)` | **2.228** |
++| ground truth single fibre, Watson `kappa = 16` | 1.459 |
++| what SMI actually recovers for single-fibre WM | 0.84-0.86 |
++| **fraction of simulated WM voxels above 0.5** | **60-64%** |
++| fraction of simulated WM voxels above 1.0 | 0% |
++
++A ceiling of 0.4-0.5 sits in the **middle** of the white matter distribution and would flatten most of it. The default `1` clears every legitimate voxel with headroom, but it is an **empirical** ceiling, not a physical one: it is below the true single-fibre peak of 1.459 and is only safe because SMI under-recovers the high `l` bands (`p6` returns at 28% of truth). If the deconvolution is ever sharpened, raise it — `2.228` is the value that is a genuine bound.
++
++#### Expect zero caps on a regularized fit
++With the shipped regularization the simulation has no outlier population at all: at SNR 15 the worst CSF voxel is 1.7x the median WM peak. Blow-ups only appear once the non-negativity constraint is off (max/median 11.0x). So `Ncap = 0` is the expected result, and a non-zero count on real data is itself the finding — it would mean the regularization is not behaving there as it does in simulation.
++
++#### Order of operations
++If both the cap and the modulation are enabled, **the cap runs first** and the modulation is applied to the corrected fODF. That ordering is forced: the cap works on absolute amplitudes and modulation rescales them, the same reason peak truncation has to precede modulation.
++
++Full methodology, all result tables and verification are in `REPORT_fODF_outlier_cap.md`.
++
++
+ ## Useful tips
+ The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
+ - For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'} (no FW compartment).
+diff --git a/REPORT_fODF_outlier_cap.md b/REPORT_fODF_outlier_cap.md
+new file mode 100644
+index 0000000..c3dff21
+--- /dev/null
++++ b/REPORT_fODF_outlier_cap.md
+@@ -0,0 +1,231 @@
++# Post hoc outlier cap on the fODF
++
++Measurement report for `SMI.fODF_OutlierDefaults`, `SMI.cap_fODF_outliers` and
++`SMI.neighbour_median`. Everything below is measured; the test harnesses are
++`test_fODF_outlier_cap.m` (the method in isolation) and `test_SMI_outlier_cap.m`
++(the flag on `SMI.fit`), both of which are in this PR and need no data.
++
++The numbers used to choose the ceiling in section 4, and the peak distributions
++in section 5, come from a free-water simulation that is deliberately NOT part of
++this PR — it lives on `claude/freewater-simulations` and will land separately.
++The cap itself has no dependency on it: nothing in `SMI.m` or in either test
++harness references that code, so this PR stands alone.
++
++---
++
++## 1. What it does
++
++A voxel is flagged when **either**
++
++```
++peak > 10^orders * (median peak of its 26 in-mask neighbours)     % relative
++peak > ceiling                                                    % absolute
++```
++
++and is then rescaled **down** to `min(neighbourhood median, ceiling)`. The
++operation is strictly one sided: a voxel is never raised. It can remove
++spurious amplitude but can never invent fibre density where there was none,
++which is the property that makes it safe to leave on.
++
++Defaults: `orders = 1` (one order of magnitude), `ceiling = 1`,
++`min_neighbours = 6`, `connectivity = 26`, `Ndirs = 500`.
++
++---
++
++## 2. Why this is not a tissue type criterion
++
++Every per voxel weight in `REPORT_fODF_modulation.md` was rejected, or nearly
++rejected, because it keyed on something edema shares with CSF. The
++neighbourhood test cannot: it is **relative**, and edema is spatially
++**contiguous**. An edematous voxel's neighbours are edematous too, so the local
++median moves with it and the ratio does not. A whole region being uniformly
++bright or dim never trips this; only isolated spikes do.
++
++That is a structural property of the statistic, not a threshold that happens to
++be tuned well, and it is the first candidate in this project that gets the edema
++constraint for free. It is verified directly: a contiguous 3x3x3 block raised by
++a uniform factor is **never** flagged, at any of the settings tested, while
++isolated spikes in the same volume always are.
++
++---
++
++## 3. Three things that are easy to get wrong
++
++**The scale factor is not `target/peak`.** `out.plm` is stored with `p_00 = 1`,
++so the isotropic floor is a fixed `1/(4*pi) = 0.0796` that is *not* part of the
++blow-up: the excess lives entirely in `l >= 2`. Bringing the peak to `T` means
++scaling only the anisotropic part,
++
++```
++s = (T - 1/(4*pi)) / (peak - 1/(4*pi))
++```
++
++Using `T/peak` would shrink the floor as well and undershoot. This is the same
++trap flagged for fODF rescaling in `README for Claude.md` section 3.
++
++**Median, not mean and standard deviation.** The median has a 50% breakdown
++point; a mean and SD have none. A single 1e13 voxel among 26 neighbours inflates
++the SD to ~2e12, so the offender sits 0.2 SD above the mean and is never
++flagged. Worse, ventricles are contiguous, so several neighbours are usually
++blown up together and a mean/SD rule is blind by construction.
++
++**Scale the whole `l >= 2` block by one scalar.** That preserves peak
++orientation *exactly*: the capped peak lands on the identical sphere vertex for
++spikes of 40x, 5e3x, 1e11x and 1e12x. Clipping coefficients independently would
++not, and can swing peak orientations.
++
++---
++
++## 4. On the ceiling, and why it is not 0.4-0.5
++
++Measured at Lmax 6 on the free-water simulation branch (`claude/freewater-simulations`, not part of this PR):
++
++| | peak |
++|---|---|
++| hard physical max of a band-limited fODF, `sum_{l even <= 6} (2l+1)/(4*pi)` | **2.228** |
++| ground truth single fibre, Watson kappa 16 | 1.459 |
++| what SMI actually recovers for single-fibre WM (median) | 0.84-0.86 |
++| **fraction of simulated WM voxels above 0.5** | **60-64%** |
++| fraction of simulated WM voxels above 1.0 | **0%** |
++
++A ceiling of 0.4-0.5 sits in the **middle** of the white matter distribution and
++would flatten most of it. The default of 1 clears every legitimate voxel with
++headroom.
++
++**But 1 is an empirical ceiling, not a physical one.** It is *below* the true
++single-fibre peak of 1.459, and is only safe because SMI under-recovers the high
++`l` bands — measured noise-free, `p6` comes back at 28% of truth and `p4` at
++62%, so reconstructed peaks top out around 0.88. If the deconvolution is ever
++sharpened (for instance by lowering `lambda_nonneg`, which the regularization
++sweep on that branch shows recovers 45 degree crossings), peaks will rise and
++this ceiling will start clipping real voxels. `2.228` is the
++value that is a genuine bound.
++
++This was not a theoretical worry. The first run of the test harness used ground
++truth Watson kappa 16 fODFs, peak 1.445, and **all 720 voxels tripped the
++ceiling of 1**. The harness now applies SMI's measured per band under-recovery
++so the phantom matches what the pipeline actually produces.
++
++---
++
++## 5. Does it have anything to correct?
++
++Peak fODF amplitude, SNR 15, Lmax 6, from the free-water simulation branch (`claude/freewater-simulations`, not part of this PR):
++
++| regularization | CSF median | CSF p99 | CSF max | WM median | max / WM med |
++|---|---|---|---|---|---|
++| **nonneg 10 + tikhonov 0.3 (shipped)** | 0.395 | 0.938 | **0.977** | 0.561 | **1.7x** |
++| nonneg 10 + tikhonov 0 | 0.392 | 0.940 | 0.978 | 0.563 | 1.7x |
++| nonneg OFF + tikhonov 0.3 | 1.873 | 9.885 | 10.091 | 0.919 | 11.0x |
++
++**With the shipped regularization there is no outlier population in simulation
++at all** — the worst CSF voxel in 40 realisations is 1.7x the median WM peak.
++Blow-ups only appear once the non-negativity constraint is off.
++
++So on simulated data this cap is insurance, not a fix, and `Ncap = 0` is the
++expected result. It is worth running on real data precisely because a non-zero
++count would mean the regularization is not doing there what it does here — and
++that is a more important finding than the cap itself. It also answers the open
++question in `README for Claude.md` section 11 about whether the stray giant
++glyphs are inside `mask3D`: `out.fODF_outlier.flagged` says exactly where they
++are.
++
++---
++
++## 6. Verification
++
++`test_fODF_outlier_cap.m` — the method on a 12x12x5 phantom of realistic
++SMI-amplitude fODFs, with planted spikes at 50x, 1e4x and 1e12x, a spike inside
++a near-isotropic (CSF analogue) region, and a contiguous bright block:
++
++| check | result |
++|---|---|
++| all 4 planted spikes flagged | PASS |
++| contiguous bright block NOT flagged | PASS (0 of 27) |
++| only flagged voxels changed | PASS (4 changed, 4 flagged) |
++| capped peak lands on `min(neighbourhood median, ceiling)` | PASS |
++| capped peak lands on the identical sphere vertex | PASS (0.000 deg) |
++| nothing left above the ceiling | PASS |
++| every unflagged voxel bit identical | PASS (max abs diff 0 over 716) |
++| both rules verified in isolation (ceiling disabled) | PASS |
++
++Orientation is asserted by **sphere vertex identity**, not by an angle
++tolerance: `acosd` cannot resolve below about 1e-5 degrees near a dot product of
++1 and returns floating point noise there, so an angle threshold would be flaky.
++The residual 1.2e-06 degrees reported below is `acosd(1-eps)` on the *same*
++vertex, not a real rotation.
++
++`test_SMI_outlier_cap.m` — the flag on a real `SMI.fit`, 8x8x4 at SNR 30:
++
++| check | result |
++|---|---|
++| flag off is bit identical to never setting the option (plm, pl, kernel) | PASS |
++| flag off leaves `out.plm_capped` absent | PASS |
++| flag on leaves `out.plm` identical to flag off | PASS |
++| 1e11x spike capped, peak on the identical sphere vertex | PASS (1.2e-06 deg, see below) |
++| contiguous bright block not capped | PASS |
++| modulation applied to the CAPPED fODF | PASS (max abs diff 0) |
++
++---
++
++## 7. Usage
++
++```matlab
++options.flag_fit_fODF = 1;
++options.fODF_outlier.flag_cap = 1;     % default 0, off
++out = SMI.fit(dwi, options);
++
++out.plm_capped                          % corrected coefficients
++out.fODF_outlier.flagged                % which voxels were capped
++out.fODF_outlier.scale                  % the scalar applied, 1 elsewhere
++out.fODF_outlier.peak_before            % peak amplitude map before the cap
++out.fODF_outlier.Ncap                   % counts, also written to the log
++```
++
++or post hoc on an already fitted `out`:
++
++```matlab
++[plm_capped, info] = SMI.cap_fODF_outliers(out);
++[plm_capped, info] = SMI.cap_fODF_outliers(out, struct('ceiling',2.228,'orders',1.5));
++```
++
++`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or
++off**, matching the convention the regularization and modulation already follow,
++so a capped and an uncapped run can be compared directly.
++
++**Order of operations.** If both this and the modulation are enabled, the cap
++runs first and the modulation is applied to the corrected fODF. That ordering is
++forced: the cap works on absolute amplitudes and modulation rescales them, the
++same reason peak truncation has to precede modulation.
++
++---
++
++## 8. Exactly what changed in `SMI.m`
++
++| lines | what |
++|---|---|
++| 155-187 | header documentation of the `options.fODF_outlier` block |
++| 340-351 | option parsing, including the guard that rejects `flag_cap = 1` with `flag_fit_fODF = 0` |
++| 613-637 | the call site in `SMI.fit`, before the modulation, writing `out.plm_capped` and `out.fODF_outlier` |
++| 745-763 | the log file entries, including the explicit `none` line when the flag is off |
++| 1433-1477 | `SMI.fODF_OutlierDefaults` — option defaults and validation |
++| 1478-1668 | `SMI.cap_fODF_outliers` — the cap itself |
++| 1669-1701 | `SMI.neighbour_median` — masked neighbourhood median, NaN padded |
++
++Line numbers are as of the commit that introduced this.
++
++**One existing line was modified**, which is a departure from the modulation
++work where every hunk was purely additive:
++
++```
++-   [sh_mod,w_mod,info_mod] = SMI.modulate_fODF(out,fODF_modulation);
+++   [sh_mod,w_mod,info_mod] = SMI.modulate_fODF(out_mod,fODF_modulation);
++```
++
++`out_mod` is `out` with `plm` replaced by `plm_capped` when the cap ran, and is
++`out` itself otherwise, so **a fit that does not enable the cap is unchanged**.
++The change is what makes the two features compose in the documented order.
++
++`SMI.neighbour_median` takes the median by sorting rather than with an
++`'omitnan'` flag. That needs no toolbox and no version-dependent nanflag
++support, and it is why the whole thing runs under Octave as well as MATLAB.
+diff --git a/SMI.m b/SMI.m
+index 4afea07..cf16614 100644
+--- a/SMI.m
++++ b/SMI.m
+@@ -152,6 +152,40 @@ classdef SMI
+     % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
+     %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
+     %
++    % fODF post hoc outlier cap (OFF by default, see REPORT_fODF_outlier_cap.md)
++    %
++    % Removes isolated glyphs whose amplitude is pathologically large, without
++    % touching orientation and without keying on tissue type. A voxel is
++    % flagged when its peak exceeds 10^orders times the MEDIAN peak of its
++    % in-mask neighbours, or exceeds an absolute ceiling, and is then scaled
++    % DOWN to min(neighbourhood median, ceiling). Strictly one sided: a voxel
++    % is never raised, so this can remove spurious amplitude but can never
++    % invent fibre density.
++    %
++    % The neighbourhood test is RELATIVE, and edema is spatially CONTIGUOUS,
++    % so an edematous voxel's neighbours are edematous too and the ratio does
++    % not move. A whole region being uniformly bright or dim never trips this;
++    % only isolated spikes do.
++    %
++    % options.fODF_outlier.flag_cap = 1 enables it (default 0, off).
++    %                     out.plm, out.pl and out.kernel are IDENTICAL whether
++    %                     it is on or off; the corrected coefficients come back
++    %                     separately as out.plm_capped.
++    % options.fODF_outlier.orders flag above 10^orders times the neighbourhood
++    %                     median (default 1, one order of magnitude)
++    % options.fODF_outlier.ceiling absolute ceiling on the peak amplitude
++    %                     (default 1). NOTE this is an EMPIRICAL ceiling, see
++    %                     SMI.cap_fODF_outliers; values of 0.4-0.5 sit in the
++    %                     middle of the white matter distribution and would
++    %                     flatten most of it.
++    % options.fODF_outlier.min_neighbours minimum in-mask neighbours before the
++    %                     relative test is used (default 6)
++    % options.fODF_outlier.connectivity 26 (default) or 6
++    % options.fODF_outlier.Ndirs directions the peak is sampled on (default 500)
++    %
++    % If both this and the modulation are enabled the cap runs FIRST and the
++    % modulation is applied to the corrected fODF.
++    %
+     % fODF anisotropy modulation (OFF by default, see REPORT_fODF_modulation.md)
+     %
+     % The fODF is stored with p_00 = 1, so it integrates to 1 in every voxel
+@@ -303,6 +337,18 @@ classdef SMI
+                         'options.flag_fit_fODF = 1: there is no fODF to modulate otherwise.']);
+                 end
+             end
++            if ~isfield(options,'fODF_outlier')
++                fODF_outlier = [];
++            else
++                fODF_outlier = options.fODF_outlier;
++                % The cap operates on a fitted fODF, so without one the
++                % request would be a silent no-op.
++                if isstruct(fODF_outlier) && isfield(fODF_outlier,'flag_cap') && ...
++                        fODF_outlier.flag_cap && ~flag_fit_fODF
++                    error('SMI:fit',['options.fODF_outlier.flag_cap = 1 requires ' ...
++                        'options.flag_fit_fODF = 1: there is no fODF to correct otherwise.']);
++                end
++            end
+             if ~isfield(options,'flag_freeze_seeds') 
+                 flag_freeze_seeds = 1;
+             else
+@@ -564,9 +610,39 @@ classdef SMI
+                 % convention. The modulated fODF is returned separately as
+                 % out.fODF_modulated, so a fit with the flag on and one with it
+                 % off give identical out.plm, out.pl and out.kernel.
++                % Post hoc outlier cap. Runs BEFORE the modulation, for the
++                % same reason peak truncation has to: it works on absolute
++                % amplitudes, and modulation rescales them.
++                %
++                % out.plm is left untouched, exactly as the modulation leaves
++                % it: the corrected coefficients come back separately as
++                % out.plm_capped, so a fit with the flag on and one with it off
++                % give identical out.plm, out.pl and out.kernel and can be
++                % compared directly.
++                fODF_outlier = SMI.fODF_OutlierDefaults(fODF_outlier);
++                if fODF_outlier.flag_cap
++                    out_cap = struct('plm',out.plm,'mask',mask,'CS_phase',CS_phase);
++                    [plm_cap,info_cap] = SMI.cap_fODF_outliers(out_cap,fODF_outlier);
++                    out.plm_capped            = plm_cap;
++                    fODF_outlier.flagged      = info_cap.flagged;
++                    fODF_outlier.scale        = info_cap.scale;
++                    fODF_outlier.peak_before  = info_cap.peak_before;
++                    fODF_outlier.Ncap         = info_cap.Ncap;
++                    fODF_outlier.Nrel         = info_cap.Nrel;
++                    fODF_outlier.Nabs         = info_cap.Nabs;
++                    fODF_outlier.fraction     = info_cap.fraction;
++                    fODF_outlier.peak_max_before = info_cap.peak_max_before;
++                    fODF_outlier.peak_max_after  = info_cap.peak_max_after;
++                end
++                out.fODF_outlier = fODF_outlier;
++
+                 fODF_modulation = SMI.fODF_ModulationDefaults(fODF_modulation);
+                 if fODF_modulation.flag_modulate
+-                    [sh_mod,w_mod,info_mod] = SMI.modulate_fODF(out,fODF_modulation);
++                    % If the cap ran, modulate the CORRECTED fODF: capping is
++                    % a repair and everything downstream should see it.
++                    out_mod = out;
++                    if fODF_outlier.flag_cap, out_mod.plm = out.plm_capped; end
++                    [sh_mod,w_mod,info_mod] = SMI.modulate_fODF(out_mod,fODF_modulation);
+                     out.fODF_modulated = sh_mod;
+                     fODF_modulation.weight             = w_mod;
+                     fODF_modulation.Ndegenerate        = info_mod.Ndegenerate;
+@@ -666,6 +742,25 @@ classdef SMI
+                     file_log = [file_log '- fODF non-negativity constraint: none \n'];
+                 end
+             end
++            if flag_fit_fODF && isstruct(fODF_outlier)
++                if fODF_outlier.flag_cap
++                    file_log = [file_log sprintf(['- fODF outlier cap: orders = %.3g, ceiling = %.3g, ' ...
++                        'min neighbours = %d, connectivity = %d, %d directions \n'], ...
++                        fODF_outlier.orders, fODF_outlier.ceiling, ...
++                        fODF_outlier.min_neighbours, fODF_outlier.connectivity, fODF_outlier.Ndirs)];
++                    if isfield(fODF_outlier,'Ncap')
++                        file_log = [file_log sprintf(['- fODF outlier cap: %d voxels capped (%.4f%% of the mask), ' ...
++                            '%d by neighbourhood, %d by ceiling \n'], ...
++                            fODF_outlier.Ncap, 100*fODF_outlier.fraction, ...
++                            fODF_outlier.Nrel, fODF_outlier.Nabs)];
++                        file_log = [file_log sprintf('- fODF outlier cap: peak max %.4g -> %.4g \n', ...
++                            fODF_outlier.peak_max_before, fODF_outlier.peak_max_after)];
++                    end
++                    file_log = [file_log '- fODF outlier cap: out.plm is unchanged, the corrected fODF is out.plm_capped \n'];
++                else
++                    file_log = [file_log '- fODF outlier cap: none \n'];
++                end
++            end
+             if flag_fit_fODF && isstruct(fODF_modulation)
+                 if fODF_modulation.flag_modulate
+                     if isnumeric(fODF_modulation.source)
+@@ -1335,6 +1430,276 @@ classdef SMI
+             info.Lmax = Lmax;
+         end
+         % =================================================================
++        function out = fODF_OutlierDefaults(out)
++            % out = SMI.fODF_OutlierDefaults(out)
++            %
++            % Fills in the defaults of options.fODF_outlier, the post hoc
++            % outlier cap on the fODF (see SMI.cap_fODF_outliers). Disabled by
++            % default, so a fit that does not set it is unchanged.
++            %
++            % out.flag_cap       1 enables the cap (default 0, off)
++            % out.orders         flag a voxel when its peak exceeds
++            %                    10^orders times the MEDIAN peak of its 26
++            %                    in-mask neighbours (default 1, i.e. one order
++            %                    of magnitude)
++            % out.ceiling        flag a voxel when its peak exceeds this,
++            %                    regardless of its neighbours (default 1).
++            %                    See SMI.cap_fODF_outliers for why 1 and not
++            %                    the smaller values that look reasonable.
++            % out.min_neighbours skip the neighbourhood test where fewer than
++            %                    this many neighbours are inside the mask
++            %                    (default 6)
++            % out.Ndirs          directions the peak is sampled on (default 500)
++            % out.connectivity   26 (default) or 6, the neighbourhood used
++            %
++            if ~exist('out','var') || isempty(out), out = struct(); end
++            if ~isstruct(out)
++                error('SMI:fODF_OutlierDefaults','options.fODF_outlier must be a structure');
++            end
++            if ~isfield(out,'flag_cap'),       out.flag_cap = 0; end
++            if ~isfield(out,'orders'),         out.orders = 1; end
++            if ~isfield(out,'ceiling'),        out.ceiling = 1; end
++            if ~isfield(out,'min_neighbours'), out.min_neighbours = 6; end
++            if ~isfield(out,'Ndirs'),          out.Ndirs = 500; end
++            if ~isfield(out,'connectivity'),   out.connectivity = 26; end
++            if out.orders <= 0
++                error('SMI:fODF_OutlierDefaults','fODF_outlier.orders must be positive');
++            end
++            if out.ceiling <= 1/(4*pi)
++                error('SMI:fODF_OutlierDefaults', ...
++                    ['fODF_outlier.ceiling must exceed the isotropic floor 1/(4*pi) = %.4f, ' ...
++                     'otherwise every voxel in the brain is an outlier'], 1/(4*pi));
++            end
++            if ~ismember(out.connectivity,[6 26])
++                error('SMI:fODF_OutlierDefaults','fODF_outlier.connectivity must be 6 or 26');
++            end
++        end
++        % =================================================================
++        function [plm_capped,info] = cap_fODF_outliers(out,options)
++            % [plm_capped,info] = SMI.cap_fODF_outliers(out,options)
++            %
++            % Post hoc outlier cap on the fODF. Removes isolated glyphs whose
++            % amplitude is pathologically large, WITHOUT touching orientation
++            % and WITHOUT keying on tissue type.
++            %
++            % A voxel is flagged when either
++            %
++            %   peak > 10^orders * (median peak of its in-mask neighbours)
++            %   peak > ceiling
++            %
++            % and is then rescaled DOWN to min(neighbourhood median, ceiling).
++            % The operation is strictly one sided: a voxel is never raised, so
++            % this can remove spurious amplitude but can never invent fibre
++            % density where there was none.
++            %
++            % WHY THIS IS NOT A TISSUE TYPE CRITERION. The neighbourhood test
++            % is RELATIVE, and edema is spatially CONTIGUOUS: an edematous
++            % voxel's neighbours are edematous too, so the local median moves
++            % with it and the ratio does not. A whole region being uniformly
++            % bright or dim never trips this; only isolated spikes do. That is
++            % a structural property, not a tuning choice, and it is why this
++            % survives the objection that killed every per voxel weight tried
++            % before it (see README section "fODF outlier capping").
++            %
++            % ORIENTATION IS PRESERVED EXACTLY. out.plm holds l = 2..Lmax in
++            % the normalized convention p_00 = 1, so the fODF is
++            %
++            %     A(u) = 1/(4*pi) + sum_{l>=2,m} plm * sqrt((2l+1)/(4*pi)) * Y_lm(u)
++            %
++            % and the isotropic floor is a FIXED 1/(4*pi) that is not part of
++            % the blow up: the excess lives entirely in l >= 2. Multiplying the
++            % whole plm block by one scalar therefore scales exactly the
++            % anisotropic part and leaves every peak direction untouched.
++            % Clipping coefficients INDEPENDENTLY would not, and can swing peak
++            % orientations, so do not "simplify" this into a per coefficient
++            % clamp.
++            %
++            % THE SCALE FACTOR IS NOT target/peak. Writing A = iso + aniso with
++            % iso = 1/(4*pi), bringing the peak to T means scaling only the
++            % anisotropic part,
++            %
++            %     s = (T - 1/(4*pi)) / (peak - 1/(4*pi))
++            %
++            % Using T/peak instead would shrink the floor as well and undershoot
++            % the target. This is the same trap noted for the fODF rescaling in
++            % REPORT_fODF_modulation.md.
++            %
++            % ROBUST STATISTICS ON PURPOSE. The median has a 50% breakdown
++            % point; a mean and standard deviation have none. A cluster of
++            % blown up voxels, which is what ventricles produce, would inflate
++            % the standard deviation until nothing was flagged at all.
++            %
++            % ON THE CEILING. Measured at Lmax 6 on the free-water simulation
++            % branch (claude/freewater-simulations), see
++            % REPORT_fODF_outlier_cap.md section 4:
++            %
++            %   hard physical max of a band limited fODF,
++            %     sum_{l even <= 6} (2l+1)/(4*pi)                     = 2.228
++            %   ground truth single fibre, Watson kappa 16            = 1.459
++            %   what SMI actually recovers for single fibre WM        = 0.84-0.86
++            %   fraction of simulated WM voxels above 0.5             = 60-64%
++            %   fraction of simulated WM voxels above 1.0             = 0%
++            %
++            % So the default 1 clears every legitimate voxel with headroom,
++            % while a ceiling of 0.4-0.5 would sit in the MIDDLE of the white
++            % matter distribution and flatten most of it. Note that 1 is an
++            % EMPIRICAL ceiling, not a physical one: it is below the true
++            % single fibre peak of 1.459, and is only safe because SMI under
++            % recovers the high l bands (p6 comes back at 28% of truth). If the
++            % deconvolution is ever sharpened, raise it. 2.228 is the value
++            % that is a genuine bound.
++            %
++            % out       the structure returned by SMI.fit, needs out.plm,
++            %           out.mask (or a full volume is assumed) and out.CS_phase
++            % options   the fields of SMI.fODF_OutlierDefaults
++            %
++            % plm_capped  [X Y Z Nlm] the corrected plm, same convention as
++            %             out.plm. Voxels that were not flagged are returned
++            %             bit identical.
++            % info        .flagged (logical volume), .scale (the scalar applied
++            %             per voxel, 1 where nothing was done), .peak_before,
++            %             .Ncap, .Nrel, .Nabs, .fraction, and the peak
++            %             distribution before and after.
++            if ~exist('options','var') || isempty(options), options = struct(); end
++            options = SMI.fODF_OutlierDefaults(options);
++            if ~isfield(out,'plm') || isempty(out.plm)
++                error('SMI:cap_fODF_outliers','out.plm is missing; run SMI.fit with flag_fit_fODF = 1');
++            end
++            plm = double(out.plm);
++            sz  = size(plm);
++            Nlm = sz(4);
++            Lmax = sqrt(2*Nlm + 9/4) - 3/2;
++            if abs(Lmax-round(Lmax)) > 1e-9
++                error('SMI:cap_fODF_outliers','out.plm has %d maps, which is not a valid l=2..Lmax count',Nlm);
++            end
++            Lmax = round(Lmax);
++            if isfield(out,'mask') && ~isempty(out.mask)
++                mask = logical(out.mask);
++            else
++                mask = all(isfinite(plm),4);
++            end
++            if isfield(out,'CS_phase') && ~isempty(out.CS_phase)
++                CS_phase = out.CS_phase;
++            else
++                CS_phase = 1;
++            end
++
++            iso = 1/(4*pi);
++            L_all = repelem(0:2:Lmax, 2*(0:2:Lmax)+1);
++            nrm   = sqrt((2*L_all(2:end)+1)/(4*pi));      % l >= 2 only
++            dirs  = SMI.GetUniformHemisphereDirs(options.Ndirs);
++            Y     = SMI.get_even_SH(dirs,Lmax,CS_phase);
++            Y     = Y(:,2:end);                            % drop the l=0 column
++
++            % ---- peak amplitude per voxel
++            idx  = find(mask);
++            Nv   = numel(idx);
++            C    = reshape(plm,[],Nlm);
++            C(~isfinite(C)) = 0;
++            peakv = zeros(Nv,1);
++            chunk = 20000;
++            for a = 1:chunk:Nv
++                b = min(a+chunk-1,Nv);
++                peakv(a:b) = iso + max((C(idx(a:b),:).*nrm)*Y.',[],2);
++            end
++            peak3 = nan(sz(1:3));
++            peak3(idx) = peakv;
++
++            % ---- median of the in-mask neighbours. NaN padding means
++            % out-of-mask and out-of-volume neighbours simply do not
++            % contribute. The median is taken by sorting rather than with an
++            % 'omitnan' flag, which needs no toolbox and no version dependent
++            % nanflag support (sort puts NaN last).
++            [nbrMed,nbrCnt] = SMI.neighbour_median(peak3,sz(1:3),options.connectivity);
++            nbrMed(nbrCnt < options.min_neighbours) = NaN;
++
++            % ---- flag
++            relBad  = mask & isfinite(nbrMed) & (peak3 > (10^options.orders)*nbrMed);
++            absBad  = mask & (peak3 > options.ceiling);
++            flagged = relBad | absBad;
++
++            target = min(nbrMed,options.ceiling);
++            target(~isfinite(nbrMed)) = options.ceiling;
++
++            % ---- rescale the anisotropic part only
++            S   = ones(sz(1:3));
++            act = flagged & (target < peak3) & ((peak3 - iso) > eps);
++            S(act) = (target(act) - iso) ./ (peak3(act) - iso);
++            S = min(max(S,0),1);                      % one sided, never negative
++            act = act & (S < 1);
++
++            plm_capped = plm;
++            if any(act(:))
++                plm_capped = plm .* repmat(S,[1 1 1 Nlm]);
++            end
++
++            % ---- report
++            peak_after = zeros(Nv,1);
++            Cc = reshape(plm_capped,[],Nlm);
++            Cc(~isfinite(Cc)) = 0;
++            for a = 1:chunk:Nv
++                b = min(a+chunk-1,Nv);
++                peak_after(a:b) = iso + max((Cc(idx(a:b),:).*nrm)*Y.',[],2);
++            end
++
++            info = struct();
++            info.flagged     = act;
++            info.scale       = S;
++            info.peak_before = peak3;   info.peak_before(~mask) = 0;
++            info.Ncap        = sum(act(:));
++            info.Nrel        = sum(relBad(:));
++            info.Nabs        = sum(absBad(:));
++            info.fraction    = info.Ncap/max(Nv,1);
++            info.orders          = options.orders;
++            info.ceiling         = options.ceiling;
++            info.min_neighbours  = options.min_neighbours;
++            info.connectivity    = options.connectivity;
++            info.Ndirs           = options.Ndirs;
++            if info.Ncap > 0
++                info.scale_min    = min(S(act));
++                info.scale_median = median(S(act));
++            else
++                info.scale_min = 1; info.scale_median = 1;
++            end
++            info.peak_median_before = median(peakv);
++            info.peak_max_before    = max(peakv);
++            info.peak_median_after  = median(peak_after);
++            info.peak_max_after     = max(peak_after);
++        end
++        % =================================================================
++        function [med,cnt] = neighbour_median(V,sz,connectivity)
++            % [med,cnt] = SMI.neighbour_median(V,sz,connectivity)
++            %
++            % Median of each voxel's neighbours, ignoring NaN. NaN in V marks a
++            % voxel that should not contribute (outside the mask), and the
++            % volume is NaN padded so that neighbours outside it do not either.
++            % cnt returns how many neighbours actually contributed.
++            if connectivity == 6
++                offs = [1 0 0; -1 0 0; 0 1 0; 0 -1 0; 0 0 1; 0 0 -1];
++            else
++                [ox,oy,oz] = ndgrid(-1:1,-1:1,-1:1);
++                offs = [ox(:) oy(:) oz(:)];
++                offs(all(offs==0,2),:) = [];
++            end
++            Nn = size(offs,1);
++            Vp = nan([sz+2 1],'single');
++            Vp(2:end-1,2:end-1,2:end-1) = single(V);
++            N = nan([sz Nn],'single');
++            for k = 1:Nn
++                N(:,:,:,k) = Vp((2:sz(1)+1)+offs(k,1), ...
++                                (2:sz(2)+1)+offs(k,2), ...
++                                (2:sz(3)+1)+offs(k,3));
++            end
++            cnt  = sum(~isnan(N),4);
++            Ns   = sort(N,4);                 % NaN sorts last in MATLAB and Octave
++            base = reshape(1:prod(sz),sz);
++            lo   = floor((cnt+1)/2); lo(cnt==0) = 1;
++            hi   = ceil((cnt+1)/2);  hi(cnt==0) = 1;
++            med  = ( double(Ns(base+(lo-1)*prod(sz))) + ...
++                     double(Ns(base+(hi-1)*prod(sz))) )/2;
++            med(cnt==0) = NaN;
++        end
++        % =================================================================
+         function [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+             % [plm,pl] = get_plm_from_Slm_and_kernel(Slm,Lmax,kernel,mask,table_shells,D_FW)
+ 
+diff --git a/test_SMI_outlier_cap.m b/test_SMI_outlier_cap.m
+new file mode 100644
+index 0000000..7fa4e68
+--- /dev/null
++++ b/test_SMI_outlier_cap.m
+@@ -0,0 +1,139 @@
++% test_SMI_outlier_cap
++%
++% Integration test: the outlier cap as a flag on SMI.fit. Self contained --
++% builds its own protocol and synthetic data, no files needed. Runs in MATLAB,
++% and in Octave provided the three usual shims are on the path -- round(x,n),
++% discretize(x,edges) and datetime(), which SMI.fit needs and Octave lacks
++% (see "README for Claude.md" section 4).
++%
++% Checks the invariants this codebase holds itself to:
++%   1. out.plm / out.pl / out.kernel are bit identical with the flag on or off
++%   2. the flag off path is bit identical to a fit that never sets the option
++%   3. planted spikes are capped and orientation is preserved exactly
++%   4. a contiguous bright region is NOT capped
++%   5. the cap and the modulation compose in the documented order
++clear; clc
++addpath(pwd);
++if exist('OCTAVE_VERSION','builtin'), pkg load statistics; pkg load image; end
++TF = {'FAIL','PASS'};
++
++LMAX = 6; CS = 1; D_FW = 3; SNR = 30;
++H  = fODF_modulation_helpers();
++dq = H.dirs(2000);
++
++% ---- protocol, generated here so the test needs no data
++shells = [0 1 2 3];  ndir = [9 60 60 60];
++bvals = []; bvecs = [];
++for k = 1:numel(shells)
++    if shells(k) == 0
++        d = zeros(ndir(k),3);
++    else
++        d = SMI.GetUniformHemisphereDirs(ndir(k));
++    end
++    bvals = [bvals shells(k)*ones(1,ndir(k))]; %#ok<AGROW>
++    bvecs = [bvecs; d];                        %#ok<AGROW>
++end
++Ndwi = numel(bvals);
++
++% ---- a smoothly varying single-fibre field
++sz = [8 8 4]; NV = prod(sz);
++kern = [0.60 2.0 2.0 0.50 0.05];
++S = zeros(NV, Ndwi);
++for iv = 1:NV
++    [ix,iy,iz] = ind2sub(sz, iv);
++    th = 0.35*ix + 0.2*iy; ph = 0.25*iz;
++    n  = [sin(th)*cos(ph) sin(th)*sin(ph) cos(th)];
++    p  = H.watson_plm(dq, n, 16, LMAX, CS);
++    S(iv,:) = H.signal(p, [kern 1 1], bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
++                       bvecs, LMAX, CS, D_FW)';
++end
++sigma = 1/SNR;
++rand('seed',99); randn('seed',99);
++dwi = reshape(sqrt((S + sigma*randn(size(S))).^2 + (sigma*randn(size(S))).^2), [sz Ndwi]);
++
++opts = struct();
++opts.b = bvals; opts.dirs = bvecs; opts.sigma = sigma*ones(sz);
++opts.mask = true(sz); opts.compartments = {'IAS','EAS','FW'};
++opts.NoiseBias = 'Rician'; opts.Lmax = [0 LMAX LMAX LMAX];
++opts.CS_phase = CS; opts.D_FW = D_FW; opts.flag_fit_fODF = 1;
++opts.fODF_regularization = struct('flag_nonneg',1,'lambda_nonneg',10,'lambda_tikhonov',0.3);
++
++out_off  = SMI.fit(dwi, opts);                        % option never set
++o2 = opts; o2.fODF_outlier = struct('flag_cap',0);
++out_off2 = SMI.fit(dwi, o2);                          % flag explicitly off
++
++fprintf('\n=== SMI.fit outlier cap integration ===\n\n');
++fprintf('[%s] flag off is bit identical to never setting the option (plm)\n', ...
++        TF{isequaln(out_off.plm,out_off2.plm)+1});
++fprintf('[%s]   ... and pl, and kernel\n', ...
++        TF{(isequaln(out_off.pl,out_off2.pl) && isequaln(out_off.kernel,out_off2.kernel))+1});
++fprintf('[%s] flag off leaves out.plm_capped absent\n', ...
++        TF{(~isfield(out_off2,'plm_capped'))+1});
++
++% ---- plant spikes into a fitted result and cap it post hoc
++spikes = [3 3 2; 6 5 3; 4 6 2];
++facs   = [40 5e3 1e11];
++outS = out_off;
++for k = 1:size(spikes,1)
++    outS.plm(spikes(k,1),spikes(k,2),spikes(k,3),:) = ...
++        outS.plm(spikes(k,1),spikes(k,2),spikes(k,3),:) * facs(k);
++end
++bx = 6:8; by = 6:8; bz = 2:3;                          % contiguous bright block
++outS.plm(bx,by,bz,:) = outS.plm(bx,by,bz,:) * 1.06;
++outS.mask = opts.mask; outS.CS_phase = CS;
++
++[plm_cap, ci] = SMI.cap_fODF_outliers(outS, struct('flag_cap',1));
++fprintf('\ncapped %d of %d (%.2f%%)  [rel %d, abs %d]  peak max %.4g -> %.4g\n', ...
++        ci.Ncap, NV, 100*ci.fraction, ci.Nrel, ci.Nabs, ci.peak_max_before, ci.peak_max_after);
++
++ok = true;
++for k = 1:size(spikes,1)
++    if ~ci.flagged(spikes(k,1),spikes(k,2),spikes(k,3)), ok = false; end
++end
++fprintf('[%s] all %d planted spikes flagged\n', TF{ok+1}, size(spikes,1));
++blk = ci.flagged(bx,by,bz);
++fprintf('[%s] contiguous bright block NOT flagged (%d of %d)\n', ...
++        TF{(~any(blk(:)))+1}, nnz(blk), numel(blk));
++
++d = abs(double(plm_cap) - double(outS.plm)); d(~isfinite(d)) = 0;
++chg = squeeze(any(d > 0, 4));
++fprintf('[%s] only flagged voxels changed (%d changed, %d flagged)\n', ...
++        TF{isequal(chg,ci.flagged)+1}, nnz(chg), nnz(ci.flagged));
++
++dirs = SMI.GetUniformHemisphereDirs(500);
++Y = SMI.get_even_SH(dirs,LMAX,CS); Y = Y(:,2:end);
++L_all = repelem(0:2:LMAX,2*(0:2:LMAX)+1); nrm = sqrt((2*L_all(2:end)+1)/(4*pi));
++% Assert the peak lands on the SAME sphere vertex. That is exact; comparing
++% angles is not, because acosd cannot resolve below ~1e-5 deg near a dot
++% product of 1 and returns floating point noise there.
++worst = 0; same_vertex = true;
++for k = 1:size(spikes,1)
++    p = spikes(k,:);
++    a0 = Y*(squeeze(outS.plm(p(1),p(2),p(3),:))'.*nrm)';
++    a1 = Y*(squeeze(plm_cap (p(1),p(2),p(3),:))'.*nrm)';
++    [~,i0] = max(a0); [~,i1] = max(a1);
++    if i0 ~= i1, same_vertex = false; end
++    worst = max(worst, acosd(min(abs(dirs(i0,:)*dirs(i1,:)'),1)));
++end
++fprintf('[%s] peak lands on the identical sphere vertex (angle %.3g deg)\n', ...
++        TF{same_vertex+1}, worst);
++fprintf('[%s] nothing left above the ceiling 1.0 (max after %.4f)\n', ...
++        TF{(ci.peak_max_after <= 1+1e-9)+1}, ci.peak_max_after);
++
++% ---- flag on through SMI.fit, and cap + modulation together. The ceiling is
++% deliberately set low here so the cap is forced to act on ordinary voxels.
++o4 = opts; o4.fODF_outlier = struct('flag_cap',1,'ceiling',0.30);
++out_on = SMI.fit(dwi, o4);
++fprintf('\n[%s] flag on leaves out.plm identical to flag off\n', ...
++        TF{isequaln(out_on.plm,out_off.plm)+1});
++fprintf('[%s] flag on adds out.plm_capped and out.fODF_outlier\n', ...
++        TF{(isfield(out_on,'plm_capped') && isfield(out_on,'fODF_outlier'))+1});
++fprintf('     ceiling 0.30 forced %d caps of %d voxels\n', out_on.fODF_outlier.Ncap, NV);
++
++o5 = o4; o5.fODF_modulation = struct('flag_modulate',1);
++out_both = SMI.fit(dwi, o5);
++tmp = out_both; tmp.plm = out_both.plm_capped;    % exactly what SMI.fit does
++sh_expect = SMI.modulate_fODF(tmp, o5.fODF_modulation);
++fprintf('[%s] modulation was applied to the CAPPED fODF (max|d| = %.3g)\n', ...
++        TF{(max(abs(sh_expect(:)-out_both.fODF_modulated(:))) < 1e-12)+1}, ...
++        max(abs(sh_expect(:)-out_both.fODF_modulated(:))));
+diff --git a/test_fODF_outlier_cap.m b/test_fODF_outlier_cap.m
+new file mode 100644
+index 0000000..53d1231
+--- /dev/null
++++ b/test_fODF_outlier_cap.m
+@@ -0,0 +1,158 @@
++% test_fODF_outlier_cap
++%
++% Tests SMI.cap_fODF_outliers on a spatially structured phantom. Needs no data
++% and no fit: it builds plm directly, so it isolates the cap from everything
++% else. Runs in MATLAB and in Octave.
++%
++% Plants isolated spikes of known size, plants a CONTIGUOUS bright block as the
++% edema analogue, and checks that
++%   1. every planted spike is flagged and brought to the target
++%   2. the contiguous block is NOT flagged by the relative test
++%   3. untouched voxels come back bit identical
++%   4. peak ORIENTATION of a capped voxel is unchanged
++%   5. both rules work in isolation
++clear; clc
++addpath(pwd);
++if exist('OCTAVE_VERSION','builtin'), pkg load statistics; end
++TF = {'FAIL','PASS'};
++
++LMAX = 6; CS = 1; NDIRS = 500;
++sz   = [12 12 5];
++Nl2  = LMAX*(LMAX+3)/2;                 % plm holds l = 2..Lmax only
++iso  = 1/(4*pi);
++L_all = repelem(0:2:LMAX, 2*(0:2:LMAX)+1);
++nrm   = sqrt((2*L_all(2:end)+1)/(4*pi));
++dirs  = SMI.GetUniformHemisphereDirs(NDIRS);
++Y     = SMI.get_even_SH(dirs,LMAX,CS); Y = Y(:,2:end);
++
++% quadrature grid for building the Watson fODFs
++dq  = SMI.GetUniformHemisphereDirs(2000); dq = [dq; -dq];
++Ydq = SMI.get_even_SH(dq,LMAX,CS);
++wq  = 4*pi/size(dq,1);
++
++% SMI does not recover the ground truth fODF: measured noise free it returns p2
++% at 91%, p4 at 62% and p6 at 28% of truth. Applying that damping makes the
++% phantom match what the pipeline actually produces (peak ~0.86 rather than the
++% ground truth 1.45), which is what the default ceiling was set from. Without it
++% every voxel legitimately exceeds a ceiling of 1 -- which is exactly the
++% failure mode the first version of this harness exposed.
++damp = [0.907*ones(1,5), 0.616*ones(1,9), 0.277*ones(1,13)];
++
++plm_vol = zeros([sz Nl2]);
++for ix = 1:sz(1)
++  for iy = 1:sz(2)
++    for iz = 1:sz(3)
++      th = 0.3*ix + 0.2*iy;  ph = 0.25*iz;
++      n  = [sin(th)*cos(ph) sin(th)*sin(ph) cos(th)];
++      kap = 16;
++      if ix >= 2 && ix <= 5 && iy >= 2 && iy <= 4 && iz >= 2 && iz <= 4
++        kap = 0.3;                      % near-isotropic region (CSF analogue)
++      end
++      w   = exp(kap*(dq*n(:)).^2); w = w/(sum(w)*wq);
++      flm = (Ydq'*w)*wq;
++      p   = flm(2:end)./sqrt((2*L_all(2:end)'+1)/(4*pi)) / (flm(1)*sqrt(4*pi));
++      plm_vol(ix,iy,iz,:) = p(:).*damp(:);
++    end
++  end
++end
++mask = true(sz);
++
++% isolated spikes. Scaling plm scales ONLY the anisotropic part, so the planted
++% orientation is known to be unchanged and any rotation the cap introduces would
++% be its own doing.
++spikes  = [8 8 2; 8 5 3; 5 9 4; 3 3 3];
++factors = [50 1e4 1e12 150];
++for k = 1:size(spikes,1)
++  plm_vol(spikes(k,1),spikes(k,2),spikes(k,3),:) = ...
++      plm_vol(spikes(k,1),spikes(k,2),spikes(k,3),:) * factors(k);
++end
++
++% contiguous bright block: every voxel raised by the same modest factor, peak
++% still under the ceiling. Because the neighbours are raised too, the relative
++% test must ignore it. This is the edema analogue.
++bx = 9:11; by = 6:8; bz = 2:4;
++plm_vol(bx,by,bz,:) = plm_vol(bx,by,bz,:) * 1.08;
++
++in  = struct('plm',plm_vol,'mask',mask,'CS_phase',CS);
++opt = struct('orders',1.0,'ceiling',1.0,'min_neighbours',6,'Ndirs',NDIRS);
++[plm_out, info] = SMI.cap_fODF_outliers(in, opt);
++
++fprintf('\n=== SMI.cap_fODF_outliers ===\n');
++fprintf('capped %d of %d voxels (%.2f%%)  [rel %d, abs %d]\n', ...
++        info.Ncap, numel(mask), 100*info.fraction, info.Nrel, info.Nabs);
++fprintf('peak before: median %.4f  max %.4g\n', info.peak_median_before, info.peak_max_before);
++fprintf('peak after : median %.4f  max %.4g\n\n', info.peak_median_after, info.peak_max_after);
++
++ok = true;
++for k = 1:size(spikes,1)
++  if ~info.flagged(spikes(k,1),spikes(k,2),spikes(k,3)), ok = false; end
++end
++fprintf('[%s] all %d planted spikes flagged\n', TF{ok+1}, size(spikes,1));
++
++blk = info.flagged(bx,by,bz);
++fprintf('[%s] contiguous bright block NOT flagged (%d of %d)\n', ...
++        TF{(~any(blk(:)))+1}, nnz(blk), numel(blk));
++
++d   = abs(plm_out - plm_vol);
++chg = squeeze(any(d > 0, 4));
++fprintf('[%s] only flagged voxels changed (%d changed, %d flagged)\n', ...
++        TF{isequal(chg,info.flagged)+1}, nnz(chg), nnz(info.flagged));
++
++fprintf('\n%-12s %13s %12s %12s %9s\n','spike','peak before','peak after','nbr median','ang err');
++worst = 0; ok_t = true; same_vertex = true;
++for k = 1:size(spikes,1)
++  p  = spikes(k,:);
++  a0 = Y*(squeeze(plm_vol(p(1),p(2),p(3),:))'.*nrm)';
++  a1 = Y*(squeeze(plm_out(p(1),p(2),p(3),:))'.*nrm)';
++  [m0,i0] = max(a0); [m1,i1] = max(a1);
++  m0 = m0 + iso;     m1 = m1 + iso;
++  ang = acosd(min(abs(dirs(i0,:)*dirs(i1,:)'),1));
++  worst = max(worst, ang);
++  if i0 ~= i1, same_vertex = false; end
++  v = [];
++  for dx = -1:1
++    for dy = -1:1
++      for dz = -1:1
++        if dx==0 && dy==0 && dz==0, continue, end
++        q = p + [dx dy dz];
++        if any(q<1) || any(q>sz), continue, end
++        v(end+1) = iso + max(Y*(squeeze(plm_vol(q(1),q(2),q(3),:))'.*nrm)'); %#ok<AGROW>
++      end
++    end
++  end
++  if abs(m1 - min(opt.ceiling,median(v))) > 1e-4, ok_t = false; end
++  fprintf('%-12s %13.4g %12.4f %12.4f %9.3g\n', mat2str(p), m0, m1, median(v), ang);
++end
++fprintf('\n[%s] capped peak lands on min(neighbourhood median, ceiling)\n', TF{ok_t+1});
++% Vertex identity is the exact test; acosd returns floating point noise below
++% ~1e-5 deg near a dot product of 1, so an angle tolerance would be flaky.
++fprintf('[%s] peak lands on the identical sphere vertex (angle %.3g deg)\n', ...
++        TF{same_vertex+1}, worst);
++fprintf('[%s] nothing left above the ceiling %.3g (max after %.4f)\n', ...
++        TF{(info.peak_max_after <= opt.ceiling+1e-9)+1}, opt.ceiling, info.peak_max_after);
++
++ii = find(~info.flagged); dmax = 0;
++for k = 1:numel(ii)
++  [a,b,c] = ind2sub(sz, ii(k));
++  p0 = iso + max(Y*(squeeze(plm_vol(a,b,c,:))'.*nrm)');
++  p1 = iso + max(Y*(squeeze(plm_out(a,b,c,:))'.*nrm)');
++  dmax = max(dmax, abs(p0-p1));
++end
++fprintf('[%s] every unflagged voxel bit identical (max|d| = %.3g over %d)\n', ...
++        TF{(dmax==0)+1}, dmax, numel(ii));
++
++% ---- ceiling effectively disabled, to isolate the RELATIVE rule
++opt2 = opt; opt2.ceiling = 1e9;
++[~, info_r] = SMI.cap_fODF_outliers(in, opt2);
++okr = true;
++for k = 1:size(spikes,1)
++  if ~info_r.flagged(spikes(k,1),spikes(k,2),spikes(k,3)), okr = false; end
++end
++blkr = info_r.flagged(bx,by,bz);
++fprintf('\n--- ceiling disabled (1e9), relative rule alone ---\n');
++fprintf('[%s] all %d spikes still caught by the neighbourhood rule alone\n', ...
++        TF{okr+1}, size(spikes,1));
++fprintf('[%s] contiguous block still not flagged (%d of %d)\n', ...
++        TF{(~any(blkr(:)))+1}, nnz(blkr), numel(blkr));
++fprintf('[%s] nothing else caught (%d flagged, %d planted)\n', ...
++        TF{(info_r.Ncap == size(spikes,1))+1}, info_r.Ncap, size(spikes,1));
+-- 
+2.43.0
+
