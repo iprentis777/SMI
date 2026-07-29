@@ -1276,12 +1276,19 @@ classdef SMI
             % tail. The product removes both failure modes.
             %
             % p4 is worse than p2 on both counts. The kernel p4 is biased
-            % upward in the same way, and the deconvolved pl4 is destroyed by
-            % the Tikhonov term of the regularized deconvolution, which damps
-            % l=4 far harder than l=2 (median 0.26 in single fibre WM at SNR 15
-            % against a true 0.71). Weighting by pl4 after a regularized fit
-            % leaves 84% of CSF above cutoff -- worse than not weighting at
-            % all. It measures the regularizer, not the tissue.
+            % upward in the same way, and the deconvolved pl4 comes back at
+            % roughly a third of its true value (median 0.26 in single fibre WM
+            % at SNR 15 against a true 0.71). Weighting by pl4 after a
+            % regularized fit leaves 84% of CSF above cutoff -- worse than not
+            % weighting at all. It measures the regularizer, not the tissue.
+            %
+            % NOTE an earlier version of this comment blamed the Tikhonov term
+            % for the lost l=4 power. That was measured to be wrong:
+            % lambda_tikhonov has no effect on the high l bands (swept 0 to 0.8
+            % at three noise levels, identical to three decimals). The cause is
+            % the non-negativity constraint together with error in the estimated
+            % kernel, whose K_l at high l is small and very sensitive. See
+            % "README for Claude.md" section 2.
             %
             % Anisotropy weights, unlike tissue fraction weights, preserve
             % edema. Under the cutoff that retains 95% of white matter, the
