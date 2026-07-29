@@ -92,6 +92,16 @@ signal carries no information it returns roughly the prior mean rather than 0.
 signal. This is the opposite of what one might guess — the kernel `p2` is the
 *stabler* estimate but the *biased* one.
 
+> **CORRECTION (later measurement).** The attribution to the Tikhonov term in
+> this section is **wrong**. `lambda_tikhonov` was subsequently swept from 0 to
+> 0.8 at three noise levels and has no measurable effect on the high `l` bands:
+> noise-free at `lambda_tikhonov = 0`, SMI still returns `p6` at 28% of truth
+> and `p4` at 62%, identical to three decimals at `lambda_tikhonov = 0.3`. The
+> loss is real and the conclusion below — do not weight by `p4` — still holds,
+> but the cause is the **non-negativity constraint** together with error in the
+> estimated kernel, whose `K_l` at high `l` is small and very sensitive. See
+> "README for Claude.md" section 2.
+
 **`p4` is worse than `p2` on both counts.** The kernel `p4` carries the same
 upward bias (0.196 in CSF against a true 0), and it is bounded above by the
 training prior, which draws `p4 = rand * p2 * 0.9`. The deconvolved `pl4` is

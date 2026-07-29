@@ -1,52 +1,96 @@
 # README for Claude
 
-Handoff for the next agent working on fODF modulation for tractography through
-edema. Written after the modulation work stalled, deliberately structured so
-that the stall is visible and the dead ends are not re-walked.
+Handoff for the next agent working on SMI fODF tractography through edema.
 
-**Read section 7 before proposing anything.** Most of the obvious ideas have
-been tried and measured, and the measurements are counter-intuitive in several
-places.
+This **replaces** the earlier version of this file, which was written when the
+modulation work stalled. Most of that content survives below, but **three of its
+conclusions have since been measured to be wrong** and are corrected in place.
+The old text is in git history (`409e3ca`) if you need it.
 
----
-
-## 1. The goal, stated precisely
-
-Track fibres **through peritumoral edema** using SMI fODFs in MRtrix.
-
-The operational problem: find a per-voxel scalar weight `w`, computable from
-`SMI.fit` output, such that after `fODF -> w*fODF`
-
-- **all** white matter keeps amplitude above the tractography cutoff, including
-  fibre crossings and including white matter inside edema, and
-- grey matter and CSF fall below it.
-
-The edema constraint is the hard one and is non-negotiable: **the user has
-rejected tissue-type criteria three times**, because anything keyed to "is this
-healthy white matter" deletes exactly the region of interest. Any proposal must
-be tested against a voxel with collapsed axonal fraction and high free water but
-coherent fibres. If it suppresses that, it is dead on arrival.
+**Read sections 1 and 2 before proposing anything.** Section 2 exists because
+the previous handoff sent a reader after the wrong cause, and that cost a day.
 
 ---
 
-## 2. Status snapshot
+## 1. Status
 
-| | |
-|---|---|
-| Repo | `iprentis777/SMI` |
-| Branch | `claude/fodf-modulation-edema-38eh81` (restarted from master after PR #3 merged) |
-| Merged | PR [#3](https://github.com/iprentis777/SMI/pull/3) as `e0f6314` |
-| In the repo | `SMI.fODF_ModulationWeight`, `SMI.modulate_fODF`, `SMI.fODF_ModulationDefaults`, `grab_pl`, `grab_kernel_pl`, the opt-in `options.fODF_modulation` flag, `example_fODF_modulation.m`, `fODF_modulation_helpers.m`, `REPORT_fODF_modulation.md`, `0004fODFmodulation.patch` |
-| Not in the repo | everything from section 6 onward: the crossing-fibre findings, anisotropic power, the noise correction. All scratch. |
+The framework is essentially built. What remains is documentation and judgement
+calls, not construction.
 
-**The shipped default `p2product` is now known to be harmful in crossings.**
-It is still the default in `SMI.m`. It has not been changed because nothing has
-yet been proven better across the board. Do not treat it as endorsed; treat it
-as the thing that motivated everything in section 7.
+### On master
 
-Modulation is opt-in (`flag_modulate` defaults to 0) and `out.plm`, `out.pl`,
-`out.kernel` are bit-identical whether it is on or off, so nothing shipped is
-currently doing damage to a default fit.
+| feature | option | default | report |
+|---|---|---|---|
+| Regularized deconvolution | `options.fODF_regularization` | off | `REPORT_fODF_regularization_sweep.md` |
+| Anisotropy modulation | `options.fODF_modulation` | off | `REPORT_fODF_modulation.md` |
+| **Post hoc outlier cap** | `options.fODF_outlier` | off | `REPORT_fODF_outlier_cap.md` |
+
+All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
+whether any of them is on or off. That invariant is tested, not asserted — keep
+it. Patches `0001`-`0005` record each change and apply with `git am`.
+
+### On a branch, not merged
+
+`claude/freewater-simulations` (`1be06ea`, 3 commits) — the free-water
+comparison package, `REPORT_fODF_freewater.md`,
+`REPORT_fODF_compartment_split.md`, two figures. **No PR yet.** It was split out
+of PR #5 deliberately so the cap could merge alone. Every measured number quoted
+in `REPORT_fODF_outlier_cap.md` sections 4-5 comes from this branch, so it
+should land or those numbers lose their provenance.
+
+### Never run on real data
+
+Everything. No result in any report has touched a patient scan. Two driver
+scripts live only on the user's machine and are sent as files:
+`run_smi_hcp.m` (single subject) and `run_smi_batch_mod.m` (5-subject edema
+batch). Both were updated this session for the cap; `run_smi_batch_mod.m` runs
+`Lmax = [0 2 2 2 4 4]`, i.e. **max(Lmax) = 4**, which changes the ceiling
+arithmetic — see section 6.
+
+---
+
+## 2. Corrections to the previous handoff
+
+**Do not trust the old §7.6 or `REPORT_fODF_modulation.md` §3 on Tikhonov.**
+
+1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do
+   much of anything.** Swept 0 to 0.8 at three noise levels: the 45 degree
+   crossing is never resolved at any value, the 60 degree error moves without
+   trend, the CSF peak changes by ~3%. `REPORT_fODF_modulation.md` §3
+   attributed the `pl4` loss to it. That is wrong. Measured noise-free at
+   `lambda_tikhonov = 0`, SMI still returns `p6` at **28%** of truth and `p4`
+   at **62%** — the loss is real but the cause is the non-negativity constraint
+   plus error in the estimated kernel, whose `K_l` at high `l` is tiny and very
+   sensitive.
+
+2. **The regularizer that is load-bearing against blow-ups is non-negativity,
+   not Tikhonov.** The two had never been separated. At
+   `lambda_tikhonov = 0` with `lambda_nonneg = 10`, SNR 15, the CSF peak is
+   **0.39** — not the 1e13 the old §7.6 recorded for "no regularization",
+   because non-negativity was on in that run too. Turn non-negativity off and
+   at SNR 15 the CSF peak reaches 1.87 with WM/CSF contrast **0.61**, i.e.
+   white matter dimmer than CSF.
+
+3. **`lambda_nonneg = 10` is what closes the 45 degree crossing, and it is not
+   on the Pareto front.** With the constraint off, SMI resolves 45 degrees
+   **40/40** at **1.69 deg**, exactly the band-limited ground truth's own error.
+   From 3 upward it never resolves. And `lambda_nonneg = 3` matches or beats the
+   shipped 10 on WM/CSF contrast and 60 degree angular error at both SNR 30 and
+   15, giving up nothing since both lose 45 degrees anyway.
+   **The default was NOT changed.** It wants a cross-check against
+   `example_fODF_regularization_sweep.m`'s own reconstruction-error metric
+   across `lambda_nonneg` in {1, 3, 10} first. That is the single most concrete
+   open task in the repo and is about an hour of work.
+
+4. **§7.5's rejection of tissue-fraction weights is bounded, not universal.**
+   It was measured against an edema class with `f` collapsed to 0.30. When edema
+   is modelled instead as *redistribution* — `f` held at 0.60 while
+   extra-axonal water becomes free water — `f` is recovered flat across the
+   whole trajectory and an `f` weight suppresses CSF completely while leaving
+   edema at or above healthy amplitude. So: **a tissue-fraction weight fails on
+   axonal loss and is safe under water redistribution.** Which regime real
+   peritumoral tissue is in decides whether `f` is usable, and that is
+   measurable in a known ROI. This is now the most promising untested weight.
 
 ---
 
@@ -68,22 +112,25 @@ Consequences that keep mattering:
 
 1. **The fODF integrates to 1 in every voxel.** It carries no density
    information at all. A CSF voxel and a coherent WM voxel have equal mass.
-2. **The isotropic floor is a fixed `1/(4*pi) = 0.0796`**, which is *above*
-   MRtrix's default `iFOD2 -cutoff 0.05`. An unmodulated SMI fODF therefore
-   passes the tractography termination test **in every voxel of the brain**,
-   CSF included. This is the original motivation for the whole effort.
+2. **The isotropic floor is a fixed `1/(4*pi) = 0.0796`**, above MRtrix's
+   default `iFOD2 -cutoff 0.05`. An unmodulated SMI fODF therefore passes the
+   tractography termination test **in every voxel of the brain**, CSF included.
 3. To rescale a peak to target `T`, scale the anisotropic part by
-   `s = (T - 1/(4pi))/(peak - 1/(4pi))`, never `T/peak`.
-4. Scaling all `l>0` coefficients uniformly preserves peak orientation exactly.
+   `s = (T - 1/(4pi))/(peak - 1/(4pi))`, never `T/peak`. Both the modulation and
+   the outlier cap depend on this.
+4. Scaling all `l>=2` coefficients uniformly preserves peak orientation exactly.
    Clipping SH coefficients **independently** does not and can swing peak
    orientations. Never do the latter.
+5. **The hard physical maximum of a band-limited fODF is
+   `sum_{l even <= Lmax} (2l+1)/(4*pi)`**: 1.194 at Lmax 4, 2.228 at Lmax 6,
+   3.581 at Lmax 8. Any amplitude ceiling should be compared against this and
+   against what SMI actually recovers, which is much lower.
 
 **Two different p2 exist and they are not the same quantity.** Same for p4.
 
 - `out.kernel(:,:,:,ip2)` — fitted jointly with the kernel by polynomial
   regression on rotational invariants. `ip2 = 6` without T2 fitting, `8` with.
-  The map count alone is ambiguous; `SMI.grab_kernel_pl` resolves it from
-  `out.shells` row 4 (TE).
+  `SMI.grab_kernel_pl` resolves the ambiguity from `out.shells` row 4 (TE).
 - `out.pl(:,:,:,1)` — the l=2 invariant of the **deconvolved** fODF, a raw
   Euclidean norm, unclipped.
 
@@ -94,358 +141,221 @@ maps, not 6**: `[f Da Depar Deperp fw p2 p4]`.
 
 ## 4. Environment and validation
 
-Linux container, **GNU Octave 9, no MATLAB**. Working setup:
+Linux container, **GNU Octave 8/9, no MATLAB**. Working setup:
 
 ```
 apt-get update && apt-get install -y octave octave-statistics octave-image
 pkg load statistics; pkg load image;
 ```
 
-`SMI.fit` **does run end-to-end in Octave** with three shims (they live in
-`scratchpad/mod/stubs/`, recreate if the container was recycled):
+`SMI.fit` **does run end-to-end in Octave** with three shims. They are NOT in
+the repo — recreate them:
 
 | shim | why |
 |---|---|
 | `round(x,n)` | MATLAB two-arg form, used in `Group_dwi_in_shells_b_beta_TE` |
-| `discretize(x,edges)` | not implemented in Octave, used in `StandardModel_MLfit_RotInvs` |
-| `datetime()` | not implemented, used only by the log writer |
+| `discretize(x,edges)` | not in Octave, used in `StandardModel_MLfit_RotInvs` |
+| `datetime()` | not in Octave, used only by the log writer |
 
-Other traps:
+Other traps, all hit at least once:
 
 - **Octave cannot call functions defined at the end of a script**, MATLAB
-  requires them there. Incompatible. That is why `fODF_modulation_helpers.m`
-  and `fODF_regularization_score.m` are separate files. Subfunctions of a
-  *function* file work in both.
+  requires them there. That is why helper files are separate.
 - **`SMI.vectorize` takes a different branch if any spatial dimension is a
-  singleton** (`ismatrix(S)` is true for a collapsed 3D array). Always build
-  simulation volumes with all three dimensions > 1.
-- Graphics are unusable (broken text renderer). Stub `figure/histogram/
-  subplot/xlabel/ylabel/title/box/grid/drawnow` to test plotting code paths.
+  singleton.** Always build simulation volumes with all three dims > 1.
+- **`end` inside a comma-list expansion** (`fod(p{:}, 2:end)` where `p` is a
+  `num2cell` result) is miscomputed in Octave. Use explicit indices.
+- **`median(...,4,'omitnan')`** is version-dependent. `SMI.neighbour_median`
+  deliberately takes the median by sorting instead (NaN sorts last in both), so
+  it needs no nanflag and no toolbox.
+- Graphics are unusable. Stub `figure/histogram/subplot/...` to test plotting.
 - `strel('disk',r,0)` — Octave requires the explicit `N`; `N=0` is an exact
   disk and is the better choice in MATLAB too.
+- Python side of the comparison work needs `numpy scipy dipy cvxpy matplotlib`.
+  **cvxpy is not optional** — dipy's MSMT-CSD QP fails without it.
 
-**Parse-checking is not enough.** Two runtime errors reached the user that way,
-because the interesting code sits inside `try` blocks. The pattern that works:
-extract the post-fit section of the user's script *from the file itself*, stub
-the NIfTI I/O, feed a synthetic `out`, and run all flag combinations. See
-`scratchpad/script/harness.m`.
+**Parse-checking is not enough.** Runtime errors reached the user twice that
+way, because the interesting code sits inside `try` blocks. Two patterns that
+do work, both used this session:
 
----
-
-## 5. The simulation that matters
-
-Forward model is the exact construction `SMI.get_plm_from_S_and_kernel`
-inverts, so it round-trips to 1.2e-15:
-
-```
-S(u_i)/S0 = sum_{lm} K_l(b_i) * p_lm * Y_lm(u_i) * sqrt((2l+1)*4pi)
-```
-
-Eight classes, 80 realisations each, HCP protocol (b = 0,1,2,3 ms/um^2,
-18/90/90/90 dirs, `Lmax = [0 8 8 8]`), Rician noise, fitted through the real
-`SMI.fit` at SNR 30 and 15.
-
-| class | kernel `[f Da Depar Deperp fw]` | fODF |
-|---|---|---|
-| 1 WM 1 fibre | `0.60 2.0 2.0 0.50 0.05` | Watson κ=16 |
-| 2 WM 2 fibre 60° | same | two Watsons |
-| 3 **WM 3 fibre orthogonal** | same | three orthogonal Watsons |
-| 4 WM 3 fibre realistic | same | unequal weights, non-orthogonal |
-| 5 WM edema 1 fibre | `0.30 2.0 2.2 1.00 0.50` | Watson κ=12 |
-| 6 **WM edema 2 fibre** | same | two Watsons |
-| 7 GM | `0.15 1.2 1.0 0.80 0.10` | Watson κ=0.8 |
-| 8 CSF | `0.02 2.0 3.0 3.00 0.95` | isotropic |
-
-Classes 1-6 must all survive; 7-8 must be suppressed. **Class 3 is the
-algebraic worst case, class 6 the clinically hardest.** Scripts:
-`scratchpad/mod/{ap_sim,ap_score,sig_sim,sig_score,diag_crossing,ap_truth}.m`.
-
-Primary score: the fraction of each class left **below** MRtrix's default
-cutoff of 0.05. Secondary: an adaptive cutoff retaining 95% of all WM, then the
-false-positive rate on GM+CSF — scale-free, so it does not reward a weight for
-simply shrinking everything.
+1. Extract the post-fit section of the driver script, stub the NIfTI I/O, feed a
+   synthetic `out`, run all flag combinations.
+2. For structural edits, a **bracket-depth-aware** keyword balance check.
+   A naive one is useless: `Pp(2:end-1,...)` and `addpath(..., '-end')` both
+   produce false positives.
 
 ---
 
-## 6. Ground truth: what is actually there to detect
+## 5. What is in the repo, and what each thing is for
 
-No fitting, no noise. This is the ceiling for any method.
+| file | what |
+|---|---|
+| `SMI.m` | the toolbox. All three opt-in features live here as static methods |
+| `README.md` | user-facing documentation of all three features |
+| `REPORT_fODF_regularization_sweep.md` | the `lambda_nonneg = 10` measurement |
+| `REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2** |
+| `REPORT_fODF_outlier_cap.md` | the cap measurement |
+| `example_fODF_regularization*.m` | regularization examples and the sweep |
+| `example_fODF_modulation.m` + `fODF_modulation_helpers.m` | the 7-class simulation. The helpers are the reusable forward model and are used by everything |
+| `test_fODF_outlier_cap.m`, `test_SMI_outlier_cap.m` | the cap's tests. Self-contained, no data needed |
+| `0001`-`0005*.patch` | one patch per change, `git am`-able |
 
-| fODF | p2 | p4 | p6 | p8 | AP |
-|---|---|---|---|---|---|
-| 1 fibre | 0.903 | 0.713 | 0.495 | 0.304 | 0.552 |
-| 2 fibre 60° | 0.597 | 0.425 | 0.402 | 0.207 | 0.376 |
-| **3 fibre orthogonal** | **0.000** | **0.544** | 0.175 | 0.218 | 0.297 |
-| 3 fibre realistic | 0.436 | 0.541 | 0.225 | 0.181 | 0.330 |
-| GM (κ=0.8) | 0.114 | 0.009 | 0.000 | 0.000 | 0.039 |
-| isotropic | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+On `claude/freewater-simulations` only: `freewater_comparison/` (the SMI vs
+CSD vs MSMT-CSD package), `REPORT_fODF_freewater.md`,
+`REPORT_fODF_compartment_split.md`, two figures.
 
-**`p2` is identically zero for an orthogonal three-way crossing.** Not small —
-zero, at any SNR, with any regularizer. The second-moment tensor of three
-equal orthogonal fibre populations is isotropic. The l=4 invariant is not
-(cubic symmetry has a non-zero l=4 term), so `p4 = 0.544` carries the entire
-crossing.
+---
 
-`AP` = total anisotropic power, normalised so a delta fibre gives 1:
+## 6. What the three measurement campaigns found
 
-```
-AP = sqrt( sum_{l>=2} (2l+1) p_l^2 / sum_{l>=2} (2l+1) )
-```
+### 6.1 SMI vs CSD vs MSMT-CSD in free water
+
+Same synthesised DWI fed to all three, one shared evaluation sphere, one shared
+peak finder, all at Lmax 6.
+
+**SMI's fODF amplitude is blind to free water; CSD's and MSMT-CSD's scale with
+the tissue fraction.** Peak ratio at `fw = 0.40` over `fw = 0`, dilution model:
+SMI 0.94-1.01, CSD 0.60, MSMT 0.62. Structural, not a tuning artefact — SMI's
+fODF has unit mass by construction.
+
+The flip side, and the whole tractography problem in one line: SMI leaves CSF at
+**0.32** (four times its isotropic floor, 100% above MRtrix's cutoff) where
+MSMT-CSD leaves it at **0.028** and 0%. **SMI cannot dim in edema and cannot
+terminate in CSF; MSMT-CSD does both.** On orientation SMI matches MSMT-CSD and
+beats CSD.
+
+### 6.2 Edema as redistribution, not dilution
+
+Hold `f = 0.60` and convert extra-axonal water to free water. This matters more
+than the free water fraction does: the same `fw = 0.40` costs CSD 13% and MSMT
+23% of amplitude instead of 40%, because an AFD-style fODF tracks *fibre*
+content and `f` is what did not move. See section 2, item 4 for the consequence.
+
+Also: **MSMT-CSD's CSF volume fraction is not a usable free-water estimate under
+this model** — 0.019 where the truth is 0.20. SMI's `fw` reads 0.151.
+
+### 6.3 Response estimation
+
+CSD and MSMT were given responses estimated from the most anisotropic voxels of
+a brain containing 15% edema, rather than handed the truth.
+
+Edema with intact axons is **not distinguishable** from healthy WM on a high-b
+anisotropy criterion (b=3 anisotropy 0.677 vs 0.682), so it is enriched in the
+selection — but the estimated response is unchanged to three decimals either
+way. The contamination is benign because the contaminant looks like the thing
+being estimated.
+
+What is **not** benign: any estimated response is far blunter than an idealised
+delta response, because it absorbs fibre dispersion. Single-shell CSD absorbs
+that; **MSMT-CSD degrades 3-4x on crossings**. Note also that handing CSD an
+exact delta response, as `REPORT_fODF_freewater.md` originally framed it, is
+*idealised*, not generous.
 
 ---
 
 ## 7. Dead ends, with evidence
 
-### 7.1 `p2product` (the shipped default) destroys crossings
+Still valid from the previous handoff. Do not re-walk these.
 
-Fraction below the MRtrix cutoff, SNR 30, Lmax 8, regularized:
+- **`p2product` (the shipped modulation default) destroys symmetric 3-way
+  crossings** — 100% below cutoff — because `p2` is *identically zero* for three
+  equal orthogonal fibres. Realistic 3-fibre voxels survive but are dimmed 4x.
+- **The kernel `p4` is structurally blind to crossings.**
+  `Get_uniformly_distributed_SM_prior` draws `p4 = rand * p2 * 0.9`, so with
+  `p2 = 0` the regression cannot represent `p4 = 0.54`. Measured kernel
+  anisotropic power for an orthogonal crossing: 0.000.
+- **Raw anisotropic power fails; noise does not cancel.** `p_l` is a norm of
+  noisy coefficients, positive when the truth is zero. At SNR 15 it *inverts*:
+  CSF 0.207 > orthogonal crossing 0.170.
+- **The signal-domain route does not escape the noise floor.** Orthogonal
+  crossing 0.0447 vs CSF 0.0365. Changing domain does not create information.
+- **Lmax 8 is worse than Lmax 6** on unweighted FP (52.5% vs 21.9%), and at
+  Lmax 8 a genuine 3-way crossing is *dimmer than CSF noise* before any
+  weighting.
+- **`degenerate = 'clip'` is a bad modulation default.** In a blown-up voxel the
+  raw `p` exceeds the clip so the voxel gets weight exactly 1.0, the maximum in
+  the volume. `'reject'` exists. Still not changed.
 
-| class | none | **p2product** | AP l=2,4 | APnc l=2,4 |
-|---|---|---|---|---|
-| WM 1 fibre | 0.0% | 0.0% | 0.0% | 0.0% |
-| WM 2 fibre 60° | 0.0% | 0.0% | 0.0% | 0.0% |
-| **WM 3 fibre orthogonal** | 0.0% | **100.0%** | 0.0% | 0.0% |
-| WM 3 fibre realistic | 0.0% | 0.0% | 0.0% | 0.0% |
-| WM edema 1/2 fibre | 0.0% | 0.0% | 0.0% | 0.0% |
-| GM | 0.0% | 100.0% | 65.0% | 96.2% |
-| CSF | 0.0% | 100.0% | 33.8% | 100.0% |
-
-**Nuance that matters and is easy to miss:** `p2product` only *catastrophically*
-fails the perfectly orthogonal equal-weight case. The realistic three-fibre
-class survives the cutoff — but its weight is 0.166 against 0.679 for a single
-fibre, a **4x dimming**. That is consistent with the user's mrview screenshot,
-where the corona radiata is dim but present, not absent. If a future diagnosis
-of "missing fibres" does not match a 4x dimming, look for a second cause.
-
-### 7.2 The kernel p4 is structurally blind to crossings
-
-`SMI.Get_uniformly_distributed_SM_prior` draws `p4 = rand * p2 * 0.9`, so the
-training prior enforces `p4 <= 0.9*p2`. With `p2 = 0` the polynomial regression
-**cannot represent** `p4 = 0.54`; it is off the training manifold. Measured
-kernel-based anisotropic power for the orthogonal crossing: **0.000**.
-
-Any kernel-derived anisotropy is therefore dead for crossings. Only the
-deconvolved `out.pl` sees them. Changing this would mean retraining the prior.
-
-### 7.3 Raw anisotropic power fails — noise does not cancel
-
-`p_l` is a norm of `(2l+1)` noisy coefficients, so it is positive when the truth
-is zero. Measured `pl4` in CSF: **0.196** at SNR 30, **0.349** at SNR 15,
-against a true 0.00. AP sums squares, so noise accumulates. At SNR 15 raw AP is
-**inverted**: CSF 0.207 > orthogonal crossing 0.170. FP GM+CSF 78.8%,
-separation 0.28 — worse than no weight at all.
-
-Higher bands are worse (noisiest, and weighted by `(2l+1)`). Including l=6,8
-drops 22-30% of the orthogonal crossing below cutoff. **Restrict to l = 2,4.**
-
-### 7.4 The signal-domain (sigma-free) route does not work
-
-The idea: `p_l = S_l/(K_l S_0)`, and dividing by a collapsing `K_l` is what
-amplifies noise. `S_l/S_0` is measured directly, needs no sigma, and should be
-doubly suppressed in CSF (both `p_4` and `K_4` collapse) but only singly in a
-crossing. `out.RotInvs.S0/S2/S4` are already stored.
-
-**Measured: it does not separate.** Orthogonal crossing 0.0447 vs CSF 0.0365 —
-1.2x at SNR 30, 1.07x at SNR 15. FP 13.1% / 46.9%, separation 0.81 / 0.46.
-
-Why the argument failed: `K_4` attenuates the l=4 signal hard *even in healthy
-white matter* (`a4 = 0.080` in the crossing vs 0.023 in CSF noise). Dividing by
-`K_4` amplifies signal and noise equally. **The information content of the l=4
-band is fixed; changing domain does not create any.** This generalises — do not
-expect any re-parameterisation of the same measurement to escape the noise
-floor.
-
-`Nnegative_dirs` as a noise probe: also marginal (FP 9.4% / 36.2%).
-
-### 7.5 Tissue-fraction weights fail edema, as expected
-
-Adaptive cutoff retaining 95% of WM, SNR 15:
-
-| weight | FP GM+CSF | edema retained |
-|---|---|---|
-| `f` | 0.0% | **94%** |
-| `1-fw` | 31.5% | **85%** |
-| any p2-based | 0.0-100% | **100%** |
-
-`1-fw` additionally fails at its own job, leaving 63% of grey matter above
-threshold. This is the third confirmation; stop proposing tissue fractions.
-
-### 7.6 Things that turned out not to be problems
-
-- **Tikhonov does not destroy the l>=4 bands.** AP for the crossing: 0.163 at
-  `lambda_tikhonov = 0.3` vs 0.164 at 0. Feared twice, wrong twice.
-- **Regularization is load-bearing for blow-ups, and modulation cannot replace
-  it.** At SNR 15 unregularized, CSF fODF peaks reached **2.2e14**, reproducing
-  the 1e13 amplitudes seen in real data; the regularized fit caps the same
-  voxels at 0.449. The mechanism is the deconvolution gain `g_2 = 1/||K_2||`,
-  measured 3.6 in CSF vs 0.6 in WM. Since the weight is clipped at 1,
-  `w * 1e13` is still `1e13`.
-- **The default `degenerate = 'clip'` is a bad default.** In a blown-up voxel
-  `pl2 >> 1`, so the raw value exceeds the clip and the voxel is assigned weight
-  **exactly 1.0 — the maximum in the volume**, while healthy voxels get 0.3-0.7.
-  The pathological voxels are the *least* attenuated. `'reject'` (weight 0)
-  exists and is arguably the right default. Not yet changed.
+The one thing that has ever satisfied every constraint at once, still unshipped:
+**noise-floor-subtracted anisotropic power over `l = 2,4`**, using `sigma` and
+the kernel gains already in `out`. 0.0% FP on GM+CSF at both SNRs with all six
+WM classes retained. Blocked on a free safety factor nobody has justified, and
+it has never touched real data.
 
 ---
 
-## 8. The one thing that currently works, and why it is not shipped
+## 8. Next steps, roughly in order of value per hour
 
-**Noise-floor-subtracted anisotropic power over l = 2,4.**
-
-`p_lm` is recovered by dividing the l-th signal harmonic by `K_l`, so with
-roughly uniform directions
-
-```
-Var(p_lm) ~ sigma^2 / ((2l+1) ||K_l||^2)
-E[p_l^2 | noise only] ~ (sigma * g_l)^2,   g_l = 1/||K_l(b)||
-
-w = sqrt( ( 5*max(p2^2 - (sigma g_2)^2, 0)
-          + 9*max(p4^2 - (sigma g_4)^2, 0) ) / 14 )
-```
-
-Both `sigma` and the kernel are already in `out`. Measured: **0.0% FP on GM+CSF
-at both SNRs, all six WM classes fully retained, separation 2.03 / 2.06**,
-against 0.00 for `p2product` and 0.48-0.81 for no weight. It is the only
-candidate that has ever satisfied every constraint simultaneously.
-
-**The sigma dependence is less fragile than it looks, and the failure is
-one-sided:**
-
-| sigma used | SNR 30 FP / sep | SNR 15 FP / sep |
-|---|---|---|
-| correct | 0.0% / 2.03 | 0.0% / 2.06 |
-| underestimated 2x | 0.6% / 1.37 | **10.6% / 0.57** |
-| overestimated 1.5x | 0.0% / 4.85 | **0.0% / 7.52** |
-
-Over-estimating sigma *improves* it. So an accurate sigma is not required — an
-**upper bound** is, and erring high is nearly free. This matters for HCP
-specifically: eddy/topup interpolation spatially correlates noise, which makes a
-b=0-repetition estimate read **low**, the dangerous direction. A deliberate
-safety factor is well motivated rather than arbitrary.
-
-**Why it is not shipped:** simulation only; sigma sensitivity not re-tested at
-Lmax 6; the safety factor is a free parameter nobody has justified; and the
-whole thing has never touched real data.
-
-### Independent of any weighting: Lmax 8 is hurting
-
-| SNR 30, regularized | Lmax 8 | Lmax 6 |
-|---|---|---|
-| CSF peak | 0.352 | 0.271 |
-| 3-fibre orthogonal peak | 0.343 | 0.294 |
-| crossing vs CSF | **inverted** | correct |
-| unweighted FP GM+CSF | 52.5% | **21.9%** |
-
-At Lmax 8 a genuine three-way crossing is **dimmer than CSF noise** before any
-weighting — no shape-derived weight can fix that. The user runs
-`Lmax = [0 8 8 8]` with 90 directions per shell, and the regularization defaults
-were tuned at Lmax 6. Dropping to `[0 6 6 6]` may be the cheapest single
-improvement available and is untested on real data.
+1. **Run the drivers on real data and read the peak histogram.** Everything
+   above is simulation. The single most informative number is
+   `out.fODF_outlier.Ncap`: simulation says it should be **0** on a regularized
+   fit, so a non-zero count means the regularization is not behaving on real
+   data as it does in simulation, which is a bigger finding than the cap. If it
+   is non-zero, look at `SMI_fODFcap_flagged.nii` — ventricles means the
+   deconvolution is blowing up; brain edge means the pre-fit erosion is too
+   gentle.
+2. **The `lambda_nonneg` cross-check** (section 2, item 3). Concrete, bounded,
+   and would justify a default change with two independent measurements.
+3. **Test `f` as a modulation weight in a known edema ROI** (section 2, item 4).
+   This is the question that decides whether the whole modulation approach can
+   use tissue fractions after all.
+4. **Verify SMI's SH basis against MRtrix's.** Still never done. Synthesise a
+   delta along a known direction, write it, run `sh2peaks`, compare. Half an
+   hour, and every peak orientation shipped to `tckgen` depends on it.
+5. **Land `claude/freewater-simulations`**, or the measured numbers quoted in
+   `REPORT_fODF_outlier_cap.md` have no reproducible source.
+6. Spatial context beyond the cap — a neighbour-agreement *weight* rather than
+   just an outlier test — is the remaining unexplored axis. The cap proves the
+   plumbing works and that a neighbourhood statistic is inherently edema-safe.
 
 ---
 
-## 9. Where this stalled, stated sharply
+## 9. Documentation and clutter debt
 
-Every approach so far computes a **per-voxel scalar from the fitted model**, and
-they all run into the same wall:
+This is what the user asked to focus on next, and it is real.
 
-- **Anything derived from fODF shape** (p2, p4, AP, max p_l) cannot separate
-  "isotropic because CSF" from "isotropic because fibres cross" — both genuinely
-  are spread out on the sphere. p2 is the extreme case, being exactly zero for a
-  symmetric crossing.
-- **Anything derived from the kernel** (f, 1-fw, kernel p2/p4) separates
-  crossings from CSF fine, but fails edema, because edema genuinely does have low
-  `f` and high free water. That is physics, not a measurement artefact.
-- **Anything that fights the noise floor** needs a noise estimate. Changing
-  domain (section 7.4) does not escape it.
-
-The information needed to separate "crossing white matter" from "CSF" is
-**not present in a single voxel's fitted model** with enough margin at Lmax 8.
-That is the stall.
-
----
-
-## 10. Untried directions worth brainstorming
-
-None of these have been tested. They are listed because they break one of the
-assumptions above, not because they are known to work.
-
-1. **Spatial context.** *Every approach so far is strictly per-voxel.* Noise is
-   spatially incoherent; tracts are not. A voxel whose principal peak agrees
-   with its neighbours' is structurally different from one whose peak is noise,
-   and this is completely independent of amplitude, anisotropy, and sigma. This
-   is the biggest unexplored axis and probably the first thing to try.
-   Caution: `SMI.fit` currently couples no voxels, so this must be post-hoc,
-   and it interacts with the pre-fit mask erosion already in the driver scripts.
-
-2. **Stop modulating amplitude; constrain geometry instead.** MRtrix has `-mask`,
-   `-seed_image`, `-include/-exclude` and ACT (`-act` with a 5TT image). Tumour
-   tractography commonly uses a lesion-aware 5TT. This decouples "where may
-   tracks go" from "what does fODF amplitude say" and sidesteps the entire
-   problem. The reason it was not pursued is that a 5TT segmentation is a
-   tissue-type criterion — but applied as a *tracking mask* rather than a
-   per-voxel weight it may be acceptable where a weight was not. Worth asking
-   the user directly.
-
-3. **Subtract the isotropic floor at export.** `A(u) - 1/(4pi)`, clipped at 0,
-   makes CSF ~0 and restores meaning to MRtrix's default cutoff with no weight
-   and no sigma. **But note:** it is a monotone shift, so it cannot change the
-   *ordering* of voxels and adds no discrimination — it only fixes the
-   "everything passes 0.05" problem structurally. Cheap, honest, partial.
-
-4. **Multi-tissue deconvolution.** MSMT-CSD solves exactly this by giving the
-   isotropic signal its own compartment rather than forcing it into the fODF.
-   SMI already estimates `fw`. Whether an SMI-flavoured 3-tissue deconvolution
-   is tractable is unknown, and the edema objection to `fw` would need
-   re-examining in that framing.
-
-5. **Peak-based rather than amplitude-based export.** Extract fixels/peaks and
-   threshold on peak count, sharpness, or separation angle rather than
-   modulating the continuous fODF. `fODF_peak_amplitudes` in the driver script
-   already does most of the extraction.
-
-6. **Is the corona radiata really the problem?** The perfectly orthogonal
-   equal-weight crossing is a measure-zero degenerate case; the realistic
-   three-fibre class survived `p2product`. Before optimising for it, confirm on
-   the user's data that the dim regions really are 3-way crossings and that the
-   dimming is the ~4x that `p2product` predicts. If it is much more than 4x,
-   there is a second cause not yet identified.
+- **`REPORT_fODF_modulation.md` §3 states a wrong cause** for the `pl4` loss.
+  Fix it in place rather than leaving a corrected copy elsewhere.
+- **Five reports, no index.** `README.md` links some. A reader has no map of
+  which report supersedes which, or which numbers are simulation-only.
+  Everything in every report is simulation-only; that is worth saying once,
+  loudly, in `README.md`.
+- **`0005fODFoutliercap.patch` duplicates its own diff** (~1100 of 2051 added
+  lines in PR #5). That is the repo convention, so it stays, but be aware the
+  patch files roughly double the apparent size of every change.
+- **Removed this session:** `.DS_Store` and `SMI.asv` (a MATLAB autosave) were
+  tracked. Both are now gitignored along with `log_SMI_*.txt`, which `SMI.fit`
+  drops in the working directory on every run.
+- **Stale branches on origin:** `add-claude-github-actions-1785176603102`,
+  `claude/github-repo-markdown-changes-t49gi0`,
+  `claude/fodf-modulation-edema-38eh81` are all merged and can be deleted.
+  `claude/freewater-simulations` is the only unmerged one that matters.
+- **CI runs `claude-review` only.** There is no MATLAB or Octave runner, so
+  `test_fODF_outlier_cap.m` and `test_SMI_outlier_cap.m` are never executed by
+  CI — they pass locally under Octave and that is invisible on a PR. An Octave
+  job would be straightforward and the repo has never had one.
 
 ---
 
-## 11. Open questions that need real data, not simulation
-
-- Does `p2` actually hold up in the user's edematous voxels? The whole approach
-  assumes displaced fibres stay coherent. **Never verified.** Concrete first
-  experiment: map `p2`, `p4` and `f` in a known edema ROI and see which degrades.
-- **Is SMI's SH basis MRtrix's?** `out.fODF_modulated` is in SMI's own basis
-  (`SMI.get_even_SH` with `out.CS_phase`). The ordering and Condon-Shortley
-  convention have **never been checked** against MRtrix. Everything downstream
-  depends on this and it is a half-hour job.
-- Are the stray giant glyphs inside `mask3D`? If the weight map reads 1.0 there
-  it is the clip-to-max path of 7.6; if 0, they are outside the mask and
-  something else is rendering them.
-- Does SMI's internal b=0 sigma estimate suffice, given HCP interpolation?
-
----
-
-## 12. Working preferences observed
+## 10. Working preferences observed
 
 - Wants to be told when a suggestion is wrong, **with evidence**. Has pushed
-  back correctly four times: free-water filtering, the percentile-vs-outlier
-  argument, p2/p4 as the modulator, and preferring l=2,4 over high orders.
-- Prefers measured over assumed. The regularization sweep exists because a
-  documented "around 1 is reasonable" turned out to be 2x off; the crossing
-  finding exists because a simulation lacked the case that mattered.
+  back correctly several times, and was right to reject tissue-type criteria
+  three times before the redistribution result bounded that objection.
+- **Prefers measured over assumed.** Every default in this repo that was
+  guessed has turned out wrong by roughly 2x. The regularization sweep, the
+  crossing finding, the ceiling, and the Tikhonov correction all exist because
+  someone checked instead of assuming.
 - **Nothing goes in the repo until it is proven.** Stated explicitly. Honour it.
 - Asks where changes were made — point at file and line numbers.
-- Figures matter; a manuscript is the eventual target. A manuscript-grade
-  simulation script is wanted but blocked: the current simulation has no
-  ground-truth *density*, since every voxel is a single kernel. It needs a
-  second tissue type before density-weighted scoring means anything.
-- Two driver scripts live only on the user's machine and are sent as files:
-  `run_smi_hcp.m` (single subject, now carries `useFODFmod`) and
-  `run_smi_batch.m` (5-subject edema batch, supplies sigma from
-  `level_noise.nii.gz`, has fODF peak truncation that `run_smi_hcp.m` lacks).
-  Peak truncation must run **before** modulation — its thresholds are absolute
-  amplitudes.
+- Wants patch files and README updates alongside every change, so the history
+  can be followed without reading diffs.
+- Figures matter; a manuscript is the eventual target. The
+  manuscript-grade simulation is still blocked on ground-truth *density*: every
+  voxel is a single kernel, so density-weighted scoring is meaningless until
+  there is a second tissue type per voxel. `REPORT_fODF_modulation.md` §2
+  already has 50/50 interface classes, so the machinery exists — it needs a
+  continuous mixing fraction, not new code.
+- Two driver scripts live only on the user's machine and arrive as file uploads.
+  Peak truncation must run **before** modulation, and the outlier cap now
+  supersedes it.
