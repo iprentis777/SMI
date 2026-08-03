@@ -1,16 +1,14 @@
 """Emit the result tables of REPORT_SMI_deconvolution_MonteCarlo.md as markdown.
 
 The report quotes numbers; this writes them, so no number in it is transcribed
-by hand. Run after every SNR arm has been scored.
+by hand. Peaks come from MRtrix's `sh2peaks` (score_mrtrix.py).
 
     python3 tables.py nf snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
 """
 import sys
 import numpy as np
 
-import score
-
-ORDER = ['SMI constrained', 'SMI unconstrained', 'SSST-CSD', 'MSMT-CSD']
+import score_mrtrix as sm
 
 
 def fmt(x, n=2):
@@ -19,31 +17,31 @@ def fmt(x, n=2):
 
 def main(nf_tag, *spec):
     tags = [(t.split(':')[0], float(t.split(':')[1])) for t in spec]
-    base = score.baseline(nf_tag)
-
-    all_res = {}
-    angles = None
-    ceiling = None
-    for tag, snr in tags:
-        res, idx, angles, gt = score.summarise(tag, snr, verbose=False)
-        all_res[snr] = (res, idx)
-        ceiling = gt
-    nfres, nfidx, _, _ = score.summarise(nf_tag, 'nf', verbose=False)
-    all_res['noise free'] = (nfres, nfidx)
     snrs = ['noise free'] + [s for _, s in sorted(tags, key=lambda t: -t[1])]
 
-    cn = ['single fibre' if a == 0 else f'crossing {a:g}°' for a in angles]
-    names = [n for n in ORDER if n in nfres]
+    store = {}
+    angles = ceiling = true_ax = None
+    for tag, label in [(nf_tag, 'noise free')] + [(t, s) for t, s in tags]:
+        res, idx, angles, true_ax = sm.measure(tag)
+        store[label] = (res, idx)
+    gtres, gtidx = store['noise free']
+    base = {n: [np.nanmedian(gtres[n]['amp'][gtidx[c]])
+                for c in range(len(angles))] for n, _ in sm.ARMS}
+    ceiling = {c: np.nanmedian(gtres['ground truth']['errp'][gtidx[c]])
+               for c in range(len(angles))}
 
-    def table(title, cell, note=''):
-        print(f'\n**{title}**{note}\n')
+    cn = ['single fibre' if a == 0 else f'crossing {a:g}°' for a in angles]
+    names = [n for n, _ in sm.ARMS]
+
+    def table(title, cell, ceil=False):
+        print(f'\n**{title}**\n')
         for c, nm in enumerate(cn):
-            print(f'\n_{nm}_ ' + (f'(band-limited truth: {fmt(ceiling[c])}°)'
-                                  if 'error' in title else ''))
+            extra = f' (band-limited truth: {fmt(ceiling[c])}°)' if ceil else ''
+            print(f'\n_{nm}_{extra}')
             print('\n| SNR | ' + ' | '.join(names) + ' |')
             print('|---|' + '---|' * len(names))
             for s in snrs:
-                res, idx = all_res[s]
+                res, idx = store[s]
                 row = f'| {s} |'
                 for n in names:
                     row += ' ' + cell(res[n], idx[c], c, n) + ' |'
@@ -51,7 +49,7 @@ def main(nf_tag, *spec):
 
     table('angular error of the largest peak, degrees (median [sd])',
           lambda r, sel, c, n: (f'{fmt(np.nanmedian(r["errp"][sel]))} '
-                                f'[{fmt(np.nanstd(r["errp"][sel]))}]'))
+                                f'[{fmt(np.nanstd(r["errp"][sel]))}]'), ceil=True)
 
     table('realisations returning the correct number of fibres, %',
           lambda r, sel, c, n: fmt(100 * np.mean(

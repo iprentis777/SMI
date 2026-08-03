@@ -62,6 +62,25 @@ fit)
   echo "fit $T done"
   ;;
 
+control)
+  # the same two methods, given the exact response of the kernel that generated
+  # the data instead of an estimated one
+  T=$2
+  python3 write_exact_response.py $MD
+  dwi2fod msmt_csd $MD/mc_$T.mih \
+      $MD/resp_wm_exact.txt  $MD/msmtXfod_$T.mih \
+      $MD/resp_gm_exact.txt  $MD/msmtXgm_$T.mih \
+      $MD/resp_csf_exact.txt $MD/msmtXcsf_$T.mih \
+      -mask $MD/mask_$T.mih -lmax $LMAX,0,0 -force -quiet
+  dwi2fod csd $MD/mc_b3_$T.mih $MD/resp_wm_exact_b3.txt $MD/csdXfod_$T.mih \
+      -mask $MD/mask_$T.mih -lmax $LMAX -force -quiet
+  for f in csdXfod msmtXfod; do
+    sh2peaks $MD/${f}_$T.mih $MD/pk_${f}_$T.mih \
+        -num $NUMPEAKS -mask $MD/mask_$T.mih -force -quiet
+  done
+  echo "control $T done"
+  ;;
+
 sweep)
   # the lambda_nonneg sweep: same sh2peaks, so its numbers sit on the same
   # scale as the four-arm comparison
@@ -77,5 +96,5 @@ sweep)
   ;;
 
 *)
-  echo "usage: $0 responses | fit <tag> | sweep <tag> <nsettings>"; exit 1;;
+  echo "usage: $0 responses | fit <tag> | control <tag> | sweep <tag> <n>"; exit 1;;
 esac

@@ -96,8 +96,11 @@ def measure(tag):
     # angular correlation coefficient against the band limited truth, l >= 2
     gt = res['ground truth']['sh']
     for name, _ in ARMS:
-        u = res[name]['sh'][:, 1:]
-        v = gt[:, 1:]
+        # an arm fitted at a higher Lmax than the truth is compared on the
+        # orders they share; the extra bands have no counterpart to correlate
+        nc = min(res[name]['sh'].shape[1], gt.shape[1])
+        u = res[name]['sh'][:, 1:nc]
+        v = gt[:, 1:nc]
         num = (u * v).sum(1)
         den = np.sqrt((u * u).sum(1) * (v * v).sum(1))
         res[name]['acc'] = np.where(den > 0, num / np.maximum(den, 1e-30), np.nan)

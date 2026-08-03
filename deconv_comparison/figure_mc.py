@@ -16,12 +16,11 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
 
-import score
+import score_mrtrix as sm
 
 COLORS = {'SMI constrained': '#2a78d6',
-          'SMI unconstrained': '#eb6834',
-          'SSST-CSD': '#1baf7a',
-          'MSMT-CSD': '#eda100'}
+          'SSST-CSD': '#eb6834',
+          'MSMT-CSD': '#1baf7a'}
 INK = '#0b0b0b'
 MUTED = '#52514e'
 GRID = '#e6e5e2'
@@ -43,9 +42,11 @@ def collect(tags):
     angles = None
     ceiling = None
     for tag, snr in tags:
-        res, idx, angles, gt_err = score.summarise(tag, snr, verbose=False)
-        ceiling = gt_err
-        for name, r in res.items():
+        res, idx, angles, _ = sm.measure(tag)
+        ceiling = {c: np.nanmedian(res['ground truth']['errp'][idx[c]])
+                   for c in range(len(angles))}
+        for name in [n for n, _ in sm.ARMS]:
+            r = res[name]
             for c in range(len(angles)):
                 sel = idx[c]
                 e = r['errp'][sel]
