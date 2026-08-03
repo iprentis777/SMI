@@ -2,8 +2,11 @@
 
 Rows are the three things measured -- angular accuracy, whether the right
 number of fibres came back, and how often a peak appeared that is not there.
-Columns are the fibre configuration. Every panel shares its row's y axis, so a
-column can be read down and a row across. There is no second y axis anywhere.
+Columns are the fibre configuration. Each panel is scaled to its own condition,
+because a single fibre and a 45 degree crossing differ by two orders of
+magnitude in error and a shared row scale would flatten both; the y label names
+the quantity and every panel in a row carries the same one. There is no second
+y axis anywhere.
 """
 import os
 import sys
@@ -11,6 +14,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
 
 import score
 
@@ -87,16 +91,21 @@ def main(out='fodf_deconv_montecarlo.png', *tagspec):
                 ax.plot(np.array(x)[o], np.array(y)[o], '-o', lw=2, ms=5,
                         color=COLORS.get(n, '#666'), label=n,
                         markeredgecolor='#fcfcfb', markeredgewidth=1.2)
-            if key == 'err_med' and np.isfinite(ceiling[c]):
+            # the ceiling line is meaningless on a log axis when it is zero,
+            # which it is for the single fibre: a Watson band limited to Lmax 6
+            # still peaks exactly on its own axis, so there is nothing to draw
+            if key == 'err_med' and np.isfinite(ceiling[c]) and ceiling[c] > 0.01:
                 ax.axhline(ceiling[c], color=MUTED, lw=1.2, ls=':')
-                ax.annotate('band-limited truth', (ax.get_xlim()[0], ceiling[c]),
+                ax.annotate('band-limited truth', (5, ceiling[c]),
                             fontsize=7, color=MUTED, xytext=(2, 3),
                             textcoords='offset points')
             if logy:
                 ax.set_yscale('log')
             ax.set_xscale('log')
-            ax.set_xticks([5, 10, 20, 30, 50])
-            ax.set_xticklabels(['5', '10', '20', '30', '50'])
+            ax.xaxis.set_major_locator(FixedLocator([5, 10, 20, 30, 50]))
+            ax.xaxis.set_major_formatter(FixedFormatter(['5', '10', '20', '30', '50']))
+            ax.xaxis.set_minor_locator(NullLocator())
+            ax.set_xlim(4.4, 57)
             if ri == 0:
                 ax.set_title(cn[c], fontsize=10, color=INK)
             if ri == 2:
