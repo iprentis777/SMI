@@ -1,8 +1,8 @@
 function gen_phantom(SNR, tag)
 % gen_phantom(SNR, tag)
 %
-% A synthetic brain-like voxel population, whose only purpose is to give the
-% CSD and MSMT-CSD response estimators something to estimate a response FROM.
+% A synthetic brain-like voxel population, whose only purpose is to give
+% `dwi2response` something to estimate a response FROM.
 %
 % READ THIS BEFORE QUOTING ANY NUMBER THAT DEPENDS ON IT. The intended design
 % (see REPORT_SMI_deconvolution_MonteCarlo.md section 2) estimates the
@@ -19,14 +19,16 @@ function gen_phantom(SNR, tag)
 % ventricle boundary, and grey matter that is not quite isotropic.
 %
 % Signals come from SMI's own forward model, so the phantom and the Monte
-% Carlo simulation cannot end up on different physics.
+% Carlo simulation cannot end up on different physics. The phantom is also
+% written as an MRtrix image, since `dwi2response` reads it directly.
 
 more off
 IO = binio();
+MR = mrtrix_io();
 bvals = IO.load('bvals'); bvals = bvals(:)';
 bvecs = IO.load('bvecs');
 Ndwi  = numel(bvals);
-LMAX_GT = 8; CS = 1; D_FW = 3;
+LMAX_GT = 8; CS = 0; D_FW = 3;
 
 H  = fODF_modulation_helpers();
 dq = H.dirs(2000);
@@ -104,10 +106,18 @@ for il = 0:2:LMAX_GT
 end
 
 sigma = 1/SNR;
-Sn = sqrt((S + sigma*randn(size(S))).^2 + (sigma*randn(size(S))).^2);
-IO.save(['phantom_' tag], reshape(Sn, [GRID Ndwi]));
+Sn = reshape(sqrt((S + sigma*randn(size(S))).^2 + (sigma*randn(size(S))).^2), ...
+             [GRID Ndwi]);
+IO.save(['phantom_' tag], Sn);
 IO.save(['phantom_label_' tag], label);
 IO.save(['phantom_kernel_' tag], kern);
+
+mdir = fullfile(fileparts(mfilename('fullpath')), 'mrtrix');
+if ~exist(mdir,'dir'), mkdir(mdir); end
+MR.write(fullfile(mdir,['phantom_' tag]), Sn, ...
+         struct('grad',[bvecs bvals(:)*1000]));
+MR.write(fullfile(mdir,'phantom_mask'), ones(GRID), struct('datatype','UInt8'));
+
 fid = fopen(fullfile(IO.dir(),['phantom_classes_' tag '.txt']),'w');
 for ip = 1:size(P,1)
     fprintf(fid,'%s f=%.2f fw=%.2f\n', KINDS{ip}, P{ip,3}(1), P{ip,3}(5));

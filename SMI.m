@@ -932,11 +932,22 @@ classdef SMI
             % changing.
             %
             % reg.flag_nonneg       1 enables the non-negativity constraint (default 0)
-            % reg.lambda_nonneg     weight of the non-negativity block (default 10,
-            %                       the optimum measured by
-            %                       example_fODF_regularization_sweep.m: the error
-            %                       falls from lambda_nonneg 1 to 10 and rises
-            %                       again after it)
+            % reg.lambda_nonneg     weight of the non-negativity block (default 1).
+            %                       Two independent measurements disagree about
+            %                       this weight and the smaller one wins:
+            %                       example_fODF_regularization_sweep.m minimizes
+            %                       the relative L2 error of the fODF and prefers
+            %                       10, but the Monte Carlo in
+            %                       deconv_comparison/ (10,000 realizations per
+            %                       condition, section 6 of
+            %                       REPORT_SMI_deconvolution_MonteCarlo.md) finds
+            %                       10 is not on the Pareto front at all: 1 has
+            %                       the best angular correlation against the
+            %                       ground truth at every crossing angle and
+            %                       resolves 63.5% of 45 degree crossings at
+            %                       SNR 30, where 10 resolves 0.0%. Raise it
+            %                       towards 10 to buy smoothness at the cost of
+            %                       angular resolution.
             % reg.tau               directions where the fODF is below
             %                       tau*mean(fODF) are penalized (default 0.1)
             % reg.Niter             maximum number of iterations (default 50)
@@ -965,7 +976,7 @@ classdef SMI
             if ~isstruct(reg)
                 error('fODF regularization options must be provided as a structure')
             end
-            default_reg = struct('flag_nonneg',0,'lambda_nonneg',10,'tau',0.1,'Niter',50,...
+            default_reg = struct('flag_nonneg',0,'lambda_nonneg',1,'tau',0.1,'Niter',50,...
                                  'Ndirs',300,'Lmax_init',4,'max_neg_fraction',0.9,...
                                  'lambda_tikhonov',0,'TikhonovMatrix','identity');
             fields = fieldnames(default_reg);
