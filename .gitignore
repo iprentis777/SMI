@@ -1,3 +1,7 @@
 log_SMI_*.txt
 .DS_Store
 *.asv
+deconv_comparison/data/
+deconv_comparison/__pycache__/
+octave-workspace
+response_SMI_wm.txt

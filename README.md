@@ -384,6 +384,29 @@ If both the cap and the modulation are enabled, **the cap runs first** and the m
 Full methodology, all result tables and verification are in `REPORT_fODF_outlier_cap.md`.
 
 
+### Viewing the response kernel as zonal harmonics
+SMI has no response function: it has a **kernel**, the Standard Model compartment description `[f Da Depar Deperp fw]` fitted per voxel, from which the rotational invariants `K_l(b)` follow analytically. CSD has the opposite arrangement, a non-parametric response function estimated once for the whole brain and stored as zonal harmonic coefficients in a text file. The two describe the same object. For a single fibre along `z`,
+
+```
+R(theta) = sum_l K_l(b) (2l+1) P_l(cos theta) = sum_l r_l Y_l0(theta),   r_l = K_l(b)*sqrt((2l+1)*4*pi)
+```
+
+and `r_l` is exactly what MRtrix keeps in a response function file: one row per shell, one column per even `l`.
+
+`example_SMI_response_shview.m` (with `SMI_response_helpers.m`) draws an SMI kernel the way MRtrix3's `shview` draws a response: `K_l(b)`, the zonal coefficients per shell, the angular profile `R(theta)`, and a 3D glyph per shell. It also takes the compartments apart -- free water is isotropic, so it only ever moves `r_0`, which is why an SMI fODF's amplitude is blind to free water while an AFD-style fODF is not -- and puts a response glyph next to an fODF glyph from the same renderer. No data is needed; a kernel from a real fit goes in with
+
+```
+out    = SMI.fit(dwi, options);
+H      = SMI_response_helpers();
+kernel = H.kernel_from_out(out, [x y z]);
+```
+
+The script writes `response_SMI_wm.txt` in MRtrix's response format, so `shview response_SMI_wm.txt` opens the same object in MRtrix, and `H.read_response` reads an MRtrix response back for overlay against a kernel. Before drawing anything it checks itself: the zonal reconstruction is compared against SMI's own forward model for a delta fODF, and the run aborts if they disagree by more than 1e-10 (measured: `1.7e-15`).
+
+### How the deconvolution compares to CSD and MSMT-CSD
+`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free, response functions estimated by a reimplementation of `dwi2response dhollander`. Results and the full methodology are in `REPORT_SMI_deconvolution_MonteCarlo.md`. **It is all simulation**, including the "real data" the responses are estimated from.
+
+
 ## Useful tips
 The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
 - For conventional 2-shell datasets (b=1000,2000 s/mm^2) set 'options.compartments' to {'IAS', 'EAS'} (no FW compartment).
