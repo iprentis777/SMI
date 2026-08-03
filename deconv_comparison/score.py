@@ -3,8 +3,9 @@
 Reads the SH coefficients each method wrote, maps SMI's into the same basis as
 dipy's, runs the one peak finder in peaks.py over all of them, and reports
 
-  * angular error of the matched peaks: median (bias) and interquartile /
-    standard deviation (precision)
+  * angular error of the peaks: median and mean (bias) and standard deviation
+    (precision), both for the largest peak alone and averaged over all true
+    fibres
   * the number of peaks found: missed fibres and spurious peaks
   * peak amplitude, normalised to each method's own noise-free median, so that
     methods whose fODFs are not on the same scale can still be compared
@@ -17,6 +18,7 @@ out its own SH matrix on the shared evaluation directions and the exact
 [Nlm x Nlm] map between the two is solved for here. The residual of that solve
 is printed: if it is not at round-off, everything downstream is suspect.
 """
+import os
 import sys
 import numpy as np
 
@@ -54,10 +56,17 @@ def load_all(tag, M):
     return out
 
 
-def summarise(tag, snr, base=None, verbose=True):
+def summarise(tag, snr, base=None, verbose=True, cache=True):
+    """Score one arm. Peak extraction over 40,000 voxels times four methods is
+    a couple of minutes, and the tables and the figure both want it, so the
+    per-voxel measurements are cached in data/ keyed by tag and method list.
+    Delete data/score_<tag>.npz to force a recompute."""
     M, resid = smi_to_dipy(tag)
     if verbose:
         print(f'\nSMI -> dipy SH basis map: max|B M - Y| = {resid:.2e}')
+
+    cache_file = os.path.join(binio.DATA, f'score_{tag}.npz')
+    key = '|'.join(n for n, _ in METHODS)
 
     cond = binio.load('mc_cond_id_' + tag).ravel().astype(int)
     axes = binio.load('mc_gt_axes_' + tag)          # [2 x 3 x NCOND]
@@ -67,6 +76,16 @@ def summarise(tag, snr, base=None, verbose=True):
     idx = {c: np.where(cond == c + 1)[0] for c in range(ncond)}
     true_ax = {c: [axes[k, :, c] for k in range(axes.shape[0])
                    if np.isfinite(axes[k, 0, c])] for c in range(ncond)}
+
+    if cache and os.path.exists(cache_file):
+        z = np.load(cache_file, allow_pickle=True)
+        if str(z['key']) == key:
+            res = z['res'].item()
+            gt_err = z['gt_err'].item()
+            gt_np = z['gt_np'].item()
+            if verbose:
+                _print(tag, snr, angles, idx, res, gt_err, gt_np, true_ax, base)
+            return res, idx, angles, gt_err
 
     data = load_all(tag, M)
     B_sphere = pk.sh_basis(pk.SPHERE.vertices, LMAX)
@@ -99,6 +118,9 @@ def summarise(tag, snr, base=None, verbose=True):
                      if len(d) else np.nan)
         gt_np[c] = len(d)
 
+    if cache:
+        np.savez_compressed(cache_file, key=key, res=res, gt_err=gt_err,
+                            gt_np=gt_np)
     if verbose:
         _print(tag, snr, angles, idx, res, gt_err, gt_np, true_ax, base)
     return res, idx, angles, gt_err

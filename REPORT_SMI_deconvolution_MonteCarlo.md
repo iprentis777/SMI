@@ -352,3 +352,24 @@ Octave lacks (`deconv_comparison/stubs/`), Python 3.11 with
 `numpy scipy dipy cvxpy matplotlib`.
 
 ---
+
+## 10. What to do next, in order of value
+
+1. **Check the `CS_phase` finding against a real MRtrix install** (section 4.1).
+   It is a one-command test — write an SMI fODF, run `sh2peaks`, compare against
+   the peak SMI reports — and if it holds, every SMI tractogram produced so far
+   is mirrored. Nothing else in this report matters as much.
+2. **Decide `lambda_nonneg`** (section 6). Two independent measurements now say
+   the shipped `10` is not on the Pareto front and that `1` maximises whole-fODF
+   fidelity at every condition. The default was not changed here.
+3. **Run `dhollander.py` on a real brain** and compare the response it returns
+   against the phantom-derived ones in section 2. That is the one substitution
+   in this whole package, and it is cheap to remove.
+4. **Add unequal fibre volume fractions and three-way crossings.** The
+   machinery takes them — `gen_montecarlo.m` builds its conditions from a list
+   of axes — and they are the part of the Jeurissen design that is missing.
+5. **Re-run the four-method comparison with a heterogeneous microstructure per
+   voxel.** SMI's per-voxel kernel should pay off there and cannot pay off in
+   the current design, where every voxel has the same kernel.
+
+---
