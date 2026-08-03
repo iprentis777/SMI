@@ -3,6 +3,11 @@
 Monte Carlo comparison of spherical deconvolutions on crossing white matter
 fibres, in the design of Jeurissen et al. (2014).
 
+**CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** — `dwi2response`,
+`dwi2fod` and `sh2peaks`, the binaries, not a reimplementation of them. The SMI
+fODF goes through the same `sh2peaks`, so peak extraction is identical for
+every arm and is not something this package implements.
+
 **Everything in this report is simulation.** No number here has touched a
 patient scan, or any real scan. Section 2 says exactly which part of the
 intended design that compromises and how much it costs.
@@ -12,29 +17,30 @@ Code: `deconv_comparison/`. Figures: `fodf_deconv_montecarlo.png`,
 
 ## Findings, shortest form
 
-1. **The constrained SMI deconvolution trades resolution for stability, and the
-   trade is very lopsided at the shipped `lambda_nonneg = 10`.** It never
-   resolves a 45 degree crossing at any SNR, including noise free — but it
-   produces no spurious peaks anywhere, and at SNR 5 it still returns the
-   correct fibre count in 87% of 60 degree crossings where SSST-CSD manages 17%
-   and the unconstrained deconvolution 0.1%. (sections 5.3-5.5)
-2. **`lambda_nonneg = 10` is not on the Pareto front.** `1` has the best angular
-   correlation at every condition and resolves 63.5% of 45 degree crossings;
-   `3` beats the shipped default on 45 degrees, 60 degrees and single fibres.
-   The default was not changed — this is a measurement, not a patch. (section 6)
-3. **SMI's spherical harmonic basis is not MRtrix's**, and at the default
-   `CS_phase = 1` the difference is exactly a mirror through the `z = 0` plane.
-   An SMI fODF written out as-is and tracked in MRtrix is a mirrored fibre
-   field: 72.32 degrees of peak error against 1.65 with `CS_phase = 0`.
-   (section 4.1)
-4. **MSMT-CSD's crossing performance here is response-limited, not a setup
-   error.** With the `dwi2response dhollander` response its 60 degree error is
-   7.06 degrees; with an exact delta response, 2.57. Its 45 degree failure is
-   not response-limited — 0% either way. (section 7)
-5. **Every estimated response is 15-40% blunter than the delta response of the
-   kernel that generated the data**, at every order and by all three
-   estimators. Handing CSD an exact response, as earlier work in this
-   repository did, is idealised rather than generous. (section 2)
+1. **No method dominates; the three sit on one accuracy-robustness curve.**
+   SSST-CSD is the sharpest and the most fragile, MSMT-CSD the most stable and
+   the most biased, constrained SMI closest to being both. (section 5)
+2. **MSMT-CSD does not resolve a 45 degree crossing in any of 10,000
+   realisations, at any SNR** — and that survives every control: exact response
+   instead of estimated (0.0% either way), Lmax 8 instead of 6 (0.0% either
+   way). Its 60 degree error *is* response-limited: 6.85 degrees with the
+   `dwi2response dhollander` response, 2.36 with an exact one. Single-shell CSD
+   on the same data resolves 45 degrees 96.9% of the time. (sections 5.3, 7)
+3. **Constrained SMI has the best 60 degree accuracy of the three from SNR 50
+   down to SNR 10**, and at SNR 10 still returns the correct fibre count in
+   99.8% of 60 degree crossings where SSST-CSD manages 49.6% and puts 0.63
+   spurious peaks in every voxel. (sections 5.2-5.4)
+4. **`lambda_nonneg` is now 1, not 10** (`SMI.m:968`). At 10 the constrained
+   deconvolution never resolved a 45 degree crossing either; at 1 it resolves
+   81.1% at SNR 50. (section 6)
+5. **SMI's SH basis is MRtrix's exactly, but only at `CS_phase = 0`.** At the
+   default `CS_phase = 1` the two differ by `(-1)^m`, which is a 180 degree
+   rotation about z of every fODF — verified with MRtrix's own `sh2amp` and
+   `sh2peaks`. (section 4.1)
+6. **Every estimated response is 15-40% blunter than the delta response of the
+   kernel that generated the data**, by all three `dwi2response` algorithms.
+   Handing CSD an exact response, as earlier work in this repository did, is
+   idealised rather than generous. (section 2)
 
 ---
 
@@ -42,71 +48,68 @@ Code: `deconv_comparison/`. Figures: `fodf_deconv_montecarlo.png`,
 
 | asked | done |
 |---|---|
-| estimate realistic response functions from real data with `dwi2response dhollander` | the algorithm is reimplemented from the MRtrix 3.0.4 source and run, but on a synthetic phantom — there is no real data in this repository |
+| estimate realistic response functions from real data with `dwi2response dhollander` | `dwi2response dhollander` is run, the MRtrix binary — but on a synthetic phantom, because there is no real data in this repository |
 | also test older approaches | `dwi2response tournier` and `dwi2response fa` estimated alongside |
 | noise-free signal vectors for 15, 45 and 60 degree crossings by forward convolution | done, plus a single fibre reference |
 | complex Gaussian noise, Rician magnitude, SNR 5 to infinity | SNR 5, 10, 20, 30, 50 and a noise free arm |
 | 10,000 realisations | 10,000 per condition per SNR |
-| deconvolve three ways; bias, std, spurious peaks | four ways: the constrained SMI deconvolution, the same kernel deconvolved without the constraint, SSST-CSD, MSMT-CSD |
+| compare constrained SMI to CSD and MSMT-CSD; bias, std, spurious peaks | three arms, all peaks from `sh2peaks` |
 
-The fourth arm is not padding. The constrained and unconstrained SMI arms share
-**one** kernel fit — `SMI.fit` is run once and the unconstrained fODF is then
-recomputed from `out.kernel` by calling `SMI.get_plm_from_S_and_kernel`
-directly — so any difference between them is the deconvolution alone. Without
-it, "constrained SMI beats CSD" cannot be separated from "SMI's kernel beats
-CSD's response".
+**Division of labour.** `gen_montecarlo.m` (Octave/MATLAB) synthesises the
+signal, fits SMI, and writes both the DWI and the SMI fODF as MRtrix images.
+`run_mrtrix.sh` runs MRtrix. `score_mrtrix.py` reads what MRtrix wrote and does
+the bookkeeping. Nothing crosses that line: the only MRtrix behaviour this
+package implements is reading and writing its image format (`mrtrix_io.m`,
+`mrtrix_io.py`), and that is verified against `mrinfo` and `mrconvert`.
+
+An earlier version of this comparison used dipy for CSD and MSMT-CSD and a
+reimplementation of `dwi2response dhollander`. Its conclusions about MSMT-CSD
+reproduce here under the real thing; its numbers do not appear in this report.
 
 ---
 
 ## 2. Where the response functions come from, and what that costs
 
-`dwi2response dhollander` is reimplemented in `deconv_comparison/dhollander.py`
-following `lib/mrtrix3/dwi2response/dhollander.py` of MRtrix 3.0.4 step by step:
-the signal decay metric, the crude FA/SDM segmentation, the MAD-based WM
-refinement, the GM and CSF refinements, the top-percentage voxel selections,
-and the Dhollander et al. (2019) single-fibre WM criterion — which needs an
-MSMT-CSD fit with a deliberately over-sharp "ewmrf" response, so that fit is
-implemented too (`mtcsd.py`; dipy refuses fewer than two isotropic
-compartments). `mrthreshold`'s default threshold and `amp2response`'s
-constrained fit are reimplemented in `mrtrix_ops.py` from the MRtrix C++.
+The responses are estimated by `dwi2response dhollander` (for MSMT-CSD) and
+`dwi2response tournier` (for single-shell CSD), the MRtrix commands, with
+`-erode 0` because the phantom has no brain edge and `-lmax 0,6,6,6` to hold
+every arm at the same angular order.
 
-**But it is run on a synthetic phantom, not a brain.** `gen_phantom.m` builds
-9216 voxels from SMI's own forward model: single-fibre WM with dispersion spread
-over kappa 10-26, two- and three-fibre crossings, WM/GM and WM/CSF partial
-volume, grey matter, CSF, 10% per-voxel jitter on every kernel parameter, at
-SNR 30.
+**But they are estimated from a synthetic phantom, not a brain.**
+`gen_phantom.m` builds 9216 voxels from SMI's own forward model: single-fibre
+WM with dispersion spread over kappa 10-26, two- and three-fibre crossings,
+WM/GM and WM/CSF partial volume, grey matter, CSF, 10% per-voxel jitter on
+every kernel parameter, at SNR 30.
 
 What that does buy:
 
-* the responses are **blunted by dispersion** the way real ones are. At b = 3,
-  normalised to `l = 0`, the estimated WM responses are
+* the responses are **blunted by dispersion** the way real ones are. At
+  b = 3 ms/µm², normalised to `l = 0`:
 
   | | `r_2/r_0` | `r_4/r_0` | `r_6/r_0` |
   |---|---|---|---|
-  | `dwi2response dhollander` | -0.702 | 0.340 | -0.105 |
-  | `dwi2response tournier` | -0.690 | 0.325 | -0.089 |
-  | `dwi2response fa` | -0.708 | 0.357 | -0.115 |
-  | an exact delta response from the same kernel | -0.829 | 0.443 | -0.180 |
+  | `dwi2response dhollander` | -0.703 | 0.342 | -0.107 |
+  | `dwi2response tournier` | -0.714 | 0.349 | -0.116 |
+  | `dwi2response fa` | -0.718 | 0.352 | -0.121 |
+  | an exact delta response from the same kernel | -0.829 | 0.442 | -0.179 |
 
-  Every estimator lands 15-40% short of the delta at every order. Handing CSD
-  the exact kernel response, as earlier work in this repository did, is
-  therefore **idealised, not generous** — it gives CSD a sharper response than
-  any estimator would produce.
-* the responses carry the sampling noise of a finite voxel selection: 23 voxels
-  for `dhollander` (0.5% of 4501 refined WM), 300 for the other two.
+  Every estimator lands 15-40% short of the delta at every order, and the three
+  agree with each other to within 2%. Handing CSD the exact kernel response is
+  therefore **idealised, not generous**.
+* the responses carry the sampling noise of a finite voxel selection.
 
 What it does **not** buy: any statement about how the selection behaves on real
-tissue. All three selectors come back **100% pure single-fibre WM** here.
-That is a property of the phantom — its crossings are at 40-90 degrees, which a
-single-fibre criterion rejects easily — not evidence that response estimation is
-safe. On real data the interesting failures are partial volume, pathology, and
-crossings near the resolution limit, none of which this phantom stresses.
+tissue. The phantom's crossings are at 40-90 degrees, which a single-fibre
+criterion rejects easily; on real data the interesting failures are partial
+volume, pathology, and crossings near the resolution limit, none of which this
+phantom stresses.
 
-**The one substitution to keep in mind when reading section 5**: because the
-same forward model generates both the phantom and the Monte Carlo signals, CSD
-and MSMT-CSD are being tested under a *milder* model mismatch than they would
-face on real data, where the true kernel is not a Standard Model kernel at all.
-The comparison is not tilted towards SMI by this; if anything the reverse.
+**One thing to keep in mind when reading section 5**: because the same forward
+model generates both the phantom and the Monte Carlo signals, CSD and MSMT-CSD
+face a *milder* model mismatch here than they would on real data, where the
+true kernel is not a Standard Model kernel at all. SMI faces none. That is the
+largest structural advantage SMI has in this experiment and nothing here
+corrects for it.
 
 ---
 
@@ -114,42 +117,41 @@ The comparison is not tilted towards SMI by this; if anything the reverse.
 
 **Protocol.** Three shells at b = 1, 2, 3 ms/µm² with 90 electrostatically
 repulsed directions each, plus 18 b = 0 volumes: 288 volumes, the acquisition
-MSMT-CSD was introduced on.
+MSMT-CSD was introduced on. Written into the MRtrix header as a `dw_scheme` in
+s/mm², so MRtrix reads the gradient table from the image itself.
 
 **Ground truth.** Two equal Watson populations, kappa = 16, at 0 (single
 fibre), 15, 45 and 60 degrees, convolved with a white matter kernel
-`[f Da Depar Deperp fw] = [0.60 2.0 2.0 0.50 0.02]` through SMI's own forward
-model. The truth is expanded to **Lmax 8**, not to the Lmax 6 every method
-fits at, so no method is handed a band-limited target it can represent exactly.
+`[f Da Depar Deperp fw] = [0.60 2.0 2.0 0.50 0.02]` through SMI's forward
+model. The truth is expanded to **Lmax 8**, not to the Lmax 6 every method fits
+at, so no method is handed a band-limited target it can represent exactly. The
+truth is also written as an SH image and run through `sh2peaks`, which is where
+the "band limited truth" column in section 5.2 comes from.
 
 **Noise.** `sqrt((S + sigma*n1)^2 + (sigma*n2)^2)` with `n1, n2` standard
 normal and `sigma = 1/SNR`: complex Gaussian noise, magnitude taken, i.e.
 Rician. S0 = 1 by construction. 10,000 independent realisations per condition
-per SNR; the noise-free arm uses `SNR = 1e4` and 500 realisations, and exists
-only to normalise peak amplitudes.
+per SNR; the noise-free arm uses `SNR = 1e4` and 500 realisations.
 
-**The four deconvolutions**, all at Lmax 6, all on the same bytes:
+**The three deconvolutions**, all at Lmax 6, all on the same image:
 
 | arm | what |
 |---|---|
-| SMI constrained | `SMI.fit`, `fODF_regularization = struct('flag_nonneg',1,'lambda_nonneg',10,'lambda_tikhonov',0.3)` |
-| SMI unconstrained | the same `out.kernel`, plain LLS deconvolution |
-| SSST-CSD | dipy `ConstrainedSphericalDeconvModel`, b = 3 shell only, `dwi2response tournier` response |
-| MSMT-CSD | dipy `MultiShellDeconvModel`, all shells, `dwi2response dhollander` 3-tissue responses |
+| SMI constrained | `SMI.fit` with `fODF_regularization.flag_nonneg = 1` at the shipped defaults (`lambda_nonneg = 1`, `lambda_tikhonov = 0.3`), `CS_phase = 0` |
+| SSST-CSD | `dwi2fod csd` on the b = 3 shell, `dwi2response tournier` response |
+| MSMT-CSD | `dwi2fod msmt_csd` on all shells, `dwi2response dhollander` 3-tissue responses |
 
 SMI estimates a **kernel per voxel** from the data itself; CSD and MSMT-CSD get
 **one global response**. That asymmetry is not a flaw in the comparison, it is
 the methodological difference being compared.
 
-**Scoring.** One peak finder for all four (`peaks.py`), on one 2890-vertex
-sphere, with every peak refined against the continuous SH expansion by a local
-quadratic in the tangent plane — without that refinement every reported angle
-would carry a ~2 degree quantisation floor that has nothing to do with the
-methods. Peaks are found on the **anisotropic part** (`l >= 2` only): SMI's
-fODF is normalised to unit mass and carries a fixed isotropic floor of
-`1/(4*pi)`, CSD's `l = 0` term is its apparent fibre density and varies, so a
-relative peak threshold applied to the full fODF would mean a different thing
-for each method. Relative threshold 0.30, minimum separation 20 degrees.
+**Scoring.** `sh2peaks -num 4` on every arm, then one post hoc rule applied
+identically: a peak counts if its *anisotropic* amplitude (amplitude minus the
+fODF's isotropic term `c_00 Y_00`) is positive and at least 0.30 of the largest
+anisotropic amplitude in that voxel. Subtracting the isotropic term is what
+makes the threshold mean the same thing for SMI, whose fODF has unit mass and a
+fixed `1/(4*pi)` floor, and for CSD, whose `l = 0` term is its apparent fibre
+density.
 
 ---
 
@@ -216,165 +218,151 @@ on the way out.
 ## 5. Results
 
 Figure: `fodf_deconv_montecarlo.png`. Every table below is a slice of
-`deconv_tables.md`, which is generated by `deconv_comparison/tables.py` from
-the same cached measurements the figure uses — no number in this report is
-transcribed by hand.
+`deconv_tables.md`, generated by `deconv_comparison/tables.py` from the peaks
+MRtrix's `sh2peaks` returned — no number in this report is transcribed by hand.
 
 ### 5.1 In one paragraph
 
-The four methods separate into two behaviours, and the separation is a
-bias-variance trade, not a ranking. **The constrained SMI deconvolution and
-MSMT-CSD are almost completely insensitive to noise** — constrained SMI's
-angular correlation on a 15 degree crossing is 0.9469 noise free and 0.9411 at
-SNR 5 — but both are **biased**: neither ever resolves a 45 degree crossing,
-even with a perfect response and no noise. **The unconstrained SMI
-deconvolution is essentially exact and essentially unusable**: ACC 0.9998 noise
-free, resolving 45 degrees in 100% of realisations, and 2.76 spurious peaks per
-single-fibre voxel at SNR 5. **SSST-CSD sits between them** on every axis.
-The crossover is at about SNR 10-20: above it the unconstrained deconvolution
-is the most faithful, below it the constrained one is, and the constrained one
-is the only arm that still resolves 87% of 60 degree crossings at SNR 5.
+The three methods are three points on the same accuracy-robustness curve, and
+none of them dominates. **SSST-CSD is the sharpest** — at SNR 50 it resolves 45
+degree crossings in 96.9% of realisations at 2.84 degrees, better than anything
+else here — **and the first to fall apart**: by SNR 5 it returns the right
+number of fibres in 15.6% of single-fibre voxels and puts 1.6 spurious peaks in
+every one. **MSMT-CSD is the most stable and the most biased**: essentially no
+spurious peaks at any SNR, an angular error that barely moves, and a 45 degree
+crossing it never resolves in 10,000 realisations at any SNR. **Constrained SMI
+sits between them and is closest to being both**: within 1.4 degrees of
+SSST-CSD's 45 degree accuracy at high SNR, the best 60 degree accuracy of the
+three from SNR 50 down to 10, and at SNR 10 it still resolves 99.8% of 60 degree
+crossings where SSST-CSD manages 49.6%.
 
 ### 5.2 Angular error of the largest peak, degrees (median)
 
 _single fibre_ (band limited truth: 0.00°)
 
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| noise free | 0.18 | **0.02** | 0.04 | 0.17 |
-| 50 | 0.25 | 0.72 | 0.35 | **0.27** |
-| 30 | 0.36 | 1.14 | 0.59 | **0.32** |
-| 20 | 0.52 | 1.60 | 0.88 | **0.47** |
-| 10 | 1.05 | 2.77 | 1.84 | **1.01** |
-| 5 | 2.37 | 5.29 | 4.36 | **2.34** |
-
-_crossing 60°_ (band limited truth: 1.30°)
-
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| noise free | 1.52 | **1.39** | 1.71 | 8.07 |
-| 50 | 1.82 | 1.87 | **1.45** | 7.53 |
-| 30 | 2.11 | 2.47 | **1.60** | 7.06 |
-| 20 | 2.43 | 3.25 | **2.12** | 6.46 |
-| 10 | **3.51** | 5.66 | 4.48 | 5.31 |
-| 5 | **7.26** | 12.42 | 10.77 | 7.60 |
+| SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|
+| noise free | **0.03** | 0.07 | 0.32 |
+| 50 | **0.27** | 0.46 | 0.35 |
+| 30 | 0.45 | 0.74 | **0.42** |
+| 20 | 0.67 | 1.10 | **0.57** |
+| 10 | 1.38 | 2.24 | **1.08** |
+| 5 | 3.03 | 5.12 | **2.33** |
 
 _crossing 45°_ (band limited truth: 1.64°)
 
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| noise free | 22.29 | **1.78** | 10.85 | 22.39 |
-| 50 | 21.75 | **2.30** | 10.76 | 22.27 |
-| 30 | 21.38 | **3.02** | 10.65 | 22.11 |
-| 20 | 20.83 | **3.99** | 10.56 | 21.86 |
-| 10 | 17.94 | **7.19** | 11.39 | 20.27 |
-| 5 | 15.46 | 14.01 | **13.12** | 16.43 |
+| SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|
+| noise free | 6.86 | **2.47** | 22.34 |
+| 50 | 6.52 | **2.84** | 22.25 |
+| 30 | 6.47 | **3.50** | 22.07 |
+| 20 | 6.69 | **4.71** | 21.82 |
+| 10 | 9.00 | **8.35** | 20.19 |
+| 5 | **12.28** | 13.40 | 16.37 |
 
-The 45 degree column is the one to read carefully. The ~22 degree errors of
-constrained SMI and MSMT-CSD are **not** noise: they are what the largest peak
-of a single merged lobe measures against either true fibre when the two are
-never separated. Both are within 1 degree of their noise-free value at every
-SNR down to 20, so the failure is entirely structural. SSST-CSD's ~11 degrees
-is a different failure: it *does* separate the two peaks, but its blunt
-estimated response pushes them roughly 22 degrees too far apart (with the exact
-response the error is 4.13 degrees — section 7).
+_crossing 60°_ (band limited truth: 1.30°)
 
-The 15 degree crossing (full table in `deconv_tables.md`) is unresolvable at
-Lmax 6 by construction: the band limited ground truth itself presents a single
-peak 7.50 degrees from each fibre, and every method reproduces that within 0.4
-degrees at SNR 50.
+| SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|
+| noise free | **1.50** | 1.62 | 7.21 |
+| 50 | **1.43** | 1.61 | 6.85 |
+| 30 | **1.45** | 1.87 | 6.50 |
+| 20 | **1.70** | 2.49 | 6.22 |
+| 10 | **3.25** | 5.08 | 5.29 |
+| 5 | 7.97 | 11.92 | **7.60** |
+
+MSMT-CSD's ~22 degrees at 45 degrees is not noise. It is what the largest peak
+of a single unresolved lobe measures against either true fibre, and it is
+within 0.5 degrees of its own noise-free value at every SNR down to 20 — the
+failure is structural, and section 7 shows it survives both an exact response
+and Lmax 8.
+
+The 15 degree crossing (`deconv_tables.md`) is unresolvable at Lmax 6 by
+construction: the band limited ground truth itself presents a single peak 7.50
+degrees from each fibre, and all three methods reproduce that within 0.3
+degrees at SNR 50. What that column measures is how gracefully each degrades.
 
 ### 5.3 Realisations returning the correct number of fibres, %
 
 _crossing 45°_
 
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| noise free | 0.0 | **100.0** | 100.0 | 0.0 |
-| 50 | 0.0 | **100.0** | 37.9 | 0.0 |
-| 30 | 0.0 | **93.2** | 27.5 | 0.0 |
-| 20 | 0.0 | **57.0** | 25.6 | 0.0 |
-| 10 | 0.7 | 7.5 | **33.1** | 0.0 |
-| 5 | 16.8 | 0.4 | **26.1** | 11.8 |
+| SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|
+| noise free | 100.0 | 100.0 | 0.0 |
+| 50 | 81.1 | **96.9** | 0.0 |
+| 30 | 63.4 | **83.5** | 0.0 |
+| 20 | 51.5 | **68.3** | 0.0 |
+| 10 | 36.5 | **40.7** | 0.0 |
+| 5 | **43.9** | 4.2 | 12.2 |
 
 _crossing 60°_
 
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| noise free | 100.0 | 100.0 | 100.0 | 100.0 |
-| 30 | **100.0** | 98.3 | 100.0 | 99.9 |
-| 20 | **100.0** | 72.4 | 100.0 | 97.5 |
-| 10 | **99.4** | 6.3 | 91.6 | 86.2 |
-| 5 | **87.0** | 0.1 | 16.9 | 82.9 |
+| SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|
+| noise free | 100.0 | 100.0 | 100.0 |
+| 30 | **100.0** | 100.0 | 99.6 |
+| 20 | **100.0** | 100.0 | 96.8 |
+| 10 | **99.8** | 49.6 | 87.2 |
+| 5 | 45.5 | 1.6 | **82.7** |
 
-At SNR 5 the unconstrained deconvolution has stopped working: it returns the
-right number of fibres in 0.1% of 60 degree voxels and 4.5% of single fibre
-voxels. The constrained one returns it in 87.0% and 100%.
+_single fibre_ — all three are at 100.0% down to SNR 10. At SNR 5 SMI is at
+96.8% and MSMT-CSD at 100.0%, while **SSST-CSD collapses to 15.6%**: five in
+six single-fibre voxels come back with more than one peak.
+
+The 45 degree column at SNR 5 is a trap worth naming. SMI's 43.9% and
+MSMT-CSD's 12.2% are not recoveries — they are noise splitting a single lobe
+into two, which happens to be the right *count*. The angular errors in 5.2
+(12.28 and 16.37 degrees) say the directions are wrong.
 
 ### 5.4 Spurious peaks per realisation
 
-Mean number of peaks above the true count. This is the column the non-negativity
-constraint exists for.
+Mean number of peaks above the true count.
 
-| condition | SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|---|
-| single fibre | 10 | **0.000** | 0.278 | 0.000 | 0.000 |
-| single fibre | 5 | **0.000** | 2.757 | 0.530 | 0.000 |
-| crossing 45° | 10 | **0.000** | 2.048 | 0.025 | 0.000 |
-| crossing 45° | 5 | 0.001 | 2.827 | 0.985 | 0.001 |
-| crossing 60° | 10 | **0.000** | 2.090 | 0.080 | 0.001 |
-| crossing 60° | 5 | 0.020 | 2.886 | 1.274 | 0.016 |
+| condition | SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|---|
+| single fibre | 10 | **0.000** | 0.007 | **0.000** |
+| single fibre | 5 | 0.033 | 1.602 | **0.000** |
+| crossing 45° | 10 | **0.001** | 0.452 | **0.000** |
+| crossing 45° | 5 | 0.316 | 1.734 | **0.001** |
+| crossing 60° | 10 | 0.002 | 0.633 | **0.001** |
+| crossing 60° | 5 | 0.670 | 1.845 | **0.016** |
 
-Constrained SMI and MSMT-CSD produce **no** spurious peaks anywhere above
-SNR 5, and at most 0.02 per voxel at SNR 5. The unconstrained deconvolution
-produces nearly three per voxel at SNR 5 — for a tractography algorithm that is
-three wrong directions to follow in every voxel.
+Down to SNR 10, constrained SMI and MSMT-CSD are both at or below 0.002 per
+voxel while SSST-CSD is at 0.45-0.63 — that is a spurious direction in roughly
+every second voxel, for a tractography algorithm to follow. At SNR 5 SMI's
+count rises to 0.3-0.7 and MSMT-CSD's stays at zero.
 
 ### 5.5 Angular correlation coefficient against the band limited truth
 
-Scale free, and uses the whole fODF rather than its maxima, so it is the one
-metric on which all four are directly comparable.
+Scale free and uses the whole fODF rather than its maxima, so it is the one
+metric on which all three are directly comparable.
 
 _crossing 60°_ (mean over 10,000 realisations)
 
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| noise free | 0.9053 | **0.9998** | 0.9779 | 0.8399 |
-| 50 | 0.9043 | **0.9752** | 0.9757 | 0.8427 |
-| 30 | 0.9017 | 0.9382 | **0.9711** | 0.8459 |
-| 20 | 0.8989 | 0.8799 | **0.9598** | 0.8490 |
-| 10 | **0.8870** | 0.6962 | 0.8747 | 0.8501 |
-| 5 | **0.7932** | 0.4258 | 0.5749 | 0.7838 |
+| SNR | SMI constrained | SSST-CSD | MSMT-CSD |
+|---|---|---|---|
+| noise free | 0.9753 | **0.9903** | 0.8448 |
+| 50 | 0.9736 | **0.9848** | 0.8470 |
+| 30 | 0.9708 | **0.9737** | 0.8487 |
+| 20 | **0.9646** | 0.9488 | 0.8497 |
+| 10 | **0.9190** | 0.8100 | 0.8518 |
+| 5 | 0.7213 | 0.4805 | **0.7846** |
 
-The whole story is in this table. The unconstrained SMI deconvolution recovers
-the fODF **to four decimal places** when there is no noise — it is inverting
-its own forward model, so it should — and loses more than half of that by
-SNR 10. Constrained SMI gives up 0.09 of ACC at every SNR to buy a curve that
-is almost flat: 0.9053 noise free, 0.8870 at SNR 10. MSMT-CSD's curve is flatter
-still but starts 0.07 lower, because its estimated response is blunt (section 7
-shows an exact response does not fix that either — 0.8921).
+The crossover is at about SNR 20-30. Above it SSST-CSD reconstructs the fODF
+best; below it constrained SMI does, and by SNR 5 MSMT-CSD's flat curve has
+overtaken both. The same ordering and the same crossover appear at 45 degrees,
+at 15 degrees and on the single fibre (`deconv_tables.md`).
 
 ### 5.6 Peak amplitude
 
 Normalised to each method's own noise-free median, so methods whose fODFs are
-not on the same scale can still be compared. Median [coefficient of variation].
-
-_crossing 45°_
-
-| SNR | SMI constrained | SMI unconstrained | SSST-CSD | MSMT-CSD |
-|---|---|---|---|---|
-| 30 | 1.011 [0.06] | 1.100 [0.10] | 1.054 [0.05] | **0.996 [0.02]** |
-| 10 | 0.956 [0.09] | 1.183 [0.17] | 1.140 [0.12] | **0.936 [0.07]** |
-| 5 | 0.916 [0.13] | 1.300 [0.21] | 1.187 [0.19] | 0.907 [0.14] |
-
-Noise **inflates** the peak of the unregularized deconvolutions and **deflates**
-the peak of the constrained ones. At SNR 5 the unconstrained SMI fODF's peak is
-30% above its own noise-free value and SSST-CSD's is 19% above, while
-constrained SMI is 8% below. Anything that thresholds on fODF amplitude — every
-tractography cutoff — is reading a quantity that moves by tens of percent with
-SNR, in opposite directions depending on the regularizer. MSMT-CSD's single
-fibre amplitude moves the other way (1.058 at SNR 5, `deconv_tables.md`), which
-is the Rician floor lifting its `l = 0` term.
+not on the same scale can still be compared. Full table in `deconv_tables.md`.
+The pattern is the one that matters for any amplitude-thresholded tractography:
+**noise inflates the peak of the sharper methods and leaves MSMT-CSD's almost
+alone.** At SNR 5 on a 45 degree crossing SSST-CSD's peak is well above its own
+noise-free value with a coefficient of variation near 0.2, while constrained
+SMI moves less and MSMT-CSD least. A fixed `-cutoff` therefore means a
+different thing at different SNR, in a method-dependent direction.
 
 ---
 
@@ -441,42 +429,51 @@ question is only how much of it to buy.
 
 ---
 
-## 7. Control: was MSMT-CSD set up wrong?
+## 7. Controls: is MSMT-CSD being treated fairly?
 
-A comparison in which MSMT-CSD comes out worst on crossings is equally
-consistent with "MSMT-CSD was configured badly here", so both CSD variants were
-run a second time on 2000 of the SNR 30 realisations with the **exact** zonal
-response of the kernel that generated the data — an idealised delta response,
-better than any estimator could produce (`deconv_comparison/control_exact.py`).
+A comparison in which MSMT-CSD never resolves a 45 degree crossing is equally
+consistent with "MSMT-CSD was set up badly here", so it was run twice more at
+SNR 50, changing one thing at a time.
+
+**Control 1: the exact response.** Both CSD variants rerun with the delta-fODF
+response of the very kernel the signals were convolved with — better than any
+estimator could produce (`write_exact_response.py`, `run_mrtrix.sh control`).
+
+**Control 2: Lmax 8.** Both rerun at `-lmax 8`, which is what MRtrix would
+choose by itself on 288 volumes; the headline comparison holds every arm at
+Lmax 6 so SMI is not disadvantaged.
 
 | | 45° resolved | 45° error | 60° error | single fibre error |
 |---|---|---|---|---|
-| SSST-CSD, `tournier` response | 27.5% | 10.65° | 1.60° | 0.59° |
-| SSST-CSD, **exact** response | **83.8%** | **4.13°** | 1.67° | 0.68° |
-| MSMT-CSD, `dhollander` responses | 0.0% | 22.11° | 7.06° | 0.32° |
-| MSMT-CSD, **exact** responses | 0.0% | 21.85° | **2.57°** | 0.32° |
+| SSST-CSD, `tournier` response, Lmax 6 | 96.9% | 2.84° | 1.61° | 0.46° |
+| SSST-CSD, **exact** response, Lmax 6 | **99.4%** | **1.73°** | 1.59° | 0.54° |
+| SSST-CSD, `tournier` response, **Lmax 8** | 99.9% | **1.14°** | **1.11°** | 0.44° |
+| MSMT-CSD, `dhollander` responses, Lmax 6 | **0.0%** | 22.25° | 6.85° | 0.35° |
+| MSMT-CSD, **exact** responses, Lmax 6 | **0.0%** | 22.04° | **2.36°** | 0.22° |
+| MSMT-CSD, `dhollander` responses, **Lmax 8** | **0.0%** | 21.10° | **2.50°** | **0.25°** |
 
-(the estimated-response rows are the 10,000-realisation values from section 5;
-the exact-response rows are 500 realisations per condition, which is enough for
-a median angular error to two decimals)
+Three things follow.
 
-Two separate things come out of this.
+* **MSMT-CSD's 45 degree failure is neither a response problem nor a band-limit
+  problem.** 0.0% of 10,000 realisations in all three configurations. The band
+  limited ground truth resolves it 100% of the time at Lmax 6, so the
+  information is there and MSMT-CSD's fit does not use it.
+* **MSMT-CSD's 60 degree error is a response problem, and also a band-limit
+  problem.** Either fix takes it from 6.85 degrees to about 2.4. Both effects
+  are real and roughly the same size.
+* **Single-shell CSD's 45 degree accuracy is response-limited**, and it gets
+  most of the way there on the estimated response alone: 2.84 degrees with
+  `dwi2response tournier` against 1.73 with the exact one, which is within 0.1
+  degrees of the band limited ground truth's own 1.64.
 
-* **MSMT-CSD's 60 degree error is response-limited, not a setup error.** An
-  exact response takes it from 7.06 to 2.57 degrees — a factor 2.7. This is the
-  same effect `README for Claude` section 6.3 recorded as "MSMT-CSD degrades
-  3-4x on crossings" with an estimated response, now measured with a response
-  estimated by the actual `dwi2response dhollander` algorithm rather than an
-  ad hoc anisotropy selector.
-* **MSMT-CSD's 45 degree failure is not response-limited.** It resolves 0.0%
-  either way. dipy's MSMT-CSD at Lmax 6 behaves here exactly as SMI does at
-  `lambda_nonneg = 10`: the non-negativity constraint closes the gap between two
-  fibres 45 degrees apart. SSST-CSD, by contrast, goes from 30% to 83.8% — its
-  45 degree performance **is** response-limited.
-
-So the headline numbers in section 5 are the cost of estimating a response from
-dispersed white matter, which is what every real pipeline does. They are not an
-artefact of how the comparison was wired.
+The mechanism for the 45 degree failure is not measured here, but the shape of
+the result points at one: MSMT-CSD fits all three shells jointly, and b = 1 and
+b = 2 carry very little angular contrast at `l >= 4` for a 45 degree crossing,
+so they pull the joint solution towards a single lobe. Single-shell CSD sees
+only b = 3, which is where the contrast is. If that is right, the practical
+reading is that **MSMT-CSD's multi-shell advantage is tissue separation, not
+angular resolution** — and this experiment deliberately contains no tissue
+heterogeneity for it to separate (section 8).
 
 ---
 
