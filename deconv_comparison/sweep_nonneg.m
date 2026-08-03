@@ -19,13 +19,16 @@ function sweep_nonneg(SNR, NREP, tag)
 
 more off
 IO = binio();
+MR = mrtrix_io();
+mdir = fullfile(fileparts(mfilename('fullpath')), 'mrtrix');
+if ~exist(mdir,'dir'), mkdir(mdir); end
 
 bvals     = IO.load('bvals'); bvals = bvals(:)';
 bvecs     = IO.load('bvecs');
 eval_dirs = IO.load('eval_dirs');
 Ndwi      = numel(bvals);
 
-LMAX_FIT = 6; LMAX_GT = 8; CS = 1; D_FW = 3; KAPPA = 16;
+LMAX_FIT = 6; LMAX_GT = 8; CS = 0; D_FW = 3; KAPPA = 16;   % CS 0 == MRtrix's basis
 ANGLES = [0 15 45 60];
 K_WM   = [0.60 2.0 2.0 0.50 0.02];
 
@@ -80,6 +83,11 @@ IO.save(['mc_gt_axes_' tag], ax);
 IO.save(['mc_sh_gt6_' tag], sh_gt6);
 IO.save(['mc_angles_' tag], ANGLES(:));
 IO.save(['Y_smi_' tag], SMI.get_even_SH(eval_dirs, LMAX_FIT, CS));
+MR.write(fullfile(mdir,['mask_' tag]), ones(GRID), struct('datatype','UInt8'));
+gtv = zeros([GRID sum(keep6)]);
+gtc = reshape(sh_gt6(cond_id,:), [GRID sum(keep6)]);
+gtv(:) = gtc(:);
+MR.write(fullfile(mdir,['gtfod_' tag]), gtv);
 
 options = struct();
 options.b = bvals; options.dirs = bvecs;
@@ -113,6 +121,8 @@ for is = 1:size(SETTINGS,1)
     sh  = [ones(NVOX,1) plm].*repmat(sc6, NVOX, 1);
     sh(~isfinite(sh)) = 0;
     IO.save(sprintf('sh_sweep%d_%s', is, tag), sh);
+    MR.write(fullfile(mdir,sprintf('sweep%dfod_%s', is, tag)), ...
+             reshape(sh, [GRID numel(L6)]));
     fprintf('  %-22s %5.1f s\n', SETTINGS{is,1}, toc(t0));
     fprintf(fid, '%s\n', SETTINGS{is,1});
 end

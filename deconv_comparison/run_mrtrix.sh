@@ -29,14 +29,16 @@ responses)
       -voxels $MD/dh_voxels.mih -scratch $MD/scratch_dh -force
   # dwi2response tournier: the single-shell pairing for dwi2fod csd, on the
   # highest shell, which is where single-shell CSD is normally run.
-  dwiextract $MD/phantom_p30.mih -shells 0,3000 - -quiet \
-    | dwi2response tournier - $MD/resp_wm_tournier.txt \
+  # dwi2response is a Python script and cannot read from a pipe, so the
+  # single-shell subset goes through a file.
+  dwiextract $MD/phantom_p30.mih -shells 0,3000 $MD/phantom_b3.mih -force -quiet
+  rm -rf $MD/scratch_t $MD/scratch_fa
+  dwi2response tournier $MD/phantom_b3.mih $MD/resp_wm_tournier.txt \
       -mask $MD/phantom_mask.mih -lmax $LMAX \
-      -voxels $MD/tournier_voxels.mih -force
+      -voxels $MD/tournier_voxels.mih -scratch $MD/scratch_t -force
   # dwi2response fa, the old selector, for comparison only
-  dwiextract $MD/phantom_p30.mih -shells 0,3000 - -quiet \
-    | dwi2response fa - $MD/resp_wm_fa.txt \
-      -mask $MD/phantom_mask.mih -lmax $LMAX -force
+  dwi2response fa $MD/phantom_b3.mih $MD/resp_wm_fa.txt \
+      -mask $MD/phantom_mask.mih -lmax $LMAX -scratch $MD/scratch_fa -force
   echo "--- WM responses (rows = shells, columns = even l)"
   echo "dhollander:"; cat $MD/resp_wm.txt
   echo "tournier:";   cat $MD/resp_wm_tournier.txt
@@ -49,17 +51,31 @@ fit)
       $MD/resp_wm.txt  $MD/msmtfod_$T.mih \
       $MD/resp_gm.txt  $MD/msmtgm_$T.mih \
       $MD/resp_csf.txt $MD/msmtcsf_$T.mih \
-      -mask $MD/mask.mih -lmax $LMAX,0,0 -force -quiet
-  dwiextract $MD/mc_$T.mih -shells 0,3000 - -quiet \
-    | dwi2fod csd - $MD/resp_wm_tournier.txt $MD/csdfod_$T.mih \
-      -mask $MD/mask.mih -lmax $LMAX -force -quiet
+      -mask $MD/mask_$T.mih -lmax $LMAX,0,0 -force -quiet
+  dwiextract $MD/mc_$T.mih -shells 0,3000 $MD/mc_b3_$T.mih -force -quiet
+  dwi2fod csd $MD/mc_b3_$T.mih $MD/resp_wm_tournier.txt $MD/csdfod_$T.mih \
+      -mask $MD/mask_$T.mih -lmax $LMAX -force -quiet
   for f in smifod csdfod msmtfod gtfod; do
     sh2peaks $MD/${f}_$T.mih $MD/pk_${f}_$T.mih \
-        -num $NUMPEAKS -mask $MD/mask.mih -force -quiet
+        -num $NUMPEAKS -mask $MD/mask_$T.mih -force -quiet
   done
   echo "fit $T done"
   ;;
 
+sweep)
+  # the lambda_nonneg sweep: same sh2peaks, so its numbers sit on the same
+  # scale as the four-arm comparison
+  T=$2
+  N=$3
+  for i in $(seq 1 $N); do
+    sh2peaks $MD/sweep${i}fod_$T.mih $MD/pk_sweep${i}fod_$T.mih \
+        -num $NUMPEAKS -mask $MD/mask_$T.mih -force -quiet
+  done
+  sh2peaks $MD/gtfod_$T.mih $MD/pk_gtfod_$T.mih \
+      -num $NUMPEAKS -mask $MD/mask_$T.mih -force -quiet
+  echo "sweep peaks $T done"
+  ;;
+
 *)
-  echo "usage: $0 responses | fit <tag>"; exit 1;;
+  echo "usage: $0 responses | fit <tag> | sweep <tag> <nsettings>"; exit 1;;
 esac

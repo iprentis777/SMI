@@ -1,82 +1,64 @@
-"""Score the non-negativity weight sweep written by sweep_nonneg.m.
+"""Score the non-negativity sweep, with MRtrix3's peak finder.
 
-Same peak finder, same sphere and same ground truth as score.py, so the numbers
-here sit on the same scale as the four-method comparison.
+Same `sh2peaks` output, same keep-rule and same ground truth as
+score_mrtrix.py, so these numbers sit on the same scale as the three-arm
+comparison. Run after `sweep_nonneg.m` and `run_mrtrix.sh sweep <tag> <n>`.
 """
+import os
 import sys
 import numpy as np
 
 import binio
-import peaks as pk
-import score
-
-LMAX = 6
+import score_mrtrix as sm
 
 
 def main(tag, snr):
     with open(binio.DATA + f'/sweep_names_{tag}.txt') as f:
         names = [l.strip() for l in f if l.strip()]
-    M, resid = score.smi_to_dipy(tag)
     cond = binio.load('mc_cond_id_' + tag).ravel().astype(int)
     axes = binio.load('mc_gt_axes_' + tag)
     angles = binio.load('mc_angles_' + tag).ravel()
-    gt6 = binio.load('mc_sh_gt6_' + tag) @ M.T
     ncond = len(angles)
     idx = {c: np.where(cond == c + 1)[0] for c in range(ncond)}
     true_ax = {c: [axes[k, :, c] for k in range(axes.shape[0])
                    if np.isfinite(axes[k, 0, c])] for c in range(ncond)}
-    B_sphere = pk.sh_basis(pk.SPHERE.vertices, LMAX)
     cn = ['single' if a == 0 else f'cross {a:g}' for a in angles]
 
+    gt_sh, *_ = sm.load_arm('gtfod', tag)
     rows = {}
     for i, nm in enumerate(names, start=1):
-        C = binio.load(f'sh_sweep{i}_{tag}') @ M.T
-        P = pk.find_peaks(C, LMAX, B_sphere=B_sphere)
-        npk = np.array([len(d) for d, _ in P])
-        errp = np.full(len(C), np.nan)
+        sh, d, amp, keep = sm.load_arm(f'sweep{i}fod', tag)
+        n = len(sh)
+        npk = keep.sum(axis=1)
+        errp = np.full(n, np.nan)
         for c in range(ncond):
             for v in idx[c]:
-                d = P[v][0]
-                if len(d):
-                    errp[v] = min(pk.angle(d[0], a) for a in true_ax[c])
-        a = pk.acc(C, gt6[cond - 1])
-        rows[nm] = dict(npk=npk, errp=errp, acc=a)
+                k = np.where(keep[v])[0]
+                if k.size == 0:
+                    continue
+                best = k[np.argmax(amp[v, k])]
+                errp[v] = min(sm.angle(d[v, best], a) for a in true_ax[c])
+        u, w = sh[:, 1:], gt_sh[:, 1:]
+        den = np.sqrt((u * u).sum(1) * (w * w).sum(1))
+        acc = np.where(den > 0, (u * w).sum(1) / np.maximum(den, 1e-30), np.nan)
+        rows[nm] = dict(npk=npk, errp=errp, acc=acc)
 
     print(f'\n{"="*96}\n  non-negativity sweep, SNR {snr}, '
-          f'{len(cond)//ncond} realisations per condition\n{"="*96}')
-    print(f'\nresolved (correct number of peaks), % of realisations')
-    print(f'{"setting":24s}' + ''.join(f'{n:>13s}' for n in cn))
-    for nm, r in rows.items():
-        row = f'{nm:24s}'
-        for c in range(ncond):
-            ntrue = len(true_ax[c])
-            row += f'{100*np.mean(r["npk"][idx[c]] == ntrue):12.1f}%'
-        print(row)
-
-    print(f'\nangular error of the largest peak, deg (median)')
-    print(f'{"setting":24s}' + ''.join(f'{n:>13s}' for n in cn))
-    for nm, r in rows.items():
-        row = f'{nm:24s}'
-        for c in range(ncond):
-            row += f'{np.nanmedian(r["errp"][idx[c]]):13.2f}'
-        print(row)
-
-    print(f'\nangular correlation coefficient vs the band limited truth (mean)')
-    print(f'{"setting":24s}' + ''.join(f'{n:>13s}' for n in cn))
-    for nm, r in rows.items():
-        row = f'{nm:24s}'
-        for c in range(ncond):
-            row += f'{np.nanmean(r["acc"][idx[c]]):13.4f}'
-        print(row)
-
-    print(f'\nspurious peaks per realisation (mean above the true count)')
-    print(f'{"setting":24s}' + ''.join(f'{n:>13s}' for n in cn))
-    for nm, r in rows.items():
-        row = f'{nm:24s}'
-        for c in range(ncond):
-            ntrue = len(true_ax[c])
-            row += f'{np.mean(np.maximum(r["npk"][idx[c]] - ntrue, 0)):13.3f}'
-        print(row)
+          f'{len(cond)//ncond} realisations per condition, peaks by MRtrix '
+          f'sh2peaks\n{"="*96}')
+    for title, fn in [
+            ('resolved (correct number of peaks), % of realisations',
+             lambda r, c: f'{100*np.mean(r["npk"][idx[c]] == len(true_ax[c])):12.1f}%'),
+            ('angular error of the largest peak, deg (median)',
+             lambda r, c: f'{np.nanmedian(r["errp"][idx[c]]):13.2f}'),
+            ('angular correlation coefficient vs the band limited truth (mean)',
+             lambda r, c: f'{np.nanmean(r["acc"][idx[c]]):13.4f}'),
+            ('spurious peaks per realisation (mean above the true count)',
+             lambda r, c: f'{np.mean(np.maximum(r["npk"][idx[c]] - len(true_ax[c]), 0)):13.3f}')]:
+        print(f'\n{title}')
+        print(f'{"setting":24s}' + ''.join(f'{n:>13s}' for n in cn))
+        for nm, r in rows.items():
+            print(f'{nm:24s}' + ''.join(fn(r, c) for c in range(ncond)))
 
 
 if __name__ == '__main__':

@@ -168,38 +168,48 @@ passing).
 | the MRtrix response file written by `example_SMI_response_shview.m` vs `kernel.py` | `3.8e-9`, i.e. the `%.8g` write precision |
 | the zonal response `r_l = K_l sqrt((2l+1) 4 pi)` vs SMI's forward model, in MATLAB | `1.2e-15` |
 
-### 4.1 SMI's basis is not MRtrix's, and the difference mirrors the fODF
+### 4.1 SMI's basis is MRtrix's at `CS_phase = 0`, and rotated at `CS_phase = 1`
 
 This was an open item in `README for Claude` section 8 item 4 — "verify SMI's SH
 basis against MRtrix's, every peak orientation shipped to `tckgen` depends on
-it". It is now measured, against dipy's `tournier07` basis, which dipy
-documents as MRtrix's.
+it". It is now measured **against MRtrix itself**, not against a
+reimplementation of it: `deconv_comparison/check_mrtrix_basis.sh` hands
+`sh2amp` an SH image whose 28 voxels each hold one unit basis vector, so
+`sh2amp`'s output *is* MRtrix's basis matrix, and compares it against
+`SMI.get_even_SH`.
 
-The map is **exactly diagonal** in both cases, so the conversion is trivial —
-but it is not the identity:
-
-| | map from MRtrix's basis to SMI's |
-|---|---|
-| `options.CS_phase = 0` | `1` at `m = 0`, `sqrt(2)` at `m != 0` |
-| `options.CS_phase = 1` (**the default**) | the same, times `(-1)^m` |
-
-The `sqrt(2)` is a normalisation and does not move peaks. **The `(-1)^m` does.**
-For even `l`, multiplying real SH coefficients by `(-1)^m` is exactly a
-reflection through the `z = 0` plane. Measured, on a sharp fODF along
-`[0.301 -0.501 0.812]`:
-
-| coefficients read in MRtrix's basis | peak found | error |
+| | map from MRtrix's basis to SMI's | residual |
 |---|---|---|
-| written with `CS_phase = 0` | `[ 0.316 -0.518  0.795]` | **1.65 deg** — the Lmax 6 band limit of the test fODF itself |
-| written with `CS_phase = 1` | `[ 0.327 -0.499 -0.803]` | **72.32 deg** — the truth with `z` negated |
+| `options.CS_phase = 0` | **the identity** | `3.3e-8` (the float32 image round trip) |
+| `options.CS_phase = 1` (**the default**) | `diag((-1)^m)` | `3.3e-8` |
+
+Off-diagonal terms are exactly zero in both cases.
+
+**`CS_phase = 0` means SMI's `out.plm` needs no conversion at all** — the
+coefficients are already MRtrix's. That is what this package now uses
+throughout, so nothing sits between the SMI arm and the MRtrix arms.
+
+`CS_phase = 1` is a different story. For even `l`, multiplying real SH
+coefficients by `(-1)^m` is exactly a **180 degree rotation about the z axis**.
+Measured, with MRtrix's own `sh2peaks`, on a sharp fODF along
+`[0.3010 -0.5017 0.8127]`:
+
+| written with | `sh2peaks` returns | error |
+|---|---|---|
+| `CS_phase = 0` | `[ 0.3006 -0.5010  0.8116]` | **0.00 deg** |
+| `CS_phase = 1` | `[-0.3006  0.5010  0.8116]` | **71.50 deg** — `x` and `y` negated |
 
 So: **an SMI fODF written out with the default `CS_phase = 1` and tracked in
-MRtrix is a z-mirrored fibre field.** Set `options.CS_phase = 0` before writing
-`out.plm` for MRtrix, or apply `(-1)^m` on the way out. Nothing in this
-repository has ever done that, because nothing in this repository has been
-tracked. It should be confirmed against a real MRtrix install rather than
-against dipy's reimplementation of its basis before anyone relies on it, but
-the failure mode is specific enough to look for directly: mirrored tracts.
+MRtrix is a fibre field rotated 180 degrees about z.** Set
+`options.CS_phase = 0` before writing `out.plm` for MRtrix, or apply `(-1)^m`
+on the way out.
+
+> **Correction.** An earlier version of this section reported the same
+> discrepancy as a *reflection through `z = 0`*, and reported an extra
+> `sqrt(2)` normalisation at `m != 0`. Both were artefacts of measuring
+> against dipy's `tournier07` basis instead of MRtrix's — dipy's is not
+> MRtrix's. The magnitude of the error (~72 degrees) was right; the geometry
+> and the normalisation were not.
 
 ---
 

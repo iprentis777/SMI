@@ -32,7 +32,7 @@ function gen_montecarlo(SNR, NREP, tag)
 %   mc_<tag>.mih            the same signal as an MRtrix image with dw_scheme
 %   smifod_<tag>.mih        the SMI fODF, directly in MRtrix's SH basis
 %   gtfod_<tag>.mih         the band limited ground truth, same basis
-%   mask.mih                all ones
+%   mask_<tag>.mih          all ones (per tag: the arms have different sizes)
 
 more off
 IO = binio();
@@ -112,7 +112,7 @@ IO.save(['mc_grid_' tag], GRID);
 % b in s/mm^2, which is what MRtrix expects; the protocol is carried in
 % ms/um^2 everywhere else in this package.
 MR.write(fullfile(mdir,['mc_' tag]), dwi, struct('grad',[bvecs bvals(:)*1000]));
-MR.write(fullfile(mdir,'mask'), ones(GRID), struct('datatype','UInt8'));
+MR.write(fullfile(mdir,['mask_' tag]), ones(GRID), struct('datatype','UInt8'));
 gt_vol = zeros([GRID sum(keep6)]);
 gtc = reshape(sh_gt6(cond_id,:), [GRID sum(keep6)]);
 gt_vol(:) = gtc(:);

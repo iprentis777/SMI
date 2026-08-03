@@ -1,0 +1,3 @@
+# Shells: 3000
+# command_history: /usr/lib/mrtrix3/bin/amp2response - voxels.mif vector.mif response.txt -lmax 6  (version=3.0.4)
+0.956971083357558 -0.68715513759837 0.336583413145895 -0.115669517274958
