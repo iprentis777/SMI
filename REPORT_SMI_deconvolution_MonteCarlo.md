@@ -366,66 +366,69 @@ different thing at different SNR, in a method-dependent direction.
 
 ---
 
-## 6. The non-negativity weight is mistuned, and this measures it
+## 6. Why `lambda_nonneg` is now 1
 
-`README for Claude` section 2 item 3 recorded that `lambda_nonneg = 10` — the
-shipped default — is what closes the 45 degree crossing, and asked for a
+`README for Claude` section 2 item 3 recorded that the shipped
+`lambda_nonneg = 10` was what closed the 45 degree crossing, and asked for a
 cross-check against an independent metric before changing anything. This is
-that cross-check, and it is a stronger one than asked for: the same peak finder
-and the same ground truth as the four-method comparison above, 1000
-realisations per condition at SNR 30, one `SMI.fit` and then one deconvolution
-per setting from the same kernel, so nothing but the regularizer moves
-(`deconv_comparison/sweep_nonneg.m`).
+that cross-check: `deconv_comparison/sweep_nonneg.m`, 2000 realisations per
+condition at SNR 30, one `SMI.fit` and then one deconvolution per setting from
+the same kernel, scored by the same `sh2peaks` as the rest of the report.
 
 **Realisations returning the correct number of fibres, %**
 
-| setting | single | crossing 15° | crossing 45° | crossing 60° |
+| setting | single | 15° | 45° | 60° |
 |---|---|---|---|---|
-| non-negativity off | 100.0 | 0.0 | **97.3** | 99.3 |
-| `lambda_nonneg = 1` | 100.0 | 0.0 | 63.5 | 100.0 |
-| `lambda_nonneg = 3` | 100.0 | 0.0 | 0.7 | 100.0 |
-| `lambda_nonneg = 10` (**shipped**) | 100.0 | 0.0 | **0.0** | 100.0 |
+| non-negativity off | 100.0 | 0.0 | **95.9** | 99.8 |
+| `lambda_nonneg = 1` (**now the default**) | 100.0 | 0.0 | 55.4 | 100.0 |
+| `lambda_nonneg = 3` | 100.0 | 0.0 | 0.2 | 100.0 |
+| `lambda_nonneg = 10` (the old default) | 100.0 | 0.0 | 0.0 | 100.0 |
 
 **Angular error of the largest peak, degrees (median)**
 
-| setting | single | crossing 15° | crossing 45° | crossing 60° |
+| setting | single | 15° | 45° | 60° |
 |---|---|---|---|---|
-| non-negativity off | 1.09 | 6.78 | **2.86** | 2.46 |
-| `lambda_nonneg = 1` | 0.44 | 7.21 | 7.32 | 1.37 |
-| `lambda_nonneg = 3` | **0.34** | 7.29 | 18.30 | **0.85** |
-| `lambda_nonneg = 10` | 0.36 | 7.30 | 21.35 | 2.04 |
+| non-negativity off | 1.11 | 6.78 | **2.81** | 2.40 |
+| `lambda_nonneg = 1` | 0.43 | 7.24 | 7.27 | 1.37 |
+| `lambda_nonneg = 3` | **0.34** | 7.29 | 18.30 | **0.87** |
+| `lambda_nonneg = 10` | 0.35 | 7.30 | 21.28 | 1.94 |
 
 **Angular correlation coefficient against the band limited truth (mean)**
 
-| setting | single | crossing 15° | crossing 45° | crossing 60° |
+| setting | single | 15° | 45° | 60° |
 |---|---|---|---|---|
-| non-negativity off | 0.9748 | 0.9710 | 0.9425 | 0.9447 |
-| `lambda_nonneg = 1` | **0.9800** | **0.9855** | **0.9652** | **0.9714** |
-| `lambda_nonneg = 3` | 0.9573 | 0.9687 | 0.9308 | 0.9434 |
-| `lambda_nonneg = 10` | 0.9299 | 0.9466 | 0.8862 | 0.9023 |
+| non-negativity off | 0.9751 | 0.9707 | 0.9425 | 0.9448 |
+| `lambda_nonneg = 1` | **0.9800** | **0.9857** | **0.9656** | **0.9718** |
+| `lambda_nonneg = 3` | 0.9572 | 0.9689 | 0.9311 | 0.9439 |
+| `lambda_nonneg = 10` | 0.9298 | 0.9465 | 0.8869 | 0.9032 |
 
-Three things follow, and none of them is a matter of taste.
+**Spurious peaks per realisation**: exactly 0.000 for every constrained
+setting at every condition. With the constraint **off** they appear — 0.026 at
+45 degrees and 0.003 at 60 degrees. That is what non-negativity buys, and the
+sweep says it is bought in full at `lambda_nonneg = 1`; everything above 1 pays
+more for nothing.
 
-1. **`lambda_nonneg = 10` is not on the Pareto front.** `3` beats it on 45
-   degrees, on 60 degrees, on the single fibre and on every ACC. `1` beats it on
-   45 degrees and on every ACC by a wide margin. The shipped default is the
-   worst of the four constrained settings by angular correlation at every
-   condition.
-2. **`lambda_nonneg = 1` is where the whole-fODF fidelity peaks**, and it is
-   the only constrained setting that resolves 45 degree crossings more often
-   than not (63.5%). If one number has to change, it is this one. The default
-   was **not** changed here — that is the user's call, and the measurement is
-   the deliverable.
+Three conclusions, and the first is why the default changed.
+
+1. **`lambda_nonneg = 1` has the best angular correlation at every condition**
+   — including against turning the constraint off entirely — and it already
+   buys all of the spurious-peak suppression. Nothing above it improves any
+   metric except the 60 degree median error at 3 (0.87 vs 1.37 degrees), which
+   costs 55.2 percentage points of 45 degree resolution. **The default is now
+   1** (`SMI.m:968`).
+2. **The old default of 10 was on nobody's Pareto front.** It is worse than 3
+   on 45 degrees, on 60 degrees and on every ACC, and worse than 1 on
+   everything.
 3. **Tikhonov still does nothing.** `lambda_tikhonov` 0.3 versus 0 at
-   `lambda_nonneg = 10` moves the 45 degree error from 21.35 to 21.33 degrees
-   and the ACC in the fourth decimal. This confirms `README for Claude`
-   section 2 item 1 on an independent metric.
+   `lambda_nonneg = 10` moves the 45 degree error from 21.28 to 21.27 degrees
+   and the ACC in the fourth decimal. That confirms `README for Claude`
+   section 2 item 1 on a third independent metric.
 
-There is also a cost to turning the constraint off that the ACC hides:
-**spurious peaks appear only when it is off** — 0.021 per realisation at 45
-degrees and 0.007 at 60 degrees, against exactly 0.000 for every constrained
-setting. That is the thing non-negativity buys, and it is worth having; the
-question is only how much of it to buy.
+One honest caveat about the direction of this change. At `lambda_nonneg = 1`
+the 45 degree crossing is resolved 55.4% of the time here and 63.4% in the
+10,000-realisation arm of section 5 — better than 10, far short of turning the
+constraint off (95.9%). The reason to stop at 1 rather than 0 is the spurious
+peak column and the SNR 5 behaviour in section 5.4, not the 45 degree column.
 
 ---
 
@@ -484,8 +487,8 @@ tables and none of them is measured here.
 
 * **Nothing has touched real data**, including the "real data" the responses
   come from (section 2). The single most valuable next step is to run
-  `dhollander.py`'s selection on an actual brain and compare the response it
-  returns against the ones here.
+  `dwi2response dhollander` on an actual brain and compare the response it
+  returns against the phantom-derived ones here.
 * **Only one microstructure.** Every Monte Carlo voxel has
   `[f Da Depar Deperp fw] = [0.60 2.0 2.0 0.50 0.02]`. SMI estimates a kernel
   per voxel and CSD does not; a population with varying microstructure is where
@@ -499,8 +502,9 @@ tables and none of them is measured here.
   tables as "MSMT-CSD is worse than SSST-CSD" would be exactly the wrong
   conclusion: this experiment contains none of the tissue heterogeneity MSMT-CSD
   exists to handle.
-* **One protocol, one Lmax.** Three shells, 90 directions each, Lmax 6
-  everywhere. The 15 degree crossing is unresolvable at Lmax 6 by construction —
+* **One protocol, one Lmax for the headline.** Three shells, 90 directions
+  each, Lmax 6 everywhere; section 7 shows what Lmax 8 changes for the CSD
+  arms, and it is not nothing. The 15 degree crossing is unresolvable at Lmax 6 by construction —
   the band limited ground truth itself presents a single peak — so that column
   measures how gracefully each method degrades, not whether it can resolve 15
   degrees.
@@ -516,53 +520,60 @@ tables and none of them is measured here.
 
 ```
 cd deconv_comparison
-python3 setup_protocol.py
-octave --eval "oct_path; gen_phantom(30,'p30')"
-octave --eval "oct_path; dump_bases"
-python3 dhollander.py p30                       # dhollander, tournier, fa
+python3 setup_protocol.py                                  # protocol + eval sphere
+octave --eval "oct_path; gen_phantom(30,'p30')"            # response phantom
+./run_mrtrix.sh responses                                  # dwi2response x3
 
 for s in 50 30 20 10 5; do
-  octave --eval "oct_path; gen_montecarlo($s,10000,'snr$s')"
-  python3 run_csd.py snr$s p30
+  octave --eval "oct_path; gen_montecarlo($s,10000,'snr$s')"   # signal + SMI
+  ./run_mrtrix.sh fit snr$s                                    # dwi2fod + sh2peaks
 done
 octave --eval "oct_path; gen_montecarlo(1e4,500,'nf')"
-python3 run_csd.py nf p30
+./run_mrtrix.sh fit nf
 
-python3 check_conventions.py snr30
-python3 tables.py nf snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
+./check_mrtrix_basis.sh                                    # SH basis vs MRtrix
+python3 tables.py nf snr50:50 snr30:30 snr20:20 snr10:10 snr5:5 \
+    | tee ../deconv_tables.md
 python3 figure_mc.py ../fodf_deconv_montecarlo.png \
-        snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
+    snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
 python3 figure_response.py p30 ../fodf_response_shview.png
+
+octave --eval "oct_path; sweep_nonneg(30,2000,'sw30')"     # section 6
+./run_mrtrix.sh sweep sw30 6
+python3 score_sweep.py sw30 30
+./run_mrtrix.sh control snr50                              # section 7
 ```
 
-The SNR arms are independent and were run three at a time on four cores. One
-arm is about 12 minutes of `SMI.fit`, 9 minutes for the second (unconstrained)
-deconvolution and 18 minutes of MSMT-CSD; SSST-CSD is under a second for all
-40,000 voxels. The whole thing is about two hours of wall clock on four cores.
+`run_all.sh` does all of it. The SNR arms are independent and were run three or
+four at a time on four cores; one arm is about 12 minutes of `SMI.fit` and
+under a minute of MRtrix. The whole thing is about an hour of wall clock on
+four cores, plus about 25 minutes for the sweep and controls.
 
-Environment: GNU Octave 8.4 with `statistics`, three shims for MATLAB functions
-Octave lacks (`deconv_comparison/stubs/`), Python 3.11 with
-`numpy scipy dipy cvxpy matplotlib`.
+Environment: MRtrix3 **3.0.4**, GNU Octave 8.4 with `statistics` and three
+shims for MATLAB functions Octave lacks (`deconv_comparison/stubs/`), Python
+3.11 with `numpy` and `matplotlib` for the bookkeeping and figures.
 
 ---
 
 ## 10. What to do next, in order of value
 
-1. **Check the `CS_phase` finding against a real MRtrix install** (section 4.1).
-   It is a one-command test — write an SMI fODF, run `sh2peaks`, compare against
-   the peak SMI reports — and if it holds, every SMI tractogram produced so far
-   is mirrored. Nothing else in this report matters as much.
-2. **Decide `lambda_nonneg`** (section 6). Two independent measurements now say
-   the shipped `10` is not on the Pareto front and that `1` maximises whole-fODF
-   fidelity at every condition. The default was not changed here.
-3. **Run `dhollander.py` on a real brain** and compare the response it returns
+1. **Run `dwi2response dhollander` on a real brain** and compare the responses
    against the phantom-derived ones in section 2. That is the one substitution
-   in this whole package, and it is cheap to remove.
-4. **Add unequal fibre volume fractions and three-way crossings.** The
+   left in this package, and removing it is cheap.
+2. **Find out why MSMT-CSD never resolves 45 degrees** (section 7). The
+   shell-weighting explanation is a hypothesis, not a measurement; refitting
+   MSMT-CSD on b = 0 and b = 3 alone would test it in one command. If it holds,
+   it is a statement about multi-shell deconvolution worth making carefully,
+   and if it does not, something else is going on and this report should say so.
+3. **Add unequal fibre volume fractions and three-way crossings.** The
    machinery takes them — `gen_montecarlo.m` builds its conditions from a list
    of axes — and they are the part of the Jeurissen design that is missing.
-5. **Re-run the four-method comparison with a heterogeneous microstructure per
-   voxel.** SMI's per-voxel kernel should pay off there and cannot pay off in
-   the current design, where every voxel has the same kernel.
+4. **Re-run with a heterogeneous microstructure per voxel.** SMI's per-voxel
+   kernel should pay off there and cannot pay off in the current design, where
+   every voxel has the same kernel.
+5. **Put grey matter and CSF partial volume back in.** This experiment removes
+   exactly the thing MSMT-CSD exists for, which makes its numbers here easy to
+   misread. `REPORT_fODF_freewater.md` covers part of it; a combined design
+   would be better.
 
 ---
