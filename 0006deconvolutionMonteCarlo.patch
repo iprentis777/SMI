@@ -1,7 +1,7 @@
 From 900a8b6a119c75494a1ee4bcb801790fff906a65 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 21:59:30 +0000
-Subject: [PATCH 1/9] Add the shview-style response viewer and the
+Subject: [PATCH 01/10] Add the shview-style response viewer and the
  deconvolution Monte Carlo
 
 Two pieces of work.
@@ -4218,8 +4218,8 @@ index 0000000..1042802
 From 91e6ff09cf736f895451f6da472b1be071fe29ca Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 22:04:29 +0000
-Subject: [PATCH 2/9] Add run_all.sh, cache the scoring, and write up the sweep
- and the basis check
+Subject: [PATCH 02/10] Add run_all.sh, cache the scoring, and write up the
+ sweep and the basis check
 
 - deconv_comparison/run_all.sh reproduces the whole package from an empty
   data/, with NREP and NPROC overridable.
@@ -4415,8 +4415,8 @@ index 9ab0aca..870bd8c 100644
 From 4791599d3427e136bec34aa7dc04581eeae1ba15 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 22:39:08 +0000
-Subject: [PATCH 3/9] Complete the Monte Carlo comparison: 10,000 realisations
- per condition
+Subject: [PATCH 03/10] Complete the Monte Carlo comparison: 10,000
+ realisations per condition
 
 Five SNR arms (50, 30, 20, 10, 5) plus a noise-free reference, four
 deconvolutions each, 40,000 voxels per arm. Result tables in deconv_tables.md,
@@ -5008,7 +5008,7 @@ index 0000000..3823f71
 From 96fed1e86c4a85106965741055d65ad9f53aee2c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 23:06:51 +0000
-Subject: [PATCH 4/9] Set lambda_nonneg back to 1, and move CSD and MSMT-CSD
+Subject: [PATCH 04/10] Set lambda_nonneg back to 1, and move CSD and MSMT-CSD
  onto MRtrix3 itself
 
 Three changes, all requested.
@@ -5861,7 +5861,7 @@ index 0000000..a4bcad7
 From ebbe2752ee3ee3a88b68aab3491bcb9021a33aaf Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 23:12:09 +0000
-Subject: [PATCH 5/9] Verify the SH basis against MRtrix itself, and correct
+Subject: [PATCH 05/10] Verify the SH basis against MRtrix itself, and correct
  the earlier result
 
 check_mrtrix_basis.sh hands sh2amp an SH image whose 28 voxels each hold one
@@ -6394,7 +6394,7 @@ index 32ae237..d145463 100644
 From 14a669c75e0978ae230660df6c1972a695ee00f4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 23:26:29 +0000
-Subject: [PATCH 6/9] Add the exact-response control and point the tables and
+Subject: [PATCH 06/10] Add the exact-response control and point the tables and
  figure at MRtrix
 
 write_exact_response.py writes the delta-fODF response of the kernel that
@@ -6658,7 +6658,7 @@ index 0000000..3f7e845
 From dc4741784d65dea709f30a139c90215ddd6e8d1a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 3 Aug 2026 23:48:37 +0000
-Subject: [PATCH 7/9] Rewrite the report against the MRtrix3 run
+Subject: [PATCH 07/10] Rewrite the report against the MRtrix3 run
 
 Three arms, not four: SMI unconstrained is gone. It was never part of any
 published SMI work, and the question is how the constrained deconvolution
@@ -7745,8 +7745,8 @@ index 3823f71..30a0ed4 100644
 From 514c0d7a4928951a9335c5c4fde9fa972659cdc2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 4 Aug 2026 18:47:36 +0000
-Subject: [PATCH 8/9] Rescore the lambda_nonneg sweep with sh2peaks, and finish
- the report
+Subject: [PATCH 08/10] Rescore the lambda_nonneg sweep with sh2peaks, and
+ finish the report
 
 The sweep now goes through the same MRtrix peak finder as everything else, and
 it reproduces the earlier result: lambda_nonneg = 1 has the best angular
@@ -8008,7 +8008,7 @@ index 23e2422..c6085c6 100644
 From ad0afb4a5712a036b3ca8a28c85dca0104ed5b11 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 4 Aug 2026 18:51:53 +0000
-Subject: [PATCH 9/9] Remove the superseded dipy pipeline and update the
+Subject: [PATCH 09/10] Remove the superseded dipy pipeline and update the
  documentation
 
 MRtrix3 does CSD, MSMT-CSD, response estimation and peak finding now, so the
@@ -9840,6 +9840,59 @@ index 26b8d72..5c4e47c 100644
  sphere = get_sphere(name='repulsion724').subdivide(n=1)
  verts = sphere.vertices
  
+-- 
+2.43.0
+
+
+From c0ec4905a227eb193cbc687ff549baa39b967e18 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 4 Aug 2026 18:57:04 +0000
+Subject: [PATCH 10/10] Point the response figure at MRtrix's response files
+
+Panel F read the response functions the deleted dipy pipeline wrote. It now
+reads mrtrix/resp_wm*.txt -- what dwi2response actually produced -- so the
+figure and section 2 of the report quote the same numbers. The three estimated
+responses land on top of each other and all three sit visibly below the SMI
+kernel, which is the dispersion blunting the report describes.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/figure_response.py | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/deconv_comparison/figure_response.py b/deconv_comparison/figure_response.py
+index c0dad30..5b68d12 100644
+--- a/deconv_comparison/figure_response.py
++++ b/deconv_comparison/figure_response.py
+@@ -11,7 +11,6 @@ import matplotlib
+ matplotlib.use('Agg')
+ import matplotlib.pyplot as plt
+ 
+-import binio
+ from kernel import Kell, response_sh
+ 
+ LMAX = 8
+@@ -166,11 +165,15 @@ def main(tag='p30', out='fodf_response_shview.png'):
+     ax.annotate('SMI kernel', (np.degrees(th[215]),
+                 norm_profile(R[-1][:4])[215]), fontsize=9, color=INK,
+                 xytext=(10, 4), textcoords='offset points')
+-    for j, algo in enumerate(['dhollander', 'tournier', 'fa']):
+-        try:
+-            r = binio.load(f'resp_{algo}_wm_{tag}')[-1].ravel()
+-        except FileNotFoundError:
++    # the response files dwi2response actually wrote, highest shell
++    MD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mrtrix')
++    for j, (algo, fn) in enumerate([('dhollander', 'resp_wm.txt'),
++                                    ('tournier', 'resp_wm_tournier.txt'),
++                                    ('fa', 'resp_wm_fa.txt')]):
++        f_resp = os.path.join(MD, fn)
++        if not os.path.exists(f_resp):
+             continue
++        r = np.atleast_2d(np.loadtxt(f_resp))[-1].ravel()
+         y = norm_profile(r)
+         ax.plot(np.degrees(th), y, lw=1.8, color=C[j])
+         k = [70, 95, 120][j]
 -- 
 2.43.0
 
