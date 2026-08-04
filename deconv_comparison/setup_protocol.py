@@ -1,8 +1,9 @@
-"""Acquisition protocol and the common evaluation sphere.
+"""The acquisition protocol.
 
-Everything downstream -- Octave/SMI and Python/dipy -- reads these files, so all
-methods see identical gradient directions and are evaluated on identical
-directions. That removes protocol and peak-finder differences as confounds.
+dipy is used here and nowhere else in the package: only to generate
+electrostatically repulsed gradient directions. Everything downstream --
+Octave/SMI and MRtrix -- reads the table this writes, so every method sees
+identical gradient directions.
 
 The protocol is the one Jeurissen et al. (2014) used to introduce MSMT-CSD:
 three shells at b = 1, 2, 3 ms/um^2 with 90 directions each plus b = 0, i.e. an
@@ -37,10 +38,10 @@ bvals = np.concatenate(bvals)
 bvecs = np.concatenate(bvecs, axis=0)
 
 # ------------------------------------------------------- evaluation sphere
-# repulsion724 subdivided once: ~2.9k vertices, mean spacing ~3.9 deg. Peaks
-# found on it are refined against the continuous SH expansion afterwards
-# (peaks.py), so the vertex spacing sets where the search starts, not the
-# accuracy of the answer.
+# A dense direction set, used only by dump_bases.m and sweep_nonneg.m to
+# evaluate spherical harmonics on a common grid. Peaks are NOT found on it:
+# every peak in this package comes from MRtrix's sh2peaks, which does its own
+# Newton search on the continuous SH expansion.
 sphere = get_sphere(name='repulsion724').subdivide(n=1)
 verts = sphere.vertices
 

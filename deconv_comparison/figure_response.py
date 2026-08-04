@@ -1,9 +1,9 @@
 """Figure: the SMI kernel as a response function, next to the estimated ones.
 
 The glyphs and profiles here are the same quantities example_SMI_response_shview.m
-draws in MATLAB; check_conventions.py verifies that the file MATLAB writes and
-the values computed here agree to round-off, so this is a rendering of the
-MATLAB code path rather than a parallel implementation of it.
+draws in MATLAB. test_SMI_response_helpers.m checks that MATLAB side against
+SMI's own forward model to 1e-15, and the response functions overlaid in panel F
+are the ones `dwi2response` actually wrote.
 """
 import os
 import numpy as np
