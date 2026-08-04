@@ -11,7 +11,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import binio
 from kernel import Kell, response_sh
 
 LMAX = 8
@@ -166,11 +165,15 @@ def main(tag='p30', out='fodf_response_shview.png'):
     ax.annotate('SMI kernel', (np.degrees(th[215]),
                 norm_profile(R[-1][:4])[215]), fontsize=9, color=INK,
                 xytext=(10, 4), textcoords='offset points')
-    for j, algo in enumerate(['dhollander', 'tournier', 'fa']):
-        try:
-            r = binio.load(f'resp_{algo}_wm_{tag}')[-1].ravel()
-        except FileNotFoundError:
+    # the response files dwi2response actually wrote, highest shell
+    MD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mrtrix')
+    for j, (algo, fn) in enumerate([('dhollander', 'resp_wm.txt'),
+                                    ('tournier', 'resp_wm_tournier.txt'),
+                                    ('fa', 'resp_wm_fa.txt')]):
+        f_resp = os.path.join(MD, fn)
+        if not os.path.exists(f_resp):
             continue
+        r = np.atleast_2d(np.loadtxt(f_resp))[-1].ravel()
         y = norm_profile(r)
         ax.plot(np.degrees(th), y, lw=1.8, color=C[j])
         k = [70, 95, 120][j]
