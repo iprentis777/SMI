@@ -30,7 +30,7 @@ Code: `deconv_comparison/`. Figures: `fodf_deconv_montecarlo.png`,
    down to SNR 10**, and at SNR 10 still returns the correct fibre count in
    99.8% of 60 degree crossings where SSST-CSD manages 49.6% and puts 0.63
    spurious peaks in every voxel. (sections 5.2-5.4)
-4. **`lambda_nonneg` is now 1, not 10** (`SMI.m:968`). At 10 the constrained
+4. **`lambda_nonneg` is now 1, not 10** (`SMI.m:978`). At 10 the constrained
    deconvolution never resolved a 45 degree crossing either; at 1 it resolves
    81.1% at SNR 50. (section 6)
 5. **SMI's SH basis is MRtrix's exactly, but only at `CS_phase = 0`.** At the
@@ -415,7 +415,7 @@ Three conclusions, and the first is why the default changed.
    buys all of the spurious-peak suppression. Nothing above it improves any
    metric except the 60 degree median error at 3 (0.87 vs 1.37 degrees), which
    costs 55.2 percentage points of 45 degree resolution. **The default is now
-   1** (`SMI.m:968`).
+   1** (`SMI.m:978`).
 2. **The old default of 10 was on nobody's Pareto front.** It is worse than 3
    on 45 degrees, on 60 degrees and on every ACC, and worse than 1 on
    everything.

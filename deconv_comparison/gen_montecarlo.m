@@ -120,7 +120,7 @@ MR.write(fullfile(mdir,['gtfod_' tag]), gt_vol);
 
 % ------------------------------------------------------------- SMI
 % The constrained deconvolution at the shipped defaults. lambda_nonneg is 1
-% (SMI.m:968); the sweep behind that choice is section 6 of the report.
+% (SMI.m:978); the sweep behind that choice is section 6 of the report.
 options = struct();
 options.b     = bvals;
 options.dirs  = bvecs;
