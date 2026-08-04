@@ -1,0 +1,6 @@
+# Shells: 0,1000,2000,3000
+# command_history: /usr/lib/mrtrix3/bin/amp2response dwi.mif voxels_csf.mif safe_vecs.mif response_csf.txt -shells '0,1000,2000,3000' -isotropic  (version=3.0.4)
+3.56219591965562
+0.239368101048395
+0.140701214354816
+0.141259030639826

@@ -170,7 +170,7 @@ options.flag_fit_fODF = 1;
 
 % Non-negativity constraint (CSD-like)
 options.fODF_regularization.flag_nonneg     = 1;    % default 0
-options.fODF_regularization.lambda_nonneg   = 10;   % default 1
+options.fODF_regularization.lambda_nonneg   = 1;    % default 1
 options.fODF_regularization.tau             = 0.1;  % default 0.1
 options.fODF_regularization.Ndirs           = 300;  % default 300
 options.fODF_regularization.Niter           = 50;   % default 50 (max)
@@ -197,15 +197,24 @@ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directio
 | | rel err fODF | RMSE(plm) | negative mass | peak error |
 |---|---|---|---|---|
 | unregularized | 0.615 | 0.324 | 0.159 | 12.0 deg |
-| `lambda_nonneg=1`, `lambda_tikhonov=0.3` (identity) — the old default | 0.199 | 0.110 | 0.031 | 9.3 deg |
+| `lambda_nonneg=1`, `lambda_tikhonov=0.3` (identity) — **the default** | 0.199 | 0.110 | 0.031 | 9.3 deg |
 | `lambda_nonneg=10`, `lambda_tikhonov=0.3` (identity) | 0.105 | 0.064 | 0.004 | 8.2 deg |
 | `lambda_nonneg=10`, `lambda_tikhonov=1` (Laplace-Beltrami) | **0.103** | 0.062 | 0.004 | 8.2 deg |
 
-The main result is that the non-negativity weight wants to be considerably larger than 1. The error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum and not an edge of the grid: past it the penalty rows start to dominate the data. **The default of `lambda_nonneg` has therefore been changed from 1 to 10.** `tau` = 0.1 and `Lmax_init` = 4, which were the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
+On this score the non-negativity weight wants to be considerably larger than 1: the error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum of *this* metric. `tau` = 0.1 and `Lmax_init` = 4, the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
 
-Changing that default does not affect anyone who has not opted in: `flag_nonneg` and `lambda_tikhonov` still default to 0, so a fit that does not set `options.fODF_regularization` is bit-identical to before (verified, difference exactly 0).
+##### The default is 1, and the two sweeps disagree about that
+**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the Monte Carlo in `deconv_comparison/` (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of `REPORT_SMI_deconvolution_MonteCarlo.md`) finds that
 
-The best amount of Tikhonov damping depends on the noise, as expected: at SNR 20 the sweep prefers `lambda_tikhonov` = 0 (the non-negativity constraint alone), while at SNR 30 and 50 it prefers 0.3. The non-negativity weight stays at 10 across all three. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
+- at `lambda_nonneg = 10` a 45 degree crossing is resolved in **0.0%** of realisations at every SNR, including noise free; at 3, in 0.2%; at 1, in 55%;
+- `lambda_nonneg = 1` has the **best angular correlation against the ground truth at every crossing angle** — 0.980 / 0.986 / 0.966 / 0.972 for a single fibre, 15, 45 and 60 degrees, against 0.930 / 0.947 / 0.887 / 0.903 at 10;
+- **spurious peaks are already fully suppressed at 1**: every constrained setting sits at exactly 0.000 spurious peaks per voxel, while turning the constraint off puts 0.026 per voxel into a 45 degree crossing.
+
+The two scores are not measuring the same thing. The sweep above minimizes the relative L2 error of the fODF over the sphere, which is dominated by the isotropic part and by negative mass, and is therefore happy to trade angular resolution for smoothness. The Monte Carlo scores peak orientation, fibre count and the angular correlation of the `l >= 2` part, which is what a tractography algorithm consumes. **Since nothing above 1 buys any further spurious-peak suppression and everything above 1 costs angular resolution, 1 is the default.** Raise it towards 10 if smoothness of the whole fODF matters more to you than resolving crossings.
+
+Changing this default does not affect anyone who has not opted in: `flag_nonneg` and `lambda_tikhonov` still default to 0, so a fit that does not set `options.fODF_regularization` is bit-identical to before (verified, difference exactly 0).
+
+The best amount of Tikhonov damping depends on the noise, as expected: at SNR 20 the sweep prefers `lambda_tikhonov` = 0 (the non-negativity constraint alone), while at SNR 30 and 50 it prefers 0.3. On this score the non-negativity weight stays at 10 across all three; on the Monte Carlo's score it does not, see above. Tikhonov itself is close to inert either way — 0.3 versus 0 moves the Monte Carlo's 45 degree error from 21.28 to 21.27 degrees. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
 
 ##### Does regularization flatten the fODF?
 The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground truth)`, so that what the regularizers cost in fODF height can be read next to what they buy in accuracy. The answer is not the obvious one:
@@ -383,6 +392,32 @@ If both the cap and the modulation are enabled, **the cap runs first** and the m
 
 Full methodology, all result tables and verification are in `REPORT_fODF_outlier_cap.md`.
 
+
+### Viewing the response kernel as zonal harmonics
+SMI has no response function: it has a **kernel**, the Standard Model compartment description `[f Da Depar Deperp fw]` fitted per voxel, from which the rotational invariants `K_l(b)` follow analytically. CSD has the opposite arrangement, a non-parametric response function estimated once for the whole brain and stored as zonal harmonic coefficients in a text file. The two describe the same object. For a single fibre along `z`,
+
+```
+R(theta) = sum_l K_l(b) (2l+1) P_l(cos theta) = sum_l r_l Y_l0(theta),   r_l = K_l(b)*sqrt((2l+1)*4*pi)
+```
+
+and `r_l` is exactly what MRtrix keeps in a response function file: one row per shell, one column per even `l`.
+
+`example_SMI_response_shview.m` (with `SMI_response_helpers.m`) draws an SMI kernel the way MRtrix3's `shview` draws a response: `K_l(b)`, the zonal coefficients per shell, the angular profile `R(theta)`, and a 3D glyph per shell. It also takes the compartments apart -- free water is isotropic, so it only ever moves `r_0`, which is why an SMI fODF's amplitude is blind to free water while an AFD-style fODF is not -- and puts a response glyph next to an fODF glyph from the same renderer. No data is needed; a kernel from a real fit goes in with
+
+```
+out    = SMI.fit(dwi, options);
+H      = SMI_response_helpers();
+kernel = H.kernel_from_out(out, [x y z]);
+```
+
+The script writes `response_SMI_wm.txt` in MRtrix's response format, so `shview response_SMI_wm.txt` opens the same object in MRtrix, and `H.read_response` reads an MRtrix response back for overlay against a kernel. Before drawing anything it checks itself: the zonal reconstruction is compared against SMI's own forward model for a delta fODF, and the run aborts if they disagree by more than 1e-10 (measured: `1.7e-15`).
+
+### How the deconvolution compares to CSD and MSMT-CSD
+`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF goes through the same `sh2peaks`, so peak extraction is identical for every arm. Full methodology and result tables are in `REPORT_SMI_deconvolution_MonteCarlo.md` and `deconv_tables.md`. **It is all simulation**, including the "real data" the responses are estimated from.
+
+The short version: no method dominates. Single-shell CSD is the sharpest and the most fragile — at SNR 50 it resolves 45 degree crossings 96.9% of the time, and by SNR 5 it returns the right number of fibres in 15.6% of *single fibre* voxels with 1.6 spurious peaks in each. MSMT-CSD is the most stable and the most biased: essentially no spurious peaks at any SNR, and a 45 degree crossing it does not resolve in any of 10,000 realisations — which survives both an exact response and Lmax 8. Constrained SMI sits between them: 81.1% of 45 degree crossings at SNR 50, the best 60 degree accuracy of the three from SNR 50 down to SNR 10, and at SNR 10 the correct fibre count in 99.8% of 60 degree crossings where single-shell CSD manages 49.6%.
+
+Two things came out of the same work that matter outside it. First, **SMI's spherical harmonic basis is MRtrix's exactly — but only at `options.CS_phase = 0`.** At the default of 1 the two differ by `(-1)^m`, which for even `l` is a 180 degree rotation about the z axis, so an fODF written out as-is and tracked in MRtrix is a rotated fibre field (71.5 degrees of peak error, verified with MRtrix's own `sh2amp` and `sh2peaks`). Set `options.CS_phase = 0` before writing `out.plm` for MRtrix. Second, every response function estimated from dispersed white matter — by `dhollander`, `tournier` or `fa` alike — is 15-40% blunter than the delta response of the kernel that generated the data, at every order.
 
 ## Useful tips
 The Standard Model is very complex and this is why noise propagates into the model parameters nonlinearly. This results in the kernel diffusivities and additional compartments being very challenging to estimate. If you have multiple TE and b-tensor shapes your chances of getting accurate and precise parameters are much better but if you only have two-shell data then you will likely only get reliable axonal fraction and p2.  
