@@ -28,18 +28,45 @@ exactly what that does and does not buy.
 
 All three deconvolve at Lmax 6 and read the same image. The band limited ground
 truth is written as an SH image too and run through the same `sh2peaks`, which
-is where the "ceiling" column in the report comes from.
+is where the "ceiling" column in the report comes from. (The walkthrough fits
+SMI at Lmax 4, 6 and 8 to show what the angular order costs; the comparison
+arms are fixed at 6 so the three methods stay comparable.)
 
 **`CS_phase = 0` matters.** At SMI's default of 1 the SH basis differs from
 MRtrix's by `(-1)^m`, which is a 180 degree rotation about z of every fODF.
 `check_mrtrix_basis.sh` measures that against MRtrix itself.
 
+## The protocol
+
+Everything now runs on **a real HCP 3-shell acquisition** — 288 volumes, 18 at
+b = 5 s/mm² plus 90 directions each at nominal b = 1, 2, 3 ms/µm², read from
+`protocol/hcp_real_3shell.txt` through `mc_config.m` so no arm can disagree
+about what was acquired.
+
+**The tables in `Reports/` predate this** and were measured on the older
+synthetic scheme, which is still on disk and marked superseded. Regenerating
+them is a re-run, not a code change.
+
+Two properties of the real scheme are worth knowing because synthetic
+protocols do not have them, and both are checked rather than assumed:
+
+- the b = 0 volumes are **b = 5 s/mm², not 0**, and carry unit direction
+  vectors even though the direction is meaningless there;
+- the b values **jitter within each shell** (18 distinct values), and
+  `SMI.Group_dwi_in_shells_b_beta_TE` is what bins them — the walkthrough
+  checks it recovers `[18 90 90 90]`;
+- the supplied `.bvec` is unit only to **1.1e-6**. `mc_config.m` warns loudly
+  and normalises. Left alone this breaks any calculation that reads `g(3)` as
+  `cos(theta)`: at Lmax 8 the zonal-response identity degrades from 1e-15 to
+  5e-7.
+
 ## Start here if you want to check it yourself
 
 `notebooks/smi_simulation_walkthrough.m` is the SMI arm taken apart, one step
 at a time, with a `CHECK` after every step that compares its output against
-something computed a different way. It needs no data, no Python and about two
-minutes, and it opens as a MATLAB Live Script with no edits. Read
+something computed a different way. It needs no data and no Python, takes
+about six minutes (it fits at Lmax 4, 6 and 8 in turn), and it opens as a
+MATLAB Live Script with no edits. Read
 `notebooks/README.md` for what each check establishes.
 
 The CSD and MSMT-CSD arms do not have a walkthrough yet.
@@ -50,7 +77,7 @@ The CSD and MSMT-CSD arms do not have a walkthrough yet.
 Step by step:
 
 ```
-python3 setup_protocol.py                                   # gradient table
+python3 setup_protocol.py                                   # evaluation sphere
 octave --eval "oct_path; gen_phantom(30,'p30')"             # response phantom
 ./run_mrtrix.sh responses                                   # dwi2response x3
 ./check_mrtrix_basis.sh                                     # SH basis vs MRtrix
@@ -76,8 +103,9 @@ still be compared.
 | file | what |
 |---|---|
 | `notebooks/` | narrated step-by-step walkthroughs, with a `CHECK` after every step |
-| `protocol/hcp_like_3shell.txt` | the gradient table as tracked text, so the MATLAB side needs no Python |
-| `setup_protocol.py` | regenerates the gradient table (the only thing that uses dipy) |
+| `protocol/hcp_real_3shell.txt` | **the acquisition in use**: a real HCP 3-shell scheme, as tracked text |
+| `protocol/hcp_like_3shell.txt` | the synthetic scheme the published tables were measured on. Superseded, kept for provenance |
+| `setup_protocol.py` | the evaluation sphere, and the superseded synthetic table (the only thing that uses dipy) |
 | `mc_config.m` | **every constant of the experiment, in one place.** `gen_montecarlo.m` and `sweep_nonneg.m` both read from it, so the main run and the sweep cannot disagree about what is being simulated. Start here to see what the experiment *is* |
 | `gen_phantom.m` | the synthetic voxel population the responses are estimated from |
 | `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |

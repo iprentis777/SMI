@@ -23,15 +23,14 @@ MR = mrtrix_io();
 mdir = fullfile(fileparts(mfilename('fullpath')), 'mrtrix');
 if ~exist(mdir,'dir'), mkdir(mdir); end
 
-bvals     = IO.load('bvals'); bvals = bvals(:)';
-bvecs     = IO.load('bvecs');
 eval_dirs = IO.load('eval_dirs');
-Ndwi      = numel(bvals);
 
 % Same constants as gen_montecarlo.m, from the same place, so the sweep and the
 % main run cannot disagree about what is being simulated. Only the RNG seed
 % differs (C.SEED_SWEEP), which keeps the two sets of realisations independent.
 C        = mc_config();
+[bvals, bvecs] = C.load_protocol();
+Ndwi     = numel(bvals);
 LMAX_FIT = C.LMAX_FIT;
 LMAX_GT  = C.LMAX_GT;
 CS       = C.CS_PHASE;

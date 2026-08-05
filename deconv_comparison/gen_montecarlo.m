@@ -38,14 +38,13 @@ more off
 IO = binio();
 MR = mrtrix_io();
 
-bvals     = IO.load('bvals'); bvals = bvals(:)';
-bvecs     = IO.load('bvecs');
-Ndwi      = numel(bvals);
-
 % Every constant of the experiment comes from mc_config.m, which sweep_nonneg.m
-% reads too, so the main run and the regularizer sweep cannot disagree about
-% what is being simulated.
+% and notebooks/smi_simulation_walkthrough.m read too, so no two of them can
+% disagree about what is being simulated -- including the acquisition, which
+% now comes from the tracked protocol file rather than from binio's data/.
 C        = mc_config();
+[bvals, bvecs] = C.load_protocol();
+Ndwi     = numel(bvals);
 LMAX_FIT = C.LMAX_FIT;
 LMAX_GT  = C.LMAX_GT;
 CS       = C.CS_PHASE;

@@ -51,7 +51,7 @@ run(fullfile(pkgdir, 'oct_path.m'));
 NREP      = 25;                 % realisations per condition. The report used 10000.
 SNR       = 50;                 % 1/sigma. The report sweeps 5, 10, 20, 30, 50, inf.
 LMAX_LIST = [4 6 8];            % angular orders to fit at -- see the next section
-PROTOCOL  = 'hcp_real_3shell.txt';
+                                % the protocol itself is named in mc_config.m
 
 C = mc_config();                % conditions, kernel, dispersion, seeds
 H = fODF_modulation_helpers();
@@ -88,7 +88,7 @@ VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
 LMAX_GT = C.LMAX_GT;
 fprintf('\n=== SMI simulation walkthrough ===\n');
 fprintf('protocol %s, NREP %d per condition, SNR %g, CS_phase %d\n', ...
-        PROTOCOL, NREP, SNR, C.CS_PHASE);
+        C.PROTOCOL, NREP, SNR, C.CS_PHASE);
 fprintf('fitting at Lmax %s   (%s coefficients)\n', mat2str(LMAX_LIST), ...
         mat2str((LMAX_LIST/2+1).*(LMAX_LIST+1)));
 fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
@@ -114,23 +114,13 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
 %   into shells for the kernel fit, and Step 1 checks that it bins them the way
 %   a human would.
 
-proto = fileread(fullfile(pkgdir, 'protocol', PROTOCOL));
-cols  = textscan(proto, '%f %f %f %f', 'CommentStyle', '%');
-bvals = cols{1}(:)';
-bvecs = [cols{2} cols{3} cols{4}];
-Ndwi  = numel(bvals);
+% Read through mc_config, which every other arm also uses, so there is one
+% definition of what was acquired. It prints a loud warning if the .bvec is not
+% unit -- expect one here, and see the note under Step 3 for why it matters.
+[bvals, bvecs] = C.load_protocol();
+Ndwi = numel(bvals);
 
 fprintf('Step 1: %d volumes, %d distinct b values\n', Ndwi, numel(unique(bvals)));
-
-% The directions are only unit to the precision the .bvec file was written at.
-% That sounds like a nuisance and is not: anything that treats g(3) as cos(theta)
-% without normalising inherits the error, and at Lmax 8 that is enough to break
-% the Step 3 identity by 5e-7 -- six orders of magnitude worse than it should be.
-% So normalise here, once, and report what was corrected.
-e_raw = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
-bvecs = bvecs ./ repmat(sqrt(sum(bvecs.^2, 2)), 1, 3);
-fprintf('   .bvec unit-norm error as supplied: %.2e, normalised to %.2e\n', ...
-        e_raw, max(abs(sqrt(sum(bvecs.^2, 2)) - 1)));
 
 % Let SMI group the shells, and report what it decided. This is the function the
 % fit itself uses, and its shell assignment is used for every per-shell number
@@ -146,8 +136,9 @@ for i = 1:numel(b_shell)
 end
 dw = shell_id(:)' > 1;                        % everything above the b~0 shell
 
-% CHECK 1. Every direction must be a unit vector. Now trivially true, but the
-% number printed above is the one that matters.
+% CHECK 1. Every direction must be a unit vector. This passes trivially because
+% mc_config normalised them on load -- the number that matters is the one in the
+% warning it printed just above, which is the error as the .bvec was supplied.
 e_nrm = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
 fprintf('   CHECK all directions are unit    max| |g|-1 | = %.2e   %s\n', ...
         e_nrm, VERDICT{1+(e_nrm < 1e-12)});
@@ -649,19 +640,21 @@ fprintf('   Nothing in this walkthrough runs those commands -- that is the point
 %  ./run_mrtrix.sh fit snr50            % CSD, MSMT-CSD and every peak, in MRtrix
 %  python3 tables.py nf snr50:50 ...    % the tables in Reports/deconv_tables.md
 %
-% *Note that the pipeline still reads the older synthetic protocol.* This
-% walkthrough runs on the real HCP scheme; |gen_montecarlo.m| has not been
-% switched over, so the published tables and this file are not yet measuring
-% the same acquisition. Switching it is a one-line change in |gen_montecarlo.m|
-% plus a full re-run.
+% *The published tables predate the real protocol.* Everything in |Reports/| was
+% measured on the older synthetic scheme, which is still on disk at
+% |protocol/hcp_like_3shell.txt| and marked superseded. |gen_montecarlo.m| and
+% |sweep_nonneg.m| now read the same real HCP protocol this walkthrough does, so
+% regenerating those tables is a re-run rather than a code change.
 %
 % *What this walkthrough leaves out on purpose.* The comparison arms. CSD and
 % MSMT-CSD are MRtrix3 binaries driven by |run_mrtrix.sh|. This file is the SMI
 % arm alone, taken apart.
 %
-% *What to change first if you want to probe it.* |NREP|, |SNR|, |LMAX_LIST|
-% and |PROTOCOL| at the top of this file. Then |mc_config.m|: |KAPPA| sets
-% fibre dispersion, |K_WM| the tissue, |ANGLES| the crossings.
+% *What to change first if you want to probe it.* |NREP|, |SNR| and |LMAX_LIST|
+% at the top of this file. Then |mc_config.m|: |PROTOCOL| names the acquisition,
+% |KAPPA| sets fibre dispersion, |K_WM| the tissue, |ANGLES| the crossings.
+% Changing them there changes them for the pipeline too, which is the point of
+% that file existing.
 
 fprintf('=== walkthrough complete ===\n');
 fprintf('correct fibre count, %% of %d realisations at SNR %g:\n', NREP, SNR);
