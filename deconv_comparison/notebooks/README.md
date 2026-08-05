@@ -5,11 +5,16 @@ running in bulk. They are the answer to "how do I check this myself?".
 
 | notebook | what it walks through |
 |---|---|
-| `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export |
+| `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export. Conditions: single fibre, 30, 45, 60 degrees |
+| `smi_manuscript_60deg.m` | the manuscript cut of the same run — **single fibre and 60 degrees only** — with four isometric figures |
 
-It also draws four figures — the ground truth fibre geometry, the kernel as a
+Both draw four figures — the ground truth fibre geometry, the kernel as a
 response function, the forward convolution with and without noise, and the
-reconstructed fODFs at each Lmax. Set `MAKE_FIGURES = false` in that section to
+reconstructed fODFs at each Lmax. In `smi_manuscript_60deg.m` every 3D panel
+opens in an **isometric** view so all subfigures are readable without touching
+the camera, Figure 2 is a montage of response glyphs from b = 0 to 3, and
+Figure 3 renders the signal as surfaces on the sphere rather than as scatter
+plots. Set `MAKE_FIGURES = false` in that section to
 skip them. In MATLAB they appear inline in the Live Script; under Octave
 graphics are often unavailable, and the printed numbers are the deliverable
 either way.
@@ -94,6 +99,23 @@ in place because it looks alarming otherwise:
   figures. `mc_config.m` warns and normalises. It is deliberately noisy: left
   uncorrected it degrades the zonal-response identity at Lmax 8 from `1e-15` to
   `5e-7`, and that failure is invisible unless something checks for it.
+
+## Why the manuscript uses 60 degrees only
+
+30 and 45 stay in the general walkthrough, but neither makes a clean figure.
+Measured on the **noise-free ground truth**, with no fitting and no noise:
+
+| angle | Lmax 4 | Lmax 6 | Lmax 8 | true |
+|---|---|---|---|---|
+| 30° | 1 | 1 | 1 | 2 |
+| 45° | 1 | 2 | 2 | 2 |
+| 60° | 2 | 2 | 2 | 2 |
+
+At `kappa = 16` a 30 degree crossing does not separate at any angular order —
+it needs `kappa >= 48`, about 8 degrees of dispersion. 45 separates only from
+Lmax 6 upward. **60 separates everywhere**, which is what makes it the
+configuration where a difference between methods is attributable to the method
+rather than to the band limit.
 
 ## Relationship to the pipeline
 
