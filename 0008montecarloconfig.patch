@@ -1,0 +1,375 @@
+From e056695c3473bee7ac5d90011a4c95c6b83d275b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 00:35:53 +0000
+Subject: [PATCH] Move the Monte Carlo constants into one file
+
+gen_montecarlo.m and sweep_nonneg.m each carried their own copy of what the
+experiment is -- LMAX_FIT/LMAX_GT, CS_phase, KAPPA, ANGLES, K_WM, the fibre
+axis, the RNG seed -- plus their own copies of pick_grid, divisors_of and
+rotate_about. Two definitions of one experiment is how the sweep and the main
+run drift apart without anyone noticing.
+
+mc_config.m is now the single definition. Both scripts read from it, and the
+duplicated local functions are gone. condition_axes(ic) replaces the if/else
+that built the fibre axes in both files, so the crossing geometry is defined
+once. The constants are documented where they are defined rather than in
+whichever script the reader happens to open first.
+
+Behaviour is unchanged, and that is checked rather than assumed: both scripts
+were run before and after at SNR 30 with 8 reps per condition, and every
+output is byte-for-byte identical -- 18 files for gen_montecarlo.m (including
+the fitted kernel and the SMI fODF coefficients) and 19 for sweep_nonneg.m
+(including all six regularizer settings). The seeds keep their values, so the
+noise realisations are the same ones the report's numbers came from.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/README.md        |   1 +
+ deconv_comparison/gen_montecarlo.m |  80 +++++----------------
+ deconv_comparison/mc_config.m      | 111 +++++++++++++++++++++++++++++
+ deconv_comparison/sweep_nonneg.m   |  56 +++++----------
+ 4 files changed, 147 insertions(+), 101 deletions(-)
+ create mode 100644 deconv_comparison/mc_config.m
+
+diff --git a/deconv_comparison/README.md b/deconv_comparison/README.md
+index 9bc5d92..da318b6 100644
+--- a/deconv_comparison/README.md
++++ b/deconv_comparison/README.md
+@@ -66,6 +66,7 @@ still be compared.
+ | file | what |
+ |---|---|
+ | `setup_protocol.py` | the HCP-like 3-shell gradient table (the only thing that uses dipy) |
++| `mc_config.m` | **every constant of the experiment, in one place.** `gen_montecarlo.m` and `sweep_nonneg.m` both read from it, so the main run and the sweep cannot disagree about what is being simulated. Start here to see what the experiment *is* |
+ | `gen_phantom.m` | the synthetic voxel population the responses are estimated from |
+ | `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |
+ | `sweep_nonneg.m` | one kernel fit, six regularizer settings (report section 6) |
+diff --git a/deconv_comparison/gen_montecarlo.m b/deconv_comparison/gen_montecarlo.m
+index 3c78a27..608aa8d 100644
+--- a/deconv_comparison/gen_montecarlo.m
++++ b/deconv_comparison/gen_montecarlo.m
+@@ -42,23 +42,24 @@ bvals     = IO.load('bvals'); bvals = bvals(:)';
+ bvecs     = IO.load('bvecs');
+ Ndwi      = numel(bvals);
+ 
+-LMAX_FIT = 6;      % every method deconvolves at this angular order
+-LMAX_GT  = 8;      % the truth is NOT band limited to it (8 is the SM kernel's
+-                   % ceiling, SMI.m:2470-2480)
+-CS       = 0;      % == MRtrix's basis, see above
+-D_FW     = 3;
+-KAPPA    = 16;
+-ANGLES   = [0 15 45 60];        % 0 = single fibre
+-K_WM     = [0.60 2.0 2.0 0.50 0.02];
++% Every constant of the experiment comes from mc_config.m, which sweep_nonneg.m
++% reads too, so the main run and the regularizer sweep cannot disagree about
++% what is being simulated.
++C        = mc_config();
++LMAX_FIT = C.LMAX_FIT;
++LMAX_GT  = C.LMAX_GT;
++CS       = C.CS_PHASE;
++D_FW     = C.D_FW;
++KAPPA    = C.KAPPA;
++ANGLES   = C.ANGLES;
++K_WM     = C.K_WM;
+ 
+ H  = fODF_modulation_helpers();
+-dq = H.dirs(3000);
+-
+-n1 = [0.30 -0.50 0.81]; n1 = n1/norm(n1);
++dq = H.dirs(C.NDIR_Q);
+ 
+ NCOND = numel(ANGLES);
+ NVOX  = NCOND*NREP;
+-GRID  = pick_grid(NVOX);
++GRID  = C.pick_grid(NVOX);
+ mdir  = fullfile(fileparts(mfilename('fullpath')), 'mrtrix');
+ if ~exist(mdir,'dir'), mkdir(mdir); end
+ fprintf('SNR %g, %d conditions x %d reps = %d voxels, grid %s\n', ...
+@@ -73,11 +74,7 @@ S_cond = zeros(NCOND, Ndwi);
+ sh_gt6 = zeros(NCOND, sum(keep6));
+ ax     = nan(2, 3, NCOND);
+ for ic = 1:NCOND
+-    if ANGLES(ic) == 0
+-        axes_ = {n1};
+-    else
+-        axes_ = {n1, rotate_about(n1, ANGLES(ic))};
+-    end
++    axes_ = C.condition_axes(ic);
+     fod = zeros(size(dq,1),1);
+     for k = 1:numel(axes_), fod = fod + H.watson(dq, axes_{k}, KAPPA); end
+     plm_gt = H.mixture_plm(fod, dq, LMAX_GT, CS);
+@@ -96,7 +93,7 @@ S_clean = S_cond(cond_id, :);
+ % S0 = 1 by construction, so sigma = 1/SNR. Complex Gaussian noise on a real
+ % signal, magnitude taken: exactly Rician.
+ sigma = 1/SNR;
+-rand('seed', 31415); randn('seed', 31415);
++rand('seed', C.SEED_MC); randn('seed', C.SEED_MC);
+ S_noisy = sqrt((S_clean + sigma*randn(size(S_clean))).^2 + ...
+                (         sigma*randn(size(S_clean))).^2);
+ dwi = reshape(S_noisy, [GRID Ndwi]);
+@@ -155,47 +152,6 @@ fprintf('wrote sh_smi_%s [%d x %d] and mrtrix/smifod_%s.mih\n', ...
+         tag, NVOX, size(sh,2), tag);
+ end
+ 
+-% =====================================================================
+-function G = pick_grid(N)
+-% A 3D grid holding exactly N voxels with every dimension > 1: SMI.vectorize
+-% takes a different branch if any spatial dimension is a singleton
+-% (README for Claude, section 4).
+-d = divisors_of(N);
+-d = d(d > 1 & d < N);
+-best = [];
+-for a = d
+-    m = N/a;
+-    e = divisors_of(m);
+-    e = e(e > 1 & e < m);
+-    for b = e
+-        c = m/b;
+-        if c > 1
+-            cand = sort([a b c]);
+-            if isempty(best) || (max(cand)-min(cand)) < (max(best)-min(best))
+-                best = cand;
+-            end
+-        end
+-    end
+-end
+-if isempty(best)
+-    error('pick_grid: cannot factor %d into three factors > 1', N);
+-end
+-G = best;
+-end
+-
+-% =====================================================================
+-function d = divisors_of(n)
+-d = 1:floor(sqrt(n));
+-d = d(mod(n,d) == 0);
+-d = unique([d n./d]);
+-end
+-
+-% =====================================================================
+-function m = rotate_about(n, deg)
+-% A unit vector at `deg` degrees from n, in an arbitrary but fixed plane.
+-n = n(:)'/norm(n);
+-t = [0 0 1]; if abs(n*t') > 0.9, t = [1 0 0]; end
+-e = t - (t*n')*n; e = e/norm(e);
+-m = cosd(deg)*n + sind(deg)*e;
+-m = m/norm(m);
+-end
++% pick_grid, divisors_of and rotate_about used to live here as local functions.
++% They are mc_config.m's now -- keeping a second copy is how the walkthrough and
++% the pipeline would have drifted apart.
+diff --git a/deconv_comparison/mc_config.m b/deconv_comparison/mc_config.m
+new file mode 100644
+index 0000000..134fe48
+--- /dev/null
++++ b/deconv_comparison/mc_config.m
+@@ -0,0 +1,111 @@
++function C = mc_config()
++% C = mc_config()
++%
++% ONE definition of the Monte Carlo experiment. gen_montecarlo.m and
++% sweep_nonneg.m both read their constants from here, so the main run and the
++% regularizer sweep cannot disagree about what is being simulated. Anything
++% added later that narrates or re-runs the experiment should read them from
++% here too rather than restating them.
++%
++% Constants
++%   LMAX_FIT   angular order every method deconvolves at
++%   LMAX_GT    angular order of the ground truth (8 is the SM kernel's
++%              ceiling, SMI.m:2470-2480), deliberately ABOVE LMAX_FIT so no
++%              method is handed a truth it can represent exactly
++%   CS_PHASE   0 == MRtrix's SH basis exactly. At SMI's default of 1 the two
++%              bases differ by (-1)^m, a 180 degree rotation about z of every
++%              fODF; check_mrtrix_basis.sh measures that against MRtrix itself
++%   D_FW       free water diffusivity, um^2/ms
++%   KAPPA      Watson concentration of each fibre population. Finite, not a
++%              delta: a response estimated from real white matter absorbs
++%              fibre dispersion, and a delta truth would hand every method a
++%              mismatch that does not exist in practice
++%   ANGLES     crossing angles in degrees; 0 means a single fibre
++%   K_WM       [f Da Depar Deperp fw] of the white matter kernel
++%   AXIS1      the first fibre axis, fixed and off every coordinate plane
++%   NDIR_Q     quadrature directions used to project a sampled fODF onto plm
++%   SEED_MC, SEED_SWEEP   RNG seeds, one per script, so the two are independent
++%
++% Helpers
++%   C.condition_axes(ic)  the true fibre axes of condition ic, as a cell array
++%   C.pick_grid(N)        a 3D grid holding exactly N voxels, no singleton dim
++%   C.rotate_about(n,deg) a unit vector `deg` degrees from n, in a fixed plane
++
++C = struct();
++C.LMAX_FIT   = 6;
++C.LMAX_GT    = 8;
++C.CS_PHASE   = 0;
++C.D_FW       = 3;
++C.KAPPA      = 16;
++C.ANGLES     = [0 15 45 60];
++C.K_WM       = [0.60 2.0 2.0 0.50 0.02];
++C.NDIR_Q     = 3000;
++C.SEED_MC    = 31415;
++C.SEED_SWEEP = 2718;
++
++n1 = [0.30 -0.50 0.81];
++C.AXIS1 = n1/norm(n1);
++
++C.pick_grid     = @pick_grid;
++C.rotate_about  = @rotate_about;
++C.condition_axes = @(ic) condition_axes(C.AXIS1, C.ANGLES, ic);
++end
++
++% =====================================================================
++function axes_ = condition_axes(n1, ANGLES, ic)
++% The true fibre axes of condition ic: one axis for the single fibre case,
++% two equal populations otherwise.
++if ANGLES(ic) == 0
++    axes_ = {n1};
++else
++    axes_ = {n1, rotate_about(n1, ANGLES(ic))};
++end
++end
++
++% =====================================================================
++function m = rotate_about(n, deg)
++% A unit vector at `deg` degrees from n, in an arbitrary but FIXED plane, so
++% every script that asks for the same angle gets the same pair of axes.
++n = n(:)'/norm(n);
++t = [0 0 1]; if abs(n*t') > 0.9, t = [1 0 0]; end
++e = t - (t*n')*n; e = e/norm(e);
++m = cosd(deg)*n + sind(deg)*e;
++m = m/norm(m);
++end
++
++% =====================================================================
++function G = pick_grid(N)
++% A 3D grid holding exactly N voxels with every dimension > 1: SMI.vectorize
++% takes a different branch if any spatial dimension is a singleton
++% ("README for Claude", section 4). The most cube-like factorisation wins,
++% purely so the printed grid looks sensible; nothing depends on the shape.
++d = divisors_of(N);
++d = d(d > 1 & d < N);
++best = [];
++for a = d
++    m = N/a;
++    e = divisors_of(m);
++    e = e(e > 1 & e < m);
++    for b = e
++        c = m/b;
++        if c > 1
++            cand = sort([a b c]);
++            if isempty(best) || (max(cand)-min(cand)) < (max(best)-min(best))
++                best = cand;
++            end
++        end
++    end
++end
++if isempty(best)
++    error('mc_config:pick_grid', ...
++          'cannot factor %d into three factors > 1 -- pick another NREP', N);
++end
++G = best;
++end
++
++% =====================================================================
++function d = divisors_of(n)
++d = 1:floor(sqrt(n));
++d = d(mod(n,d) == 0);
++d = unique([d n./d]);
++end
+diff --git a/deconv_comparison/sweep_nonneg.m b/deconv_comparison/sweep_nonneg.m
+index d145463..b9cdc98 100644
+--- a/deconv_comparison/sweep_nonneg.m
++++ b/deconv_comparison/sweep_nonneg.m
+@@ -28,9 +28,17 @@ bvecs     = IO.load('bvecs');
+ eval_dirs = IO.load('eval_dirs');
+ Ndwi      = numel(bvals);
+ 
+-LMAX_FIT = 6; LMAX_GT = 8; CS = 0; D_FW = 3; KAPPA = 16;   % CS 0 == MRtrix's basis
+-ANGLES = [0 15 45 60];
+-K_WM   = [0.60 2.0 2.0 0.50 0.02];
++% Same constants as gen_montecarlo.m, from the same place, so the sweep and the
++% main run cannot disagree about what is being simulated. Only the RNG seed
++% differs (C.SEED_SWEEP), which keeps the two sets of realisations independent.
++C        = mc_config();
++LMAX_FIT = C.LMAX_FIT;
++LMAX_GT  = C.LMAX_GT;
++CS       = C.CS_PHASE;
++D_FW     = C.D_FW;
++KAPPA    = C.KAPPA;
++ANGLES   = C.ANGLES;
++K_WM     = C.K_WM;
+ 
+ % {label, lambda_nonneg (0 = constraint off), lambda_tikhonov}
+ SETTINGS = { 'nonneg off, tik 0.3',   0, 0.3
+@@ -41,12 +49,11 @@ SETTINGS = { 'nonneg off, tik 0.3',   0, 0.3
+              'nonneg 3,   tik 0',     3, 0.0 };
+ 
+ H  = fODF_modulation_helpers();
+-dq = H.dirs(3000);
+-n1 = [0.30 -0.50 0.81]; n1 = n1/norm(n1);
++dq = H.dirs(C.NDIR_Q);
+ 
+ NCOND = numel(ANGLES);
+ NVOX  = NCOND*NREP;
+-GRID  = pick_grid(NVOX);
++GRID  = C.pick_grid(NVOX);
+ fprintf('sweep: SNR %g, %d x %d = %d voxels, grid %s\n', ...
+         SNR, NCOND, NREP, NVOX, mat2str(GRID));
+ 
+@@ -56,8 +63,7 @@ S_cond = zeros(NCOND, Ndwi);
+ sh_gt6 = zeros(NCOND, sum(keep6));
+ ax     = nan(2, 3, NCOND);
+ for ic = 1:NCOND
+-    if ANGLES(ic) == 0, axes_ = {n1};
+-    else, axes_ = {n1, rotate_about(n1, ANGLES(ic))}; end
++    axes_ = C.condition_axes(ic);
+     fod = zeros(size(dq,1),1);
+     for k = 1:numel(axes_), fod = fod + H.watson(dq, axes_{k}, KAPPA); end
+     plm_gt = H.mixture_plm(fod, dq, LMAX_GT, CS);
+@@ -71,7 +77,7 @@ end
+ 
+ cond_id = repelem((1:NCOND)', NREP, 1);
+ sigma   = 1/SNR;
+-rand('seed', 2718); randn('seed', 2718);
++rand('seed', C.SEED_SWEEP); randn('seed', C.SEED_SWEEP);
+ S_clean = S_cond(cond_id, :);
+ S_noisy = sqrt((S_clean + sigma*randn(size(S_clean))).^2 + ...
+                (         sigma*randn(size(S_clean))).^2);
+@@ -129,33 +135,5 @@ end
+ fclose(fid);
+ end
+ 
+-% =====================================================================
+-function G = pick_grid(N)
+-d = divisors_of(N); d = d(d > 1 & d < N);
+-best = [];
+-for a = d
+-    m = N/a; e = divisors_of(m); e = e(e > 1 & e < m);
+-    for b = e
+-        c = m/b;
+-        if c > 1
+-            cand = sort([a b c]);
+-            if isempty(best) || (max(cand)-min(cand)) < (max(best)-min(best))
+-                best = cand;
+-            end
+-        end
+-    end
+-end
+-if isempty(best), error('pick_grid: cannot factor %d', N); end
+-G = best;
+-end
+-
+-function d = divisors_of(n)
+-d = 1:floor(sqrt(n)); d = d(mod(n,d) == 0); d = unique([d n./d]);
+-end
+-
+-function m = rotate_about(n, deg)
+-n = n(:)'/norm(n);
+-t = [0 0 1]; if abs(n*t') > 0.9, t = [1 0 0]; end
+-e = t - (t*n')*n; e = e/norm(e);
+-m = cosd(deg)*n + sind(deg)*e; m = m/norm(m);
+-end
++% pick_grid, divisors_of and rotate_about used to live here as local functions,
++% duplicating gen_montecarlo.m's copies. They are mc_config.m's now.
+-- 
+2.43.0
+
