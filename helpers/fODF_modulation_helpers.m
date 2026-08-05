@@ -1,7 +1,7 @@
 function H = fODF_modulation_helpers()
 % H = fODF_modulation_helpers()
 %
-% Returns a struct of function handles used by example_fODF_modulation.m:
+% Returns a struct of function handles used by examples/example_fODF_modulation.m:
 %
 %   H.dirs(N)                              N nearly uniform directions on the sphere
 %   H.watson_plm(dirs_q,n,kappa,Lmax,CS)   normalized plm of a Watson fODF about n
@@ -14,7 +14,7 @@ function H = fODF_modulation_helpers()
 % the example script, because MATLAB requires local functions at the END of a
 % script while Octave cannot call them there at all. Subfunctions of a function
 % file work in both, which keeps the example runnable and testable outside
-% MATLAB. Same reasoning as fODF_regularization_score.m.
+% MATLAB. Same reasoning as helpers/fODF_regularization_score.m.
 H = struct();
 H.dirs        = @uniform_sphere_dirs;
 H.watson      = @watson_amp;

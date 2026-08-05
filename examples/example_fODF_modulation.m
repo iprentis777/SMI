@@ -1,11 +1,11 @@
-% example_fODF_modulation.m
+% examples/example_fODF_modulation.m
 %
 % Modulating the SMI fODF by orientational coherence (p2), so that its
 % amplitude separates coherent tissue from grey matter and CSF the way an
 % MRtrix FOD does -- without using a tissue type criterion, which would delete
 % peritumoral edema, the region of interest.
 %
-% Full methodology and results: REPORT_fODF_modulation.md
+% Full methodology and results: Reports/REPORT_fODF_modulation.md
 %
 % THE PROBLEM
 %
@@ -26,12 +26,17 @@
 % wanted; a weight that suppresses it too is a tissue type criterion in
 % disguise and must be rejected.
 %
-% Helper functions live in fODF_modulation_helpers.m rather than at the end of
+% Helper functions live in helpers/fODF_modulation_helpers.m rather than at the end of
 % this script, so that this example runs under Octave as well as MATLAB.
 %
 % Runtime is a few minutes per arm. Set QUICK = 1 for a smaller version.
 
 clear; close all
+
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+
 QUICK = 0;
 
 H = fODF_modulation_helpers();

@@ -3,8 +3,8 @@
 Measurement of the regularization parameters of the SMI fODF deconvolution against a
 synthetic ground truth, and the resulting change of defaults.
 
-Everything below is produced by `example_fODF_regularization_sweep.m` (scoring in
-`fODF_regularization_score.m`). It needs no data and reruns in a few minutes.
+Everything below is produced by `examples/example_fODF_regularization_sweep.m` (scoring in
+`helpers/fODF_regularization_score.m`). It needs no data and reruns in a few minutes.
 
 ---
 
@@ -285,7 +285,7 @@ choose a weight. That user previously got a setting measurably ~2x worse than ac
 
 ### 5.4 Effect on the shipped example
 
-`example_fODF_regularization.m` enables non-negativity without naming a weight, so it picks
+`examples/example_fODF_regularization.m` enables non-negativity without naming a weight, so it picks
 up the new default. Its published numbers move accordingly (SNR 30, single condition):
 
 | | rel err fODF, before | after |

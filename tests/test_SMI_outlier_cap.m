@@ -13,7 +13,13 @@
 %   4. a contiguous bright region is NOT capped
 %   5. the cap and the modulation compose in the documented order
 clear; clc
-addpath(pwd);
+test_dir = fileparts(mfilename('fullpath'));
+repo_root = fileparts(test_dir);
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+if exist('OCTAVE_VERSION','builtin')
+    addpath(fullfile(repo_root, 'deconv_comparison', 'stubs'));
+end
 if exist('OCTAVE_VERSION','builtin'), pkg load statistics; pkg load image; end
 TF = {'FAIL','PASS'};
 

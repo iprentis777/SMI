@@ -8,6 +8,10 @@
 
 clear;clc;close all
 
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+
 % placeholder for ground truth and estimates of SM parameters
 N_samples = 1e3;
 N_params = 6; % [p2, f, Da, Depa, Depe, ffw]

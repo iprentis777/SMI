@@ -1,7 +1,7 @@
 % test_SMI_response_helpers
 %
-% Self-contained tests for SMI_response_helpers.m, the zonal harmonic view of
-% the SMI kernel used by example_SMI_response_shview.m. Needs no data and no
+% Self-contained tests for helpers/SMI_response_helpers.m, the zonal harmonic view of
+% the SMI kernel used by examples/example_SMI_response_shview.m. Needs no data and no
 % fit. Runs in MATLAB and in Octave.
 %
 % Every test checks the helpers against something computed a different way,
@@ -15,7 +15,13 @@
 %   7  free water moves r_0 and leaves every l >= 2 coefficient alone
 %   8  kernel_from_out pulls the requested voxel out of an SMI.fit output
 clear; clc
-addpath(pwd);
+test_dir = fileparts(mfilename('fullpath'));
+repo_root = fileparts(test_dir);
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+if exist('OCTAVE_VERSION','builtin')
+    addpath(fullfile(repo_root, 'deconv_comparison', 'stubs'));
+end
 if exist('OCTAVE_VERSION','builtin'), pkg load statistics; end
 TF = {'FAIL','PASS'};
 

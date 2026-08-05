@@ -21,7 +21,10 @@
 % By: Santiago Coelho
 % =========================================================================
 clear; close all
-% addpath('/Documents/SantiagoCoelho/Git/SMI')
+
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
 
 CS_phase = 1; D_FW = 3; Lmax = 6;
 L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);

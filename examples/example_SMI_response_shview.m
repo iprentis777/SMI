@@ -1,4 +1,4 @@
-% example_SMI_response_shview.m
+% examples/example_SMI_response_shview.m
 %
 % Viewing the SMI response kernel as zonal harmonics, the way MRtrix3's
 % `shview` displays a response function.
@@ -35,10 +35,14 @@
 %
 % and it writes `response_SMI_wm.txt`, which `shview response_SMI_wm.txt` opens.
 %
-% Helper functions live in SMI_response_helpers.m rather than at the end of
+% Helper functions live in helpers/SMI_response_helpers.m rather than at the end of
 % this script, so that it runs under Octave as well as MATLAB.
 
 clear; close all
+
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
 
 H  = SMI_response_helpers();
 HF = fODF_modulation_helpers();

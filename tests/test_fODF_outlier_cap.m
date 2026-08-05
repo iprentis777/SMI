@@ -12,7 +12,13 @@
 %   4. peak ORIENTATION of a capped voxel is unchanged
 %   5. both rules work in isolation
 clear; clc
-addpath(pwd);
+test_dir = fileparts(mfilename('fullpath'));
+repo_root = fileparts(test_dir);
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+if exist('OCTAVE_VERSION','builtin')
+    addpath(fullfile(repo_root, 'deconv_comparison', 'stubs'));
+end
 if exist('OCTAVE_VERSION','builtin'), pkg load statistics; end
 TF = {'FAIL','PASS'};
 

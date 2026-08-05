@@ -1,5 +1,5 @@
 #!/bin/bash
-# Everything in REPORT_SMI_deconvolution_MonteCarlo.md, from an empty data/.
+# Everything in Reports/REPORT_SMI_deconvolution_MonteCarlo.md, from an empty data/.
 #
 # MATLAB/Octave does SMI and writes the images; MRtrix3 does CSD, MSMT-CSD and
 # every peak extraction; Python does the bookkeeping and the figures.
@@ -39,10 +39,10 @@ done
 
 echo "== tables and figures"
 python3 tables.py nf snr50:50 snr30:30 snr20:20 snr10:10 snr5:5 \
-    | tee ../deconv_tables.md
-python3 figure_mc.py ../fodf_deconv_montecarlo.png \
+    | tee ../Reports/deconv_tables.md
+python3 figure_mc.py ../Figures/fodf_deconv_montecarlo.png \
     snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
-python3 figure_response.py p30 ../fodf_response_shview.png
+python3 figure_response.py p30 ../Figures/fodf_response_shview.png
 
 echo "== the non-negativity sweep (report section 6)"
 $OCT "run('$P'); sweep_nonneg(30,$((NREP/5)),'sw30');"

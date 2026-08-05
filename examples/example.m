@@ -13,6 +13,10 @@
 %% EXAMPLE 1
 clc,clear,close all
 
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+
 % Path were the test dataset is located
 pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_1';
 

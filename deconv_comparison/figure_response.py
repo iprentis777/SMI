@@ -1,7 +1,8 @@
 """Figure: the SMI kernel as a response function, next to the estimated ones.
 
-The glyphs and profiles here are the same quantities example_SMI_response_shview.m
-draws in MATLAB. test_SMI_response_helpers.m checks that MATLAB side against
+The glyphs and profiles here are the same quantities
+examples/example_SMI_response_shview.m draws in MATLAB.
+tests/test_SMI_response_helpers.m checks that MATLAB side against
 SMI's own forward model to 1e-15, and the response functions overlaid in panel F
 are the ones `dwi2response` actually wrote.
 """
@@ -47,7 +48,7 @@ def style(ax):
     ax.tick_params(colors=MUTED, labelsize=8)
 
 
-def main(tag='p30', out='fodf_response_shview.png'):
+def main(tag='p30', out='../Figures/fodf_response_shview.png'):
     th = np.linspace(0, np.pi, 361)
     R = np.stack([response_sh(b, KERN, LMAX) for b in SHELLS])
 

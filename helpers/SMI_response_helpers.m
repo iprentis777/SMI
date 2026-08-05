@@ -3,7 +3,7 @@ function H = SMI_response_helpers()
 %
 % Helpers for viewing the SMI response kernel as zonal harmonics, the way
 % MRtrix3's `shview` displays a response function. Used by
-% example_SMI_response_shview.m.
+% examples/example_SMI_response_shview.m.
 %
 %   H.Kell(kernel,b,Lmax,D_FW)        rotational invariants K_l(b) of the kernel
 %   H.zh(kernel,b,Lmax,D_FW,S0)       zonal harmonic (m=0) coefficients per shell
@@ -18,7 +18,7 @@ function H = SMI_response_helpers()
 %                                     an SMI.fit output struct
 %
 % CONVENTIONS. SMI's forward model (SMI.m:818-820, and
-% fODF_modulation_helpers.m) is
+% helpers/fODF_modulation_helpers.m) is
 %
 %     S(u)/S0 = sum_{lm} K_l(b) p_lm Y_lm(u) sqrt((2l+1)*4*pi)
 %
@@ -37,7 +37,7 @@ function H = SMI_response_helpers()
 % These live in their own file rather than as local functions at the end of the
 % example because MATLAB requires local functions at the END of a script while
 % Octave cannot call them there at all. Same reasoning as
-% fODF_modulation_helpers.m.
+% helpers/fODF_modulation_helpers.m.
 H = struct();
 H.Kell           = @kernel_Kell;
 H.zh             = @kernel_zh;

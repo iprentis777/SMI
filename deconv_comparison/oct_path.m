@@ -2,7 +2,9 @@
 % MATLAB does not need the shims; they are no-ops there because MATLAB already
 % provides round(x,n), discretize and datetime.
 here = fileparts(mfilename('fullpath'));
-addpath(fileparts(here));
+repo_root = fileparts(here);
+addpath(repo_root);
+addpath(fullfile(repo_root,'helpers'));
 addpath(here);
 if exist('OCTAVE_VERSION','builtin')
     addpath(fullfile(here,'stubs'));

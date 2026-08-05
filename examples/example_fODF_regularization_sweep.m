@@ -1,7 +1,7 @@
 % =========================================================================
 % Example: choosing the fODF deconvolution regularization parameters
 %
-% example_fODF_regularization.m compares a few fixed settings. This script
+% examples/example_fODF_regularization.m compares a few fixed settings. This script
 % sweeps them, so that the values in the documentation are measured rather
 % than guessed, and so that they can be re-measured for a different
 % protocol by editing the protocol block below.
@@ -28,7 +28,7 @@
 %                  closest peak of the estimated fODF. This is the
 %                  quantity tractography actually consumes.
 %
-% Scoring lives in fODF_regularization_score.m (a separate file rather
+% Scoring lives in helpers/fODF_regularization_score.m (a separate file rather
 % than a local function, so that the script also runs in GNU Octave).
 %
 % All the deconvolutions for one parameter setting are batched into a
@@ -41,6 +41,10 @@
 % By: Santiago Coelho
 % =========================================================================
 clear; close all
+
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
 
 CS_phase = 1; D_FW = 3; Lmax = 6;
 L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);

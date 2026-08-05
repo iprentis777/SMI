@@ -1,7 +1,22 @@
 # Standard Model Imaging (SMI) toolbox
-[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See the '[example.m](https://github.com/NYU-DiffusionMRI/SMI/blob/master/example.m)' script that performs the parameter estimation in an [example dataset](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/).
+[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See [`examples/example.m`](examples/example.m) for parameter estimation on the [example datasets](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/).
 
 For a python implementation of SMI check our [TMI package here](https://nyu-diffusionmri.github.io/DESIGNER-v2/docs/TMI).
+
+## Repository layout
+
+| path | contents |
+|---|---|
+| `SMI.m` | the toolbox implementation |
+| `examples/` | data-driven and synthetic MATLAB examples |
+| `helpers/` | shared MATLAB helpers used by examples, tests, and simulations |
+| `tests/` | self-contained MATLAB/Octave test scripts and run instructions |
+| `Reports/` | measurement reports and generated result tables |
+| `Figures/` | generated figures used by the reports |
+| `deconv_comparison/` | the reproducible SMI/CSD/MRtrix Monte Carlo package |
+| `Patches/` | historical `git am --3way` patches for the measured changes |
+
+The examples and tests add the repository root and `helpers/` directory to the MATLAB/Octave path from their own locations, so they can be launched from any working directory.
 
 <br>
 
@@ -85,7 +100,7 @@ We provide three example datasets [here](https://cai2r.net/resources/standard-mo
 - Multiple b-values and tensor shapes
 - Multiple b-values, tensor shapes, and echo times.
 
-See the example file 'example.m' with the SMI fit. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
+See the example file 'examples/example.m' with the SMI fit. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
 
 ```
 % =====================================================================
@@ -184,13 +199,13 @@ options.fODF_regularization.TikhonovMatrix  = 'laplacebeltrami';  % or 'identity
 ```
 `out.fODF_regularization` returns the options that were used together with the number of iterations, the number of constrained directions, and a convergence flag for each voxel.
 
-The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.10 (non-negativity), and 0.10 (both), while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
+The script `examples/example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.10 (non-negativity), and 0.10 (both), while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
 
 The script also plots the resulting fODFs. In 2D it shows the amplitude along the plane containing both fibers, both as a signed profile (where the spurious negative lobes are easiest to see) and as a polar shape. In 3D it draws one glyph per deconvolution, with the radius equal to the fODF amplitude, the surface coloured by orientation, and the negative part of the fODF overlaid as a translucent red surface at radius `|fODF|` instead of being clipped away, so that what the non-negativity constraint removes is visible. All glyphs share a common radial scale, so they can be compared directly.
 
 
 #### Choosing the regularization parameters
-The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `example_fODF_regularization_sweep.m` (which also needs no data, and uses `fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg` against `lambda_tikhonov` jointly, then `tau`, then `Lmax_init`, then the two Tikhonov matrices. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
+The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `examples/example_fODF_regularization_sweep.m` (which also needs no data, and uses `helpers/fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg` against `lambda_tikhonov` jointly, then `tau`, then `Lmax_init`, then the two Tikhonov matrices. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
 
 On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directions each, Lmax = 6):
 
@@ -204,7 +219,7 @@ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directio
 On this score the non-negativity weight wants to be considerably larger than 1: the error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum of *this* metric. `tau` = 0.1 and `Lmax_init` = 4, the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
 
 ##### The default is 1, and the two sweeps disagree about that
-**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the Monte Carlo in `deconv_comparison/` (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of `REPORT_SMI_deconvolution_MonteCarlo.md`) finds that
+**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the Monte Carlo in `deconv_comparison/` (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of `Reports/REPORT_SMI_deconvolution_MonteCarlo.md`) finds that
 
 - at `lambda_nonneg = 10` a 45 degree crossing is resolved in **0.0%** of realisations at every SNR, including noise free; at 3, in 0.2%; at 1, in 55%;
 - `lambda_nonneg = 1` has the **best angular correlation against the ground truth at every crossing angle** — 0.980 / 0.986 / 0.966 / 0.972 for a single fibre, 15, 45 and 60 degrees, against 0.930 / 0.947 / 0.887 / 0.903 at 10;
@@ -234,7 +249,7 @@ The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground tru
 `tau` behaves the same way: the ratio rises with it (0.964 at 0.02, 0.998 at 0.1, 1.213 at 0.4), and the accuracy optimum at 0.1 is also where the peak height is most faithful.
 
 ##### Figures
-`example_fODF_regularization_sweep.m` produces four figures, saved by default to `figures_fODF_sweep/` as both PNG and EPS at 300 dpi (set `saveFigures = false` to only display them):
+`examples/example_fODF_regularization_sweep.m` produces four figures, saved by default to `figures_fODF_sweep/` as both PNG and EPS at 300 dpi (set `saveFigures = false` to only display them):
 
 1. **The regularization landscape** — the `lambda_nonneg` x `lambda_tikhonov` grid as four heat maps: relative fODF error, negative mass, peak angular error, and peak amplitude ratio, with the optimum marked.
 2. **Peak amplitude shrinkage** — the ratio against each weight separately, plus the accuracy against shrinkage trade-off as a scatter over the whole grid.
@@ -292,7 +307,7 @@ The default `'p2product'` is their product: a voxel is kept only if **both** est
 **`p4` is not recommended in either flavour.** The kernel `p4` carries the same upward bias, and is bounded above by the training prior, which draws `p4 = rand*p2*0.9`. The deconvolved `pl4` comes back at roughly a third of its true value (median 0.26 in single-fiber white matter against a true 0.71) — weighting by it measures the regularizer, not the tissue. (An earlier version of this text blamed the Tikhonov term. That was measured to be wrong: `lambda_tikhonov` has no effect on the high `l` bands. The cause is the non-negativity constraint plus error in the estimated kernel.)
 
 #### Measured results
-`example_fODF_modulation.m` (no data needed, helpers in `fODF_modulation_helpers.m`) simulates seven voxel classes with 200 noise realizations each, 6 shells (b = 0, 1, 2, 3, 4.5, 6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), fitted through the real `SMI.fit` at SNR 30 and 15, with and without the regularized deconvolution. The forward model is the same construction the deconvolution inverts, so it round-trips to `max|error| = 1.2e-15`.
+`examples/example_fODF_modulation.m` (no data needed, helpers in `helpers/fODF_modulation_helpers.m`) simulates seven voxel classes with 200 noise realizations each, 6 shells (b = 0, 1, 2, 3, 4.5, 6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), fitted through the real `SMI.fit` at SNR 30 and 15, with and without the regularized deconvolution. The forward model is the same construction the deconvolution inverts, so it round-trips to `max|error| = 1.2e-15`.
 
 The third class, **white matter inside edema**, is the control that must survive: `f` = 0.30 and `fw` = 0.50, but the fibers are still coherent. A weight that suppresses it along with grey matter and CSF is a tissue-type criterion in disguise.
 
@@ -336,7 +351,7 @@ The weight is clipped at 1, so it cannot rescue a blown-up voxel — `w*1e13` is
 - `out.fODF_modulated` is in SMI's own SH basis (`SMI.get_even_SH` with `out.CS_phase`). **This has not been checked against MRtrix's basis** — verify the coefficient ordering and the Condon-Shortley convention before running `tckgen`.
 - These are simulations. `p2` in real edema should be checked against a known ROI before this is relied on: the simulated edema class assumes fibers stay coherent, which is the assumption the whole approach rests on.
 
-Full methodology, all result tables and limitations are in `REPORT_fODF_modulation.md`.
+Full methodology, all result tables and limitations are in `Reports/REPORT_fODF_modulation.md`.
 
 
 ### fODF outlier capping
@@ -390,7 +405,7 @@ With the shipped regularization the simulation has no outlier population at all:
 #### Order of operations
 If both the cap and the modulation are enabled, **the cap runs first** and the modulation is applied to the corrected fODF. That ordering is forced: the cap works on absolute amplitudes and modulation rescales them, the same reason peak truncation has to precede modulation.
 
-Full methodology, all result tables and verification are in `REPORT_fODF_outlier_cap.md`.
+Full methodology, all result tables and verification are in `Reports/REPORT_fODF_outlier_cap.md`.
 
 
 ### Viewing the response kernel as zonal harmonics
@@ -402,10 +417,11 @@ R(theta) = sum_l K_l(b) (2l+1) P_l(cos theta) = sum_l r_l Y_l0(theta),   r_l = K
 
 and `r_l` is exactly what MRtrix keeps in a response function file: one row per shell, one column per even `l`.
 
-`example_SMI_response_shview.m` (with `SMI_response_helpers.m`) draws an SMI kernel the way MRtrix3's `shview` draws a response: `K_l(b)`, the zonal coefficients per shell, the angular profile `R(theta)`, and a 3D glyph per shell. It also takes the compartments apart -- free water is isotropic, so it only ever moves `r_0`, which is why an SMI fODF's amplitude is blind to free water while an AFD-style fODF is not -- and puts a response glyph next to an fODF glyph from the same renderer. No data is needed; a kernel from a real fit goes in with
+`examples/example_SMI_response_shview.m` (with `helpers/SMI_response_helpers.m`) draws an SMI kernel the way MRtrix3's `shview` draws a response: `K_l(b)`, the zonal coefficients per shell, the angular profile `R(theta)`, and a 3D glyph per shell. It also takes the compartments apart -- free water is isotropic, so it only ever moves `r_0`, which is why an SMI fODF's amplitude is blind to free water while an AFD-style fODF is not -- and puts a response glyph next to an fODF glyph from the same renderer. No data is needed; a kernel from a real fit goes in with
 
 ```
 out    = SMI.fit(dwi, options);
+addpath('helpers');
 H      = SMI_response_helpers();
 kernel = H.kernel_from_out(out, [x y z]);
 ```
@@ -413,7 +429,7 @@ kernel = H.kernel_from_out(out, [x y z]);
 The script writes `response_SMI_wm.txt` in MRtrix's response format, so `shview response_SMI_wm.txt` opens the same object in MRtrix, and `H.read_response` reads an MRtrix response back for overlay against a kernel. Before drawing anything it checks itself: the zonal reconstruction is compared against SMI's own forward model for a delta fODF, and the run aborts if they disagree by more than 1e-10 (measured: `1.7e-15`).
 
 ### How the deconvolution compares to CSD and MSMT-CSD
-`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF goes through the same `sh2peaks`, so peak extraction is identical for every arm. Full methodology and result tables are in `REPORT_SMI_deconvolution_MonteCarlo.md` and `deconv_tables.md`. **It is all simulation**, including the "real data" the responses are estimated from.
+`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF goes through the same `sh2peaks`, so peak extraction is identical for every arm. Full methodology and result tables are in `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` and `Reports/deconv_tables.md`. **It is all simulation**, including the "real data" the responses are estimated from.
 
 The short version: no method dominates. Single-shell CSD is the sharpest and the most fragile — at SNR 50 it resolves 45 degree crossings 96.9% of the time, and by SNR 5 it returns the right number of fibres in 15.6% of *single fibre* voxels with 1.6 spurious peaks in each. MSMT-CSD is the most stable and the most biased: essentially no spurious peaks at any SNR, and a 45 degree crossing it does not resolve in any of 10,000 realisations — which survives both an exact response and Lmax 8. Constrained SMI sits between them: 81.1% of 45 degree crossings at SNR 50, the best 60 degree accuracy of the three from SNR 50 down to SNR 10, and at SNR 10 the correct fibre count in 99.8% of 60 degree crossings where single-shell CSD manages 49.6%.
 

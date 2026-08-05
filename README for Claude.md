@@ -21,27 +21,28 @@ reimplementations and onto MRtrix3 itself, and changed one shipped default.
 
 | feature | option | default | report |
 |---|---|---|---|
-| Regularized deconvolution | `options.fODF_regularization` | off | `REPORT_fODF_regularization_sweep.md` |
-| Anisotropy modulation | `options.fODF_modulation` | off | `REPORT_fODF_modulation.md` |
-| Post hoc outlier cap | `options.fODF_outlier` | off | `REPORT_fODF_outlier_cap.md` |
+| Regularized deconvolution | `options.fODF_regularization` | off | `Reports/REPORT_fODF_regularization_sweep.md` |
+| Anisotropy modulation | `options.fODF_modulation` | off | `Reports/REPORT_fODF_modulation.md` |
+| Post hoc outlier cap | `options.fODF_outlier` | off | `Reports/REPORT_fODF_outlier_cap.md` |
 
 All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
 whether any of them is on or off. That invariant is tested, not asserted — keep
-it. Patches `0001`-`0006` record each change and apply with `git am --3way`.
+it. Patches `Patches/0001`-`Patches/0009` record each change and apply with
+`git am --3way`.
 
-### On branches, not merged
+The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
+`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`, its two figures, and the
+`lambda_nonneg` default change from 10 to 1 were merged in PR #7. The shared
+Monte Carlo configuration was merged in PR #9. Section 6.4 justifies the
+default change.
 
-**`claude/smi-deconvolution-sims-lv1xyy` (PR #7, 12 commits)** — the current
-work. The shview-style response viewer, the `deconv_comparison/` Monte Carlo
-package, `REPORT_SMI_deconvolution_MonteCarlo.md`, two figures, and **one change
-to shipped behaviour**: `lambda_nonneg` default 10 → 1 at `SMI.m:978`. Section
-6.4 is what justifies it.
+### Still on a branch, not merged
 
 **`claude/freewater-simulations` (`1be06ea`, 3 commits)** — the free-water
 comparison package, `REPORT_fODF_freewater.md`,
 `REPORT_fODF_compartment_split.md`, two figures. **Still no PR, still unmerged,
 now three sessions old.** Every measured number quoted in
-`REPORT_fODF_outlier_cap.md` sections 4-5 comes from this branch, so it should
+`Reports/REPORT_fODF_outlier_cap.md` sections 4-5 comes from this branch, so it should
 land or those numbers lose their provenance. `deconv_comparison/binio.{m,py}`
 and `kernel.py` are *copies* of files on that branch — de-duplicate if it lands.
 
@@ -68,7 +69,7 @@ done. The default is now 1** (`SMI.m:978`).
 The two sweeps genuinely disagree, and the reason is that they score different
 things:
 
-- `example_fODF_regularization_sweep.m` minimises **relative L2 error over the
+- `examples/example_fODF_regularization_sweep.m` minimises **relative L2 error over the
   whole sphere**. That integral is dominated by the isotropic part and by
   negative mass, both of which a heavier penalty fixes. It prefers 10.
 - The Monte Carlo scores **peak orientation, fibre count and `l >= 2` ACC**.
@@ -93,7 +94,7 @@ Both were made against dipy and both were wrong. MRtrix settled them.
    `CS_phase = 0`, **SMI's basis is MRtrix's exactly** — the map is the
    identity and the peak is recovered to machine precision.
 
-`REPORT_SMI_deconvolution_MonteCarlo.md` carries the corrected version.
+`Reports/REPORT_SMI_deconvolution_MonteCarlo.md` carries the corrected version.
 `deconv_comparison/check_mrtrix_basis.sh` re-measures it in about a minute
 against the real binaries; run that rather than trusting either claim.
 
@@ -101,7 +102,7 @@ against the real binaries; run that rather than trusting either claim.
 
 1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do much
    of anything.** Re-confirmed this session: 0.3 vs 0 moves the 45 degree error
-   from 21.28 to 21.27 deg. `REPORT_fODF_modulation.md` §3 attributes the `pl4`
+   from 21.28 to 21.27 deg. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
    loss to it and is **still wrong** and still unfixed. The real cause is the
    non-negativity constraint plus error in the estimated kernel, whose `K_l` at
    high `l` is tiny and very sensitive.
@@ -119,7 +120,7 @@ against the real binaries; run that rather than trusting either claim.
 ## 3. Conventions that must not be got wrong
 
 Pinned analytically and verified numerically (round-trip `max|err| = 1.2e-15`,
-`test_SMI_response_helpers.m`).
+`tests/test_SMI_response_helpers.m`).
 
 `out.plm` is in the **normalized** convention `p_00 = 1`, covering `l = 2..Lmax`
 only (the `l=0` term is not stored).
@@ -159,7 +160,7 @@ shell — is
 r_l(b) = K_l(b) * sqrt((2l+1) * 4*pi)
 ```
 
-`SMI_response_helpers.m` implements this and `example_SMI_response_shview.m`
+`helpers/SMI_response_helpers.m` implements this and `examples/example_SMI_response_shview.m`
 checks it against SMI's own forward model on every run, aborting above 1e-10
 (measured 1.6e-15). Use those rather than rederiving.
 
@@ -209,8 +210,8 @@ the repo at `deconv_comparison/stubs/` — `oct_path.m` puts them on the path:
 Other traps, all hit at least once:
 
 - **Octave cannot call functions defined at the end of a script**, MATLAB
-  requires them there. That is why `SMI_response_helpers.m` and
-  `fODF_modulation_helpers.m` are separate files returning function-handle
+  requires them there. That is why `helpers/SMI_response_helpers.m` and
+  `helpers/fODF_modulation_helpers.m` are separate files returning function-handle
   structs rather than local functions.
 - **`SMI.vectorize` takes a different branch if any spatial dimension is a
   singleton.** Always build simulation volumes with all three dims > 1.
@@ -253,25 +254,26 @@ force-pushed.
 |---|---|
 | `SMI.m` | the toolbox. All three opt-in features live here as static methods |
 | `README.md` | user-facing documentation of every feature |
-| `REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
-| `REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
-| `REPORT_fODF_outlier_cap.md` | the cap measurement |
-| `example_fODF_regularization*.m` | regularization examples and the sweep |
-| `example_fODF_modulation.m` + `fODF_modulation_helpers.m` | the 7-class simulation. The helpers are the reusable forward model |
-| `test_fODF_outlier_cap.m`, `test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
-| `0001`-`0006*.patch` | one patch per change, `git am --3way`-able |
+| `examples/example.m`, `examples/example_SMI_SSM.m` | the original data-fit and sensitivity-specificity examples |
+| `Reports/REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
+| `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
+| `Reports/REPORT_fODF_outlier_cap.md` | the cap measurement |
+| `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
+| `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | the 7-class simulation. The helpers are the reusable forward model |
+| `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
+| `Patches/0001`-`Patches/0009*.patch` | one patch per measured change, `git am --3way`-able |
 
-New on `claude/smi-deconvolution-sims-lv1xyy`:
+The response/deconvolution work now on master:
 
 | file | what |
 |---|---|
-| `SMI_response_helpers.m` | kernel → zonal harmonics → glyph. Function-handle struct: `Kell zh profile grid glyph zh_glyph sh_glyph write_response read_response kernel_from_out` |
-| `example_SMI_response_shview.m` | draws the kernel four ways per shell, decomposes it by compartment, writes `response_SMI_wm.txt` for `shview`. Self-checks against SMI's forward model |
-| `test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
+| `helpers/SMI_response_helpers.m` | kernel → zonal harmonics → glyph. Function-handle struct: `Kell zh profile grid glyph zh_glyph sh_glyph write_response read_response kernel_from_out` |
+| `examples/example_SMI_response_shview.m` | draws the kernel four ways per shell, decomposes it by compartment, writes `response_SMI_wm.txt` for `shview`. Self-checks against SMI's forward model |
+| `tests/test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
 | `deconv_comparison/` | the Monte Carlo package. Has its own `README.md` — read that one for the run order |
-| `REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
-| `deconv_tables.md` | every result table, generated by `deconv_comparison/tables.py` |
-| `fodf_response_shview.png`, `fodf_deconv_montecarlo.png` | the two figures |
+| `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
+| `Reports/deconv_tables.md` | every result table, generated by `deconv_comparison/tables.py` |
+| `Figures/fodf_response_shview.png`, `Figures/fodf_deconv_montecarlo.png` | the two figures |
 
 The division of labour in `deconv_comparison/` is deliberate and is what the
 user asked for: **Octave/SMI generates the signals and fits the SMI arm; MRtrix3
@@ -454,7 +456,7 @@ it has never touched real data.
    item 3). This decides whether the modulation approach can use tissue
    fractions at all.
 7. **Land `claude/freewater-simulations`**, or the measured numbers quoted in
-   `REPORT_fODF_outlier_cap.md` have no reproducible source.
+   `Reports/REPORT_fODF_outlier_cap.md` have no reproducible source.
 8. Spatial context beyond the cap — a neighbour-agreement *weight* rather than
    just an outlier test — is the remaining unexplored axis.
 
@@ -462,21 +464,21 @@ it has never touched real data.
 
 ## 9. Documentation and clutter debt
 
-- **`REPORT_fODF_modulation.md` §3 states a wrong cause** for the `pl4` loss.
+- **`Reports/REPORT_fODF_modulation.md` §3 states a wrong cause** for the `pl4` loss.
   Two handoffs have now flagged it and nobody has fixed it. Fix it in place.
-- **`REPORT_fODF_regularization_sweep.md` now disagrees with the shipped
+- **`Reports/REPORT_fODF_regularization_sweep.md` now disagrees with the shipped
   default.** It argues for 10; the default is 1. `SMI.m:935` and `README.md`
   both explain the disagreement, but the report itself does not, and a reader
   who finds it first will be misled. Add a header pointing at section 6 of
-  `REPORT_SMI_deconvolution_MonteCarlo.md`.
+  `Reports/REPORT_SMI_deconvolution_MonteCarlo.md`.
 - **Six reports, no index.** A reader has no map of which report supersedes
   which, or which numbers are simulation-only. Everything in every report is
   simulation-only; that is worth saying once, loudly, in `README.md`.
 - **The patch files roughly double the apparent size of every change** because
   they duplicate their own diff. That is the repo convention, so it stays.
 - **CI runs `claude-review` only.** There is no MATLAB or Octave runner, so
-  `test_fODF_outlier_cap.m`, `test_SMI_outlier_cap.m` and
-  `test_SMI_response_helpers.m` are never executed by CI — they pass locally
+  `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` and
+  `tests/test_SMI_response_helpers.m` are never executed by CI — they pass locally
   under Octave and that is invisible on a PR. An Octave job would be
   straightforward and the repo has never had one. With three test files now,
   this is worth more than it was.
