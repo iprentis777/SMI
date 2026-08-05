@@ -49,6 +49,24 @@ binio.save('bvals', bvals)
 binio.save('bvecs', bvecs)
 binio.save('eval_dirs', verts)
 
+# The same table as tracked text. The MATLAB side (notebooks/, and anything else
+# that wants the protocol without running this file) reads that copy, so it needs
+# no Python at all. Written at full double precision so the two are identical
+# rather than merely close.
+import os
+pdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'protocol')
+os.makedirs(pdir, exist_ok=True)
+with open(os.path.join(pdir, 'hcp_like_3shell.txt'), 'w') as fh:
+    fh.write('% HCP-like 3-shell protocol, shared by every arm of the Monte Carlo.\n')
+    fh.write('% Columns: b [ms/um^2]  gx  gy  gz   (unit vectors; b=0 rows have g=0)\n')
+    fh.write('%\n')
+    fh.write('% Generated once by setup_protocol.py (dipy electrostatic repulsion,\n')
+    fh.write('% seeds 1000+i, 90 directions per shell at b = 1, 2, 3 plus 18 b=0)\n')
+    fh.write('% and tracked here so the MATLAB side of the package needs no Python\n')
+    fh.write('% and reproduces the report exactly rather than approximately.\n')
+    for bv, g in zip(bvals, bvecs):
+        fh.write('%.17g %.17g %.17g %.17g\n' % (bv, g[0], g[1], g[2]))
+
 nn = np.degrees(np.arccos(np.clip(
     np.sort(verts @ verts.T, axis=1)[:, -2], -1, 1))).mean()
 print(f'protocol    : {len(bvals)} volumes, shells {SHELLS}')

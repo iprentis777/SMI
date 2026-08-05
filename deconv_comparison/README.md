@@ -34,6 +34,16 @@ is where the "ceiling" column in the report comes from.
 MRtrix's by `(-1)^m`, which is a 180 degree rotation about z of every fODF.
 `check_mrtrix_basis.sh` measures that against MRtrix itself.
 
+## Start here if you want to check it yourself
+
+`notebooks/smi_simulation_walkthrough.m` is the SMI arm taken apart, one step
+at a time, with a `CHECK` after every step that compares its output against
+something computed a different way. It needs no data, no Python and about two
+minutes, and it opens as a MATLAB Live Script with no edits. Read
+`notebooks/README.md` for what each check establishes.
+
+The CSD and MSMT-CSD arms do not have a walkthrough yet.
+
 ## Run order
 
 `./run_all.sh` does all of it (`NREP=200 ./run_all.sh` for a quick version).
@@ -65,7 +75,9 @@ still be compared.
 
 | file | what |
 |---|---|
-| `setup_protocol.py` | the HCP-like 3-shell gradient table (the only thing that uses dipy) |
+| `notebooks/` | narrated step-by-step walkthroughs, with a `CHECK` after every step |
+| `protocol/hcp_like_3shell.txt` | the gradient table as tracked text, so the MATLAB side needs no Python |
+| `setup_protocol.py` | regenerates the gradient table (the only thing that uses dipy) |
 | `mc_config.m` | **every constant of the experiment, in one place.** `gen_montecarlo.m` and `sweep_nonneg.m` both read from it, so the main run and the sweep cannot disagree about what is being simulated. Start here to see what the experiment *is* |
 | `gen_phantom.m` | the synthetic voxel population the responses are estimated from |
 | `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |
