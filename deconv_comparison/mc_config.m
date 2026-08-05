@@ -20,7 +20,10 @@ function C = mc_config()
 %              delta: a response estimated from real white matter absorbs
 %              fibre dispersion, and a delta truth would hand every method a
 %              mismatch that does not exist in practice
-%   ANGLES     crossing angles in degrees; 0 means a single fibre
+%   ANGLES     crossing angles in degrees; 0 means a single fibre. NOTE that at
+%              KAPPA = 16 a 30 degree crossing does not separate even in the
+%              noise-free truth -- measured at Lmax 8 it needs KAPPA >= 48.
+%              45 and 60 separate at every KAPPA from 8 upward
 %   K_WM       [f Da Depar Deperp fw] of the white matter kernel
 %   AXIS1      the first fibre axis, fixed and off every coordinate plane
 %   NDIR_Q     quadrature directions used to project a sampled fODF onto plm
@@ -32,12 +35,13 @@ function C = mc_config()
 %   C.rotate_about(n,deg) a unit vector `deg` degrees from n, in a fixed plane
 
 C = struct();
+C.PROTOCOL   = 'hcp_real_3shell.txt';
 C.LMAX_FIT   = 6;
 C.LMAX_GT    = 8;
 C.CS_PHASE   = 0;
 C.D_FW       = 3;
 C.KAPPA      = 16;
-C.ANGLES     = [0 15 45 60];
+C.ANGLES     = [0 30 45 60];
 C.K_WM       = [0.60 2.0 2.0 0.50 0.02];
 C.NDIR_Q     = 3000;
 C.SEED_MC    = 31415;
@@ -49,6 +53,44 @@ C.AXIS1 = n1/norm(n1);
 C.pick_grid     = @pick_grid;
 C.rotate_about  = @rotate_about;
 C.condition_axes = @(ic) condition_axes(C.AXIS1, C.ANGLES, ic);
+C.load_protocol  = @() load_protocol(C.PROTOCOL);
+end
+
+% =====================================================================
+function [bvals, bvecs] = load_protocol(fname)
+% [bvals, bvecs] = load_protocol(fname)
+%
+% The acquisition, read from protocol/<fname>. b comes back in ms/um^2 as a
+% row; bvecs is [N x 3] and unit.
+%
+% Every arm reads the protocol through here so there is one definition of what
+% was acquired, and so the normalisation warning below cannot be bypassed by
+% loading the file directly.
+here = fileparts(mfilename('fullpath'));
+txt  = fileread(fullfile(here, 'protocol', fname));
+cols = textscan(txt, '%f %f %f %f', 'CommentStyle', '%');
+bvals = cols{1}(:)';
+bvecs = [cols{2} cols{3} cols{4}];
+
+% Real .bvec files are written at finite precision, so the directions are not
+% quite unit. This is NOT harmless, and it is not silently repaired: anything
+% that treats g(3) as cos(theta) without normalising inherits the error, and at
+% Lmax 8 an error of 1e-6 in |g| is enough to break the zonal-response identity
+% by 5e-7 -- six orders of magnitude worse than machine precision. Warn with the
+% measured number, then correct it.
+nrm   = sqrt(sum(bvecs.^2, 2));
+e_raw = max(abs(nrm - 1));
+if e_raw > 1e-12
+    fprintf(2, ['\n' repmat('!',1,72) '\n']);
+    fprintf(2, 'WARNING  %s: gradient directions are not unit vectors.\n', fname);
+    fprintf(2, '         max | |g| - 1 | = %.3e over %d volumes.\n', e_raw, numel(bvals));
+    fprintf(2, '         They are being normalised. Left uncorrected this breaks any\n');
+    fprintf(2, '         calculation that reads g(3) as cos(theta) -- measured at Lmax 8,\n');
+    fprintf(2, '         the zonal response vs forward model identity degrades from\n');
+    fprintf(2, '         ~1e-15 to ~5e-7. Check the source of the .bvec if this is large.\n');
+    fprintf(2, [repmat('!',1,72) '\n\n']);
+end
+bvecs = bvecs ./ repmat(nrm, 1, 3);
 end
 
 % =====================================================================

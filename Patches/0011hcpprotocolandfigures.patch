@@ -1,0 +1,2064 @@
+From 9266e722e0d96a7cf6d54317bf3043221f1f179d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 19:25:13 +0000
+Subject: [PATCH 1/4] Run the walkthrough on the real HCP protocol, at Lmax 4,
+ 6 and 8
+
+Three changes asked for, plus one defect the real data exposed.
+
+THE PROTOCOL IS NOW A REAL HCP SCHEME. protocol/hcp_real_3shell.txt is the
+supplied FSL .bval/.bvec as tracked text, b divided by 1000 to reach the
+ms/um^2 this package carries throughout. 288 volumes, 18 b~0 plus 90 each at
+nominal b = 1, 2, 3; 90 distinct directions per shell, none shared between
+shells. The synthetic hcp_like_3shell.txt stays for the published tables'
+provenance but the walkthrough no longer uses it.
+
+Real acquisitions differ from synthetic ones in ways the walkthrough now
+shows rather than tidies away: the b = 0 volumes are b = 5 s/mm^2 and carry
+unit direction vectors, and the b values jitter within each shell (18
+distinct values). Step 1 now asks SMI's own
+Group_dwi_in_shells_b_beta_TE to bin them and checks it recovers
+[18 90 90 90], then uses that assignment for every per-shell number.
+
+LMAX IS NOW EXPLICIT AND SWEPT. A dedicated section explains that the fit
+runs at Lmax 4, 6 and 8 (15, 28 and 45 coefficients) while the ground truth
+is fixed at 8 -- not a choice but SMI's kernel ceiling, since K_l is
+undefined above l = 8. It states the consequence: at Lmax 8 the truth is
+exactly representable by the fit, so that row is flattering and its
+"ceiling" is no longer an independent bound. Step 7 scores each Lmax against
+the truth truncated to that same Lmax.
+
+STEP 8 IS NOW AN EXPORT, NOT A CROSS-CHECK. The sh2peaks comparison is gone.
+Instead the fODF of each Lmax is written as an MRtrix SH image (CS_phase = 0,
+so the coefficients need no conversion), with voxel_key.txt giving the true
+fibre axes per voxel so a peak found in MRtrix can be matched back. The
+walkthrough prints the commands and runs none of them.
+
+THE DEFECT. The supplied .bvec is unit only to 1.1e-6, being written at
+7 significant figures. SMI.get_even_SH normalises internally; treating g(3)
+as cos(theta) does not, so the Step 3 zonal-vs-forward-model identity broke
+at 5.8e-7 instead of 1e-15. Isolated to the direction set by holding b fixed
+and swapping direction sets, then confirmed: normalising on load restores
+8.9e-16. This could only have been found on real data.
+
+Also fixed: per-shell masks used |b - b_nominal| < 0.5*b_nominal, which for
+b = 2 admits b = 2.98 and silently mixed the b = 3 shell into it -- visible
+as a nearest-neighbour spacing of 7.0 deg where it should be 12.7.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ .gitignore                                    |   1 +
+ .../notebooks/smi_simulation_walkthrough.m    | 722 +++++++++---------
+ .../protocol/hcp_real_3shell.txt              | 306 ++++++++
+ 3 files changed, 687 insertions(+), 342 deletions(-)
+ create mode 100644 deconv_comparison/protocol/hcp_real_3shell.txt
+
+diff --git a/.gitignore b/.gitignore
+index 5443e0d..9a72be6 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -6,3 +6,4 @@ deconv_comparison/__pycache__/
+ octave-workspace
+ response_SMI_wm.txt
+ deconv_comparison/mrtrix/
++deconv_comparison/export/
+diff --git a/deconv_comparison/notebooks/smi_simulation_walkthrough.m b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+index d0dfe54..f983b70 100644
+--- a/deconv_comparison/notebooks/smi_simulation_walkthrough.m
++++ b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+@@ -9,26 +9,30 @@
+ % below are publish-style.
+ %
+ % *Nothing here is a reimplementation.* The forward model comes from
+-% |helpers/fODF_modulation_helpers.m|, the fit is the real |SMI.fit|, and every
+-% constant comes from |mc_config.m| -- the same file |gen_montecarlo.m| reads.
+-% If a number here disagrees with the pipeline, the pipeline is what is wrong.
++% |helpers/fODF_modulation_helpers.m|, the fit is the real |SMI.fit|, and the
++% experiment's constants come from |mc_config.m| -- the same file
++% |gen_montecarlo.m| reads. If a number here disagrees with the pipeline, the
++% pipeline is what is wrong.
+ %
+ % *What you should end up believing.* Not "the code ran". Each step ends with
+ % one or more *CHECK* lines that compare its output against something computed
+ % a different way, and print |ok| or |** FAILED **| next to the number. If you
+ % read only the CHECK lines, you have audited the simulation.
+ %
+-%  Step 1  the acquisition protocol         -> shells and directions
++%  Step 1  the acquisition protocol         -> a real HCP 3-shell scheme
+ %  Step 2  the ground truth fibre geometry  -> Watson fODFs at 0/15/45/60 deg
+ %  Step 3  the kernel, and it as a response -> K_l(b), zonal harmonics
+ %  Step 4  forward convolution              -> noise-free signal
+ %  Step 5  Rician noise                     -> the measured data
+-%  Step 6  SMI.fit                          -> kernel and fODF recovery
+-%  Step 7  peaks and angular error          -> did it work?
+-%  Step 8  cross-check the peaks against MRtrix (skipped if not installed)
+-%  Step 9  how to scale this up to the published run
++%  Step 6  SMI.fit at Lmax 4, 6 and 8       -> kernel and fODF recovery
++%  Step 7  peaks and angular error          -> did it work, and at which Lmax?
++%  Step 8  export the fODFs for MRtrix      -> check them outside this file
++%  Step 9  how to scale this up
+ %
+-% Runtime is a couple of minutes at the default size.
++% *Runtime is about six minutes*, almost all of it Step 6. |SMI.fit| is
++% dominated by training its regression rather than by the voxel count, so each
++% Lmax costs roughly the same two minutes whether there are 100 voxels or
++% 10,000 -- which is also why the full campaign is affordable.
+ 
+ %% Setup
+ % |oct_path.m| puts the repository root, |helpers/| and this package on the
+@@ -44,51 +48,129 @@ if exist('OCTAVE_VERSION', 'builtin')        % quieten Octave's package-load noi
+ end
+ run(fullfile(pkgdir, 'oct_path.m'));
+ 
+-NREP = 50;      % realisations per condition. 50 is quick; the report used 10000.
+-SNR  = 50;      % 1/sigma. The report sweeps 5, 10, 20, 30, 50 and noise free.
++NREP      = 25;                 % realisations per condition. The report used 10000.
++SNR       = 50;                 % 1/sigma. The report sweeps 5, 10, 20, 30, 50, inf.
++LMAX_LIST = [4 6 8];            % angular orders to fit at -- see the next section
++PROTOCOL  = 'hcp_real_3shell.txt';
+ 
+-C = mc_config();              % the single definition of the experiment
++C = mc_config();                % conditions, kernel, dispersion, seeds
+ H = fODF_modulation_helpers();
+ VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
+ 
++%% Which Lmax, and why the ground truth is stuck at 8
++% This is the first thing to be clear about, because every result below depends
++% on it and the numbers mean different things at different orders.
++%
++% *The fit runs at Lmax 4, 6 and 8, side by side.* Even spherical harmonics up
++% to Lmax number |(Lmax/2+1)(Lmax+1)| = *15, 28 and 45* coefficients. The
++% protocol has 90 directions per shell, so all three are comfortably determined
++% by the data; the limit here is the model and the noise, not the sampling.
++%
++% *The ground truth is built at Lmax 8, and that is a ceiling, not a choice.*
++% SMI's kernel rotational invariants |K_l(b)| are only defined up to l = 8
++% (|SMI.RotInv_Kell_wFW_b_beta_TE_numerical|; ask for l = 10 and it errors).
++% So the truth cannot be made sharper than the highest order being fitted.
++%
++% That has a consequence worth stating plainly:
++%
++% * At *Lmax 4 and 6* the truth carries angular detail the fit cannot represent,
++%   which is the honest arrangement -- the fit is being asked to do something it
++%   provably cannot do perfectly.
++% * At *Lmax 8* the truth is exactly representable by the fit. The "ceiling"
++%   reported in Step 7 is then no longer an independent bound, and any Lmax 8
++%   result should be read as slightly flattering.
++%
++% The published comparison in |Reports/| ran every arm at *Lmax 6*
++% (|dwi2fod ... -lmax 6| for CSD and MSMT-CSD), so 6 is the row to compare
++% against the report. 4 is what the real-data driver |run_smi_batch_mod.m|
++% uses. 8 is the report's own upper control.
++
++LMAX_GT = C.LMAX_GT;
+ fprintf('\n=== SMI simulation walkthrough ===\n');
+-fprintf('NREP %d per condition, SNR %g, Lmax fit %d, Lmax truth %d, CS_phase %d\n\n', ...
+-        NREP, SNR, C.LMAX_FIT, C.LMAX_GT, C.CS_PHASE);
++fprintf('protocol %s, NREP %d per condition, SNR %g, CS_phase %d\n', ...
++        PROTOCOL, NREP, SNR, C.CS_PHASE);
++fprintf('fitting at Lmax %s   (%s coefficients)\n', mat2str(LMAX_LIST), ...
++        mat2str((LMAX_LIST/2+1).*(LMAX_LIST+1)));
++fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
+ 
+ %% Step 1 -- the acquisition protocol
+-% Three shells at b = 1, 2, 3 ms/um^2 with 90 directions each, plus 18 b = 0:
+-% the HCP-like protocol Jeurissen et al. (2014) used to introduce MSMT-CSD.
++% A *real HCP 3-shell scheme*, supplied as FSL |.bval| / |.bvec| and tracked as
++% text at |protocol/hcp_real_3shell.txt| so this walkthrough needs no Python.
++% 288 volumes: 18 at b = 0 plus 90 each at nominal b = 1, 2, 3 ms/um^2.
+ %
+-% The directions were generated once by electrostatic repulsion
+-% (|setup_protocol.py|, the only file in the package that needs dipy) and are
+-% *tracked as text* at |protocol/hcp_like_3shell.txt|, so this walkthrough
+-% needs no Python and reads the identical table every other arm reads. b is
+-% carried in ms/um^2 throughout; b = 1 here is 1000 s/mm^2.
+-
+-proto = fileread(fullfile(pkgdir, 'protocol', 'hcp_like_3shell.txt'));
++% b is carried in ms/um^2 throughout. The |.bval| file is in scanner units, so
++% the tracked table is the supplied values *divided by 1000*: b = 1 here is
++% 1000 s/mm^2.
++%
++% Two properties of real acquisitions show up immediately, and neither is
++% tidied away, because both are things code that only ever saw synthetic
++% protocols would get wrong:
++%
++% * *The b = 0 volumes are not b = 0.* They are b = 5 s/mm^2, and they carry
++%   unit direction vectors like every other volume even though the direction is
++%   meaningless there.
++% * *The b values jitter within each shell* -- 18 distinct values across the
++%   scheme. The forward model below uses the exact per-volume b; SMI bins them
++%   into shells for the kernel fit, and Step 1 checks that it bins them the way
++%   a human would.
++
++proto = fileread(fullfile(pkgdir, 'protocol', PROTOCOL));
+ cols  = textscan(proto, '%f %f %f %f', 'CommentStyle', '%');
+ bvals = cols{1}(:)';
+ bvecs = [cols{2} cols{3} cols{4}];
+ Ndwi  = numel(bvals);
+-shells = unique(bvals);          % already a row: bvals is a row
+ 
+-fprintf('Step 1: %d volumes\n', Ndwi);
+-for s = shells
+-    fprintf('   b = %g : %3d directions\n', s, sum(bvals == s));
++fprintf('Step 1: %d volumes, %d distinct b values\n', Ndwi, numel(unique(bvals)));
++
++% The directions are only unit to the precision the .bvec file was written at.
++% That sounds like a nuisance and is not: anything that treats g(3) as cos(theta)
++% without normalising inherits the error, and at Lmax 8 that is enough to break
++% the Step 3 identity by 5e-7 -- six orders of magnitude worse than it should be.
++% So normalise here, once, and report what was corrected.
++e_raw = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
++bvecs = bvecs ./ repmat(sqrt(sum(bvecs.^2, 2)), 1, 3);
++fprintf('   .bvec unit-norm error as supplied: %.2e, normalised to %.2e\n', ...
++        e_raw, max(abs(sqrt(sum(bvecs.^2, 2)) - 1)));
++
++% Let SMI group the shells, and report what it decided. This is the function the
++% fit itself uses, and its shell assignment is used for every per-shell number
++% below -- rather than a hand-rolled "within x% of the nominal b", which
++% silently mixes neighbouring shells when they are a factor of ~1.5 apart.
++[tbl, ~, shell_id] = SMI.Group_dwi_in_shells_b_beta_TE(bvals, [], [], []);
++b_shell = tbl(1,:);
++n_shell = tbl(3,:);
++for i = 1:numel(b_shell)
++    raw = bvals(shell_id == i);
++    fprintf('   shell %d: b = %.3f ms/um^2, %3d directions, raw b in [%.3f, %.3f]\n', ...
++            i, b_shell(i), n_shell(i), min(raw), max(raw));
+ end
++dw = shell_id(:)' > 1;                        % everything above the b~0 shell
+ 
+-% CHECK. The diffusion-weighted directions must be unit vectors, and the b = 0
+-% rows must carry no direction at all. The forward model assumes both silently,
+-% so they are worth making loud.
+-dw    = bvals > 0;
+-gdw   = bvecs(dw,:);
+-gb0   = bvecs(~dw,:);
+-e_nrm = max(abs(sqrt(sum(gdw.^2, 2)) - 1));
+-e_b0  = max(abs(gb0(:)));
+-fprintf('   CHECK directions are unit   max| |g|-1 | = %.2e   %s\n', ...
++% CHECK 1. Every direction must be a unit vector. Now trivially true, but the
++% number printed above is the one that matters.
++e_nrm = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
++fprintf('   CHECK all directions are unit    max| |g|-1 | = %.2e   %s\n', ...
+         e_nrm, VERDICT{1+(e_nrm < 1e-12)});
+-fprintf('   CHECK b=0 rows carry no dir max|g|       = %.2e   %s\n\n', ...
+-        e_b0, VERDICT{1+(e_b0 == 0)});
++
++% CHECK 2. SMI must recover the four shells a human sees, from 18 distinct b
++% values. If it split a shell, every rotational invariant downstream would be
++% estimated from a fraction of the directions.
++ok_shell = (numel(b_shell) == 4) && all(n_shell(:)' == [18 90 90 90]);
++fprintf('   CHECK SMI bins %d b values into 4 shells [18 90 90 90]   %s\n', ...
++        numel(unique(bvals)), VERDICT{1+ok_shell});
++
++% CHECK 3. Within each diffusion-weighted shell the directions should cover the
++% sphere evenly. A clumped scheme would make the l >= 4 coefficients unstable in
++% a way that looks like a method failure.
++fprintf('   nearest-neighbour direction spacing per shell:\n');
++for i = 2:numel(b_shell)
++    g = bvecs(shell_id == i, :);
++    cc = abs(g*g'); cc(1:size(g,1)+1:end) = 0;
++    nn = acosd(min(max(max(cc, [], 2), -1), 1));
++    fprintf('     b = %.0f : mean %.2f deg, worst gap %.2f deg\n', ...
++            b_shell(i), mean(nn), max(nn));
++end
++fprintf('\n');
+ 
+ %% Step 2 -- the ground truth fibre geometry
+ % Four conditions: a single fibre, and two equal fibre populations crossing at
+@@ -107,12 +189,11 @@ fprintf('   CHECK b=0 rows carry no dir max|g|       = %.2e   %s\n\n', ...
+ 
+ dq    = H.dirs(C.NDIR_Q);
+ NCOND = numel(C.ANGLES);
+-L_gt  = repelem(0:2:C.LMAX_GT, 2*(0:2:C.LMAX_GT)+1)';
+-keepF = L_gt <= C.LMAX_FIT;
++L_gt  = repelem(0:2:LMAX_GT, 2*(0:2:LMAX_GT)+1)';
+ 
+ fodf_gt = zeros(size(dq,1), NCOND);
+ plm_gt  = zeros(NCOND, numel(L_gt)-1);
+-sh_gt   = zeros(NCOND, sum(keepF));
++sh_gt   = zeros(NCOND, numel(L_gt));
+ axes_gt = cell(1, NCOND);
+ sep_deg = zeros(1, NCOND);
+ 
+@@ -124,10 +205,9 @@ for ic = 1:NCOND
+         f = f + H.watson(dq, axes_gt{ic}{k}, C.KAPPA);
+     end
+     fodf_gt(:,ic) = f;
+-    p             = H.mixture_plm(f, dq, C.LMAX_GT, C.CS_PHASE);
++    p             = H.mixture_plm(f, dq, LMAX_GT, C.CS_PHASE);
+     plm_gt(ic,:)  = p(:)';
+-    coef          = [1; p(:)] .* sqrt((2*L_gt+1)/(4*pi));
+-    sh_gt(ic,:)   = coef(keepF)';
++    sh_gt(ic,:)   = ([1; p(:)] .* sqrt((2*L_gt+1)/(4*pi)))';
+ 
+     if numel(axes_gt{ic}) == 2
+         sep_deg(ic) = acosd(abs(axes_gt{ic}{1} * axes_gt{ic}{2}'));
+@@ -145,10 +225,9 @@ fprintf('   CHECK crossing angles       max err  = %.2e deg   %s\n', ...
+ % CHECK 2. Reconstruct each fODF from its plm and integrate it over the sphere.
+ % In the p_00 = 1 convention the integral is 1 by construction, so anything
+ % else means the convention has been broken.
+-Yq    = SMI.get_even_SH(dq, C.LMAX_GT, C.CS_PHASE);
+-sc_gt = sqrt((2*L_gt' + 1)/(4*pi));
+-amp   = ([ones(NCOND,1) plm_gt] .* repmat(sc_gt, NCOND, 1)) * Yq';
+-mass  = mean(amp, 2) * 4*pi;                  % equal-area quadrature
++Yq     = SMI.get_even_SH(dq, LMAX_GT, C.CS_PHASE);
++amp    = sh_gt * Yq';
++mass   = mean(amp, 2) * 4*pi;                 % equal-area quadrature
+ e_mass = max(abs(mass - 1));
+ fprintf('   CHECK fODF integrates to 1  max|int-1| = %.2e   %s\n', ...
+         e_mass, VERDICT{1+(e_mass < 1e-3)});
+@@ -164,20 +243,15 @@ fprintf('   CHECK sampled fODF >= 0     min = %+.4f            %s\n', ...
+ % better met here than discovered later:
+ %
+ % *the band-limited ground truth is itself negative in places.* Truncating a
+-% Watson mixture at Lmax rings, exactly as truncating any Fourier series does,
+-% and the rings go below zero. So the "truth" the non-negativity constraint in
+-% Step 6 is asked to approach does not satisfy non-negativity either. This is
+-% why the constraint is a regularizer and not a statement of fact, and why the
+-% regularization report quotes the ground truth's own negative mass whenever it
+-% quotes an estimate's.
+-fprintf('   band-limited truth at Lmax %d -- peak, minimum, and %% of the sphere below 0:\n', ...
+-        C.LMAX_GT);
++% Watson mixture rings, exactly as truncating any Fourier series does, and the
++% rings go below zero. So the "truth" the non-negativity constraint in Step 6 is
++% asked to approach does not satisfy non-negativity either. This is why the
++% constraint is a regularizer and not a statement of fact.
++fprintf('   band-limited truth at Lmax %d -- peak, minimum, %% of sphere below 0:\n', LMAX_GT);
+ for ic = 1:NCOND
+     fprintf('     %2d deg : peak %+.4f, min %+.4f, negative over %4.1f%% of directions\n', ...
+             C.ANGLES(ic), max(amp(ic,:)), min(amp(ic,:)), 100*mean(amp(ic,:) < 0));
+ end
+-fprintf('   The ringing is shallow next to the peak, but it covers a lot of the sphere,\n');
+-fprintf('   because the fODF is near zero almost everywhere and the rings straddle zero.\n');
+ fprintf('   isotropic floor 1/(4*pi) = %.4f  (MRtrix iFOD2 default cutoff is 0.05)\n\n', ...
+         1/(4*pi));
+ 
+@@ -199,12 +273,17 @@ fprintf('   isotropic floor 1/(4*pi) = %.4f  (MRtrix iFOD2 default cutoff is 0.0
+ K  = C.K_WM;
+ RH = SMI_response_helpers();
+ fprintf('Step 3: kernel [f Da Depar Deperp fw] = %s\n', mat2str(K));
+-fprintf('   zonal response r_l, one row per shell -- this IS an MRtrix response file:\n');
+-fprintf('        b        r_0       r_2       r_4       r_6\n');
+-r_all = RH.zh(K, shells, C.LMAX_FIT, C.D_FW);       % [Nshell x (Lmax/2+1)]
+-for i = 1:numel(shells)
+-    fprintf('     %4g  %9.4f %9.4f %9.4f %9.4f\n', shells(i), r_all(i,:));
++fprintf('   zonal response r_l at the nominal shells -- this IS an MRtrix response file:\n');
++fprintf('        b   ');
++for l = 0:2:LMAX_GT, fprintf('%10s', sprintf('r_%d', l)); end
++fprintf('\n');
++b_nom = [0 1 2 3];
++r_nom = RH.zh(K, b_nom, LMAX_GT, C.D_FW);
++for i = 1:numel(b_nom)
++    fprintf('     %4g   ', b_nom(i)); fprintf('%10.4f', r_nom(i,:)); fprintf('\n');
+ end
++fprintf('   r_l falls fast with l: that decay is what makes deconvolution ill-conditioned,\n');
++fprintf('   and it is why Lmax 8 is harder than Lmax 4 rather than simply better.\n');
+ 
+ % CHECK. Build the signal of a delta fODF along z two ways and compare.
+ %
+@@ -213,18 +292,19 @@ end
+ % no approximation: f_lm = Y_lm(z), which is zero for every m /= 0 and
+ % sqrt((2l+1)/4pi) at m = 0, so every p_l0 = 1 and every other p_lm = 0.
+ Mf = [];
+-for l = 2:2:C.LMAX_FIT, Mf = [Mf, -l:l]; end
+-plm_delta = double(Mf(:)' == 0);               % 1 at m = 0, 0 elsewhere
++for l = 2:2:LMAX_GT, Mf = [Mf, -l:l]; end
++plm_delta = double(Mf(:)' == 0);
+ 
+ zax   = [0 0 1];
+-bdw   = bvals(dw);
+-S_fwd = H.signal(plm_delta, [K 1 1], bdw, ones(1,sum(dw)), zeros(1,sum(dw)), ...
+-                 gdw, C.LMAX_FIT, C.CS_PHASE, C.D_FW);
+-theta = acos(max(min(gdw * zax', 1), -1));
+-S_zon = zeros(sum(dw), 1);
+-for i = 1:numel(shells)
+-    m = (bdw == shells(i));
+-    if any(m), S_zon(m) = RH.profile(r_all(i,:), theta(m)); end
++bsub  = bvals(dw);
++gsub  = bvecs(dw,:);
++S_fwd = H.signal(plm_delta, [K 1 1], bsub, ones(1,sum(dw)), zeros(1,sum(dw)), ...
++                 gsub, LMAX_GT, C.CS_PHASE, C.D_FW);
++theta = acos(max(min(gsub * zax', 1), -1));
++r_each = RH.zh(K, bsub, LMAX_GT, C.D_FW);     % the exact per-volume b, jitter included
++S_zon  = zeros(sum(dw), 1);
++for i = 1:sum(dw)
++    S_zon(i) = RH.profile(r_each(i,:), theta(i));
+ end
+ e_zon = max(abs(S_zon(:) - S_fwd(:)));
+ fprintf('   CHECK zonal response == SMI forward model  max|err| = %.2e   %s\n\n', ...
+@@ -247,72 +327,45 @@ fprintf('   CHECK zonal response == SMI forward model  max|err| = %.2e   %s\n\n'
+ S_clean = zeros(NCOND, Ndwi);
+ for ic = 1:NCOND
+     s = H.signal(plm_gt(ic,:), [K 1 1], bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
+-                 bvecs, C.LMAX_GT, C.CS_PHASE, C.D_FW);
++                 bvecs, LMAX_GT, C.CS_PHASE, C.D_FW);
+     S_clean(ic,:) = s(:)';
+ end
+ 
+ f_ = K(1); Da_ = K(2); Dep_ = K(3); Dpp_ = K(4); fw_ = K(5);
+-cosang  = bvecs * dq';                              % [Ndwi x Nq]
++cosang  = bvecs * dq';
+ Kmat    = f_         * exp(-bvals' .* (Da_*cosang.^2)) + ...
+           (1-f_-fw_) * exp(-bvals' .* (Dpp_ + (Dep_-Dpp_)*cosang.^2)) + ...
+           fw_        * exp(-bvals' * C.D_FW);
+ S_exact = zeros(NCOND, Ndwi);
+ for ic = 1:NCOND
+-    w = fodf_gt(:,ic) / sum(fodf_gt(:,ic));         % weights, sum to 1
++    w = fodf_gt(:,ic) / sum(fodf_gt(:,ic));
+     S_exact(ic,:) = (Kmat * w)';
+ end
+ 
+ fprintf('Step 4: noise-free signal\n');
+-fprintf('   shell mean over the 90 acquired directions of each shell:\n');
++fprintf('   mean signal per shell (shells as SMI assigned them in Step 1):\n');
+ fprintf('        b   ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
+-for s = shells
+-    fprintf('     %4g   ', s); fprintf('%10.4f', mean(S_clean(:, bvals==s), 2)); fprintf('\n');
+-end
+-fprintf('   These differ by about 1%% across conditions, and that is worth explaining,\n');
+-fprintf('   because SMI estimates the kernel from rotational invariants and the l = 0\n');
+-fprintf('   invariant is supposed to be orientation-blind. It is -- but only as an\n');
+-fprintf('   integral over the whole sphere. Ninety directions do not integrate exactly,\n');
+-fprintf('   and the residue depends on where the fibres happen to sit. Redo the same\n');
+-fprintf('   average over the dense quadrature grid and the dependence disappears:\n');
+-
+-Nq   = size(dq,1);
+-sm_q = zeros(NCOND, numel(shells));
+-for i = 1:numel(shells)
+-    bq = shells(i)*ones(1,Nq);
+-    for ic = 1:NCOND
+-        sq = H.signal(plm_gt(ic,:), [K 1 1], bq, ones(1,Nq), zeros(1,Nq), ...
+-                      dq, C.LMAX_GT, C.CS_PHASE, C.D_FW);
+-        sm_q(ic,i) = mean(sq);
+-    end
+-end
+-fprintf('        b   ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
+-for i = 1:numel(shells)
+-    fprintf('     %4g   ', shells(i)); fprintf('%10.6f', sm_q(:,i)); fprintf('\n');
++for i = 1:numel(b_shell)
++    fprintf('     %4.2f   ', b_shell(i));
++    fprintf('%10.4f', mean(S_clean(:, shell_id == i), 2)); fprintf('\n');
+ end
+ 
+-% CHECK 0. The dense spherical mean must not depend on the fibre configuration
+-% at all. If it did, the kernel SMI recovers would depend on the fODF, and the
+-% whole rotational-invariant approach would be unsound.
+-% The tolerance is quadrature-limited, not exact: NDIR_Q directions integrate
+-% the sphere to about 1e-6 here, so a tighter bound would only be testing the
+-% grid. Raise NDIR_Q in mc_config.m and this residual falls with it.
+-e_sm = max(max(sm_q, [], 1) - min(sm_q, [], 1));
+-fprintf('   CHECK spherical mean is orientation-blind  max spread = %.2e   %s\n', ...
+-        e_sm, VERDICT{1+(e_sm < 1e-5)});
+-
+-% CHECK 1. S0 must be exactly 1: sigma is set to 1/SNR below, and that is only
+-% the requested SNR if S0 = 1.
+-e_s0 = max(abs(S_clean(:,1) - 1));
+-fprintf('   CHECK S(b=0) == 1                    max|err| = %.2e   %s\n', ...
+-        e_s0, VERDICT{1+(e_s0 < 1e-12)});
++% CHECK 1. The b~0 signal must be essentially 1, because sigma is set to 1/SNR
++% below and that only means the requested SNR if S0 = 1. It is not exactly 1
++% here: this protocol's "b = 0" is b = 5 s/mm^2, which attenuates by a few parts
++% per thousand. That is a property of the scan, so it is measured, not assumed.
++S_b0 = mean(S_clean(:, ~dw), 2);
++e_s0 = max(abs(S_b0 - 1));
++fprintf('   CHECK S(b~0) is within 1%% of 1   max|S-1| = %.2e   %s\n', ...
++        e_s0, VERDICT{1+(e_s0 < 0.01)});
+ 
+ % CHECK 2. Harmonics against direct convolution. These do NOT agree to machine
+ % precision, and should not: the harmonic route is band limited at LMAX_GT and
+ % the direct sum is not. The residual below IS the band-limiting error of the
+ % ground truth, and Step 5 puts it next to the noise.
+ e_sh = max(abs(S_clean(:) - S_exact(:)));
+-fprintf('   CHECK harmonics vs direct convolution max|err| = %.2e\n', e_sh);
+-fprintf('         (this is band limiting, not an error -- it falls with LMAX_GT)\n\n');
++fprintf('   CHECK harmonics vs direct convolution  max|err| = %.2e\n', e_sh);
++fprintf('         (band limiting, not an error -- it falls as LMAX_GT rises)\n\n');
+ 
+ %% Step 5 -- Rician noise
+ % Complex Gaussian noise is added to a real signal and the magnitude taken,
+@@ -320,8 +373,8 @@ fprintf('         (this is band limiting, not an error -- it falls with LMAX_GT)
+ %
+ %  S_noisy = sqrt( (S + sigma*n1)^2 + (sigma*n2)^2 ),   n1, n2 ~ N(0,1)
+ %
+-% S0 = 1, so |sigma = 1/SNR|. The seed comes from |mc_config.m|, so this
+-% walkthrough and the pipeline draw the same noise.
++% |sigma = 1/SNR|, with SNR defined against the b = 0 signal. The seed comes
++% from |mc_config.m|, so this walkthrough and the pipeline draw the same noise.
+ 
+ sigma   = 1/SNR;
+ NVOX    = NCOND*NREP;
+@@ -337,9 +390,9 @@ dwi = reshape(S_noisy, [GRID Ndwi]);
+ fprintf('Step 5: %d conditions x %d reps = %d voxels, grid %s\n', ...
+         NCOND, NREP, NVOX, mat2str(GRID));
+ fprintf('   sigma = 1/SNR = %.4f\n', sigma);
+-fprintf('   the truth''s band-limiting error is %.0fx smaller than sigma, so it is\n', ...
++fprintf('   the truth''s band-limiting error is %.0fx smaller than sigma, so the\n', ...
+         sigma/e_sh);
+-fprintf('   not what limits any result here\n');
++fprintf('   band limit is not what limits any result below\n');
+ 
+ % CHECK 1. Recover sigma from the simulated data rather than trusting the value
+ % typed in. This is an independent read of the noise level.
+@@ -350,95 +403,110 @@ fprintf('   CHECK recovered sigma       %.5f vs %.5f, %.1f%% off   %s\n', ...
+         s_hat, sigma, 100*rel, VERDICT{1+(rel < 0.10)});
+ 
+ % CHECK 2. A magnitude is strictly positive, which is why SMI is told
+-% NoiseBias = 'Rician' in Step 6. A negative value would mean the noise model
+-% is not the one being claimed.
++% NoiseBias = 'Rician' in Step 6.
+ mn = min(S_noisy(:));
+ fprintf('   CHECK signal strictly positive   min = %.4f            %s\n', ...
+         mn, VERDICT{1+(mn > 0)});
+-hi = (bvals == max(bvals));
+-fprintf('   Rician floor at b = %g: mean %.4f against a noise-free %.4f (upward bias)\n\n', ...
+-        max(bvals), mean(mean(S_noisy(:,hi))), mean(mean(S_rep(:,hi))));
++hib = (shell_id(:)' == numel(b_shell));
++fprintf('   Rician floor at b = %.0f: mean %.4f against a noise-free %.4f (upward bias)\n\n', ...
++        b_shell(end), mean(mean(S_noisy(:,hib))), mean(mean(S_rep(:,hib))));
+ 
+-%% Step 6 -- SMI.fit
++%% Step 6 -- SMI.fit, at each Lmax in turn
+ % The real toolbox at its shipped defaults, with the constrained deconvolution
+ % turned on. Two options are not defaults and both matter:
+ %
+ % * |CS_phase = 0|. At SMI's default of 1 the spherical harmonic basis differs
+ %   from MRtrix's by |(-1)^m|, which for even l is a 180 degree rotation about
+ %   z of every fODF -- 71.5 degrees of peak error, verified against MRtrix's
+-%   own |sh2peaks| in |check_mrtrix_basis.sh|. At 0 the two bases are identical.
++%   own |sh2peaks| in |check_mrtrix_basis.sh|. At 0 the two bases are identical,
++%   which is what makes the Step 8 export directly loadable.
+ % * |fODF_regularization.flag_nonneg = 1|. Off by default in the toolbox; this
+ %   is the arm being studied. |lambda_nonneg| is left at its shipped value and
+-%   printed back below as confirmation.
+-
+-options = struct();
+-options.b     = bvals;
+-options.dirs  = bvecs;
+-options.sigma = sigma*ones(GRID);
+-options.mask  = true(GRID);
+-options.compartments  = {'IAS','EAS','FW'};
+-options.NoiseBias     = 'Rician';
+-options.Lmax          = [0 C.LMAX_FIT C.LMAX_FIT C.LMAX_FIT];
+-options.CS_phase      = C.CS_PHASE;
+-options.D_FW          = C.D_FW;
+-options.flag_fit_fODF = 1;
+-options.fODF_regularization = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
+-
+-fprintf('Step 6: SMI.fit on %d voxels ...\n', NVOX);
+-t0  = tic;
+-out = SMI.fit(dwi, options);
+-fprintf('   done in %.1f s   (lambda_nonneg = %g, lambda_tikhonov = %g)\n', ...
+-        toc(t0), out.fODF_regularization.lambda_nonneg, ...
+-        out.fODF_regularization.lambda_tikhonov);
+-
+-kern = reshape(out.kernel, [NVOX size(out.kernel,4)]);
+-knm  = {'f','Da','Depar','Deperp','fw'};
+-fprintf('   kernel recovery, median over all %d voxels:\n', NVOX);
+-fprintf('        param      true    median      bias\n');
+-for j = 1:5
+-    col = kern(:,j); col = col(isfinite(col));
+-    md  = median(col);
+-    fprintf('     %9s  %7.3f   %7.3f   %+7.3f\n', knm{j}, K(j), md, md - K(j));
++%   printed back as confirmation.
++%
++% The whole fit is repeated for each Lmax, so everything downstream can be read
++% as a function of angular order.
++
++fits = cell(1, numel(LMAX_LIST));
++fprintf('Step 6: SMI.fit on %d voxels, once per Lmax\n', NVOX);
++for iL = 1:numel(LMAX_LIST)
++    Lf = LMAX_LIST(iL);
++
++    options = struct();
++    options.b     = bvals;
++    options.dirs  = bvecs;
++    options.sigma = sigma*ones(GRID);
++    options.mask  = true(GRID);
++    options.compartments  = {'IAS','EAS','FW'};
++    options.NoiseBias     = 'Rician';
++    options.Lmax          = [0 Lf Lf Lf];
++    options.CS_phase      = C.CS_PHASE;
++    options.D_FW          = C.D_FW;
++    options.flag_fit_fODF = 1;
++    options.fODF_regularization = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
++
++    t0  = tic;
++    out = SMI.fit(dwi, options);
++    el  = toc(t0);
++
++    Lv  = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
++    plm = reshape(out.plm, [NVOX numel(Lv)-1]);
++    sh  = [ones(NVOX,1) plm] .* repmat(sqrt((2*Lv+1)/(4*pi))', NVOX, 1);
++    nonfinite = sum(~isfinite(sh(:)));
++    sh(~isfinite(sh)) = 0;
++
++    fits{iL} = struct('Lmax', Lf, 'sh', sh, 'nonfinite', nonfinite, ...
++                      'kernel', reshape(out.kernel, [NVOX size(out.kernel,4)]), ...
++                      'converged', out.fODF_regularization.flag_converged(:), ...
++                      'seconds', el);
++    fprintf('   Lmax %d: %2d coefficients, %5.1f s  (lambda_nonneg = %g, lambda_tikhonov = %g)\n', ...
++            Lf, numel(Lv), el, out.fODF_regularization.lambda_nonneg, ...
++            out.fODF_regularization.lambda_tikhonov);
+ end
+-fprintf(['   Read that table before reading the fODF results. The kernel is NOT recovered\n' ...
+-         '   exactly -- a 3-shell linear-encoding protocol constrains it only loosely, which\n' ...
+-         '   is what README.md "Useful tips" warns about, and SMI''s estimator is a regression\n' ...
+-         '   trained on a prior, so biased parameters get pulled toward that prior.\n' ...
+-         '   The fODF below is then deconvolved with this ESTIMATED kernel, not the true one.\n' ...
+-         '   That is deliberate: it is what happens on real data, where nobody has the truth.\n' ...
+-         '   Deconvolving with the true kernel instead is a one-line change and a fair\n' ...
+-         '   experiment to run -- it separates kernel error from deconvolution error.\n']);
+-
+-% Convert plm to spherical harmonic coefficients in the same convention the
+-% ground truth was written in, so the two are directly comparable.
+-L6  = repelem(0:2:C.LMAX_FIT, 2*(0:2:C.LMAX_FIT)+1)';
+-sc6 = sqrt((2*L6+1)/(4*pi))';
+-plm = reshape(out.plm, [NVOX numel(L6)-1]);
+-sh  = [ones(NVOX,1) plm] .* repmat(sc6, NVOX, 1);
+-nonfinite = sum(~isfinite(sh(:)));
+-sh(~isfinite(sh)) = 0;
+-
+-% CHECK 1. The constrained deconvolution must converge in every voxel. A voxel
+-% that hit the iteration cap has not satisfied the constraint, so its fODF is
+-% not the thing the method promises.
+-conv = out.fODF_regularization.flag_converged(:);
+-fprintf('   CHECK deconvolution converged   %d / %d voxels         %s\n', ...
+-        sum(conv == 1), NVOX, VERDICT{1+all(conv == 1)});
+-
+-% CHECK 2. No NaN reached the fODF: a NaN in an SH volume breaks downstream
++
++% The kernel is estimated from rotational invariants, which do not depend on
++% the fODF's Lmax in the same way -- so this table should be nearly flat across
++% Lmax. If it is not, the kernel fit is being disturbed by the fODF fit.
++knm = {'f','Da','Depar','Deperp','fw'};
++fprintf('   kernel recovery, median over %d voxels (true value in brackets):\n', NVOX);
++fprintf('        Lmax  ');
++for j = 1:5, fprintf('%16s', sprintf('%s [%.2f]', knm{j}, K(j))); end
++fprintf('\n');
++for iL = 1:numel(LMAX_LIST)
++    fprintf('        %4d  ', LMAX_LIST(iL));
++    for j = 1:5
++        col = fits{iL}.kernel(:,j); col = col(isfinite(col));
++        fprintf('%16.3f', median(col));
++    end
++    fprintf('\n');
++end
++fprintf(['   The kernel is NOT recovered exactly, and the fODF below is deconvolved with\n' ...
++         '   this ESTIMATED kernel rather than the true one. That is deliberate: it is what\n' ...
++         '   happens on real data. A 3-shell linear-encoding protocol constrains the kernel\n' ...
++         '   only loosely -- see README.md "Useful tips".\n']);
++
++% CHECK. The constrained deconvolution must converge in every voxel at every
++% Lmax, and no NaN may reach the fODF: a NaN in an SH volume breaks downstream
+ % tractography silently.
+-fprintf('   CHECK fODF all finite           %d non-finite          %s\n', ...
+-        nonfinite, VERDICT{1+(nonfinite == 0)});
++all_conv = true; all_fin = true;
++for iL = 1:numel(LMAX_LIST)
++    all_conv = all_conv && all(fits{iL}.converged == 1);
++    all_fin  = all_fin  && (fits{iL}.nonfinite == 0);
++end
++fprintf('   CHECK deconvolution converged everywhere               %s\n', VERDICT{1+all_conv});
++fprintf('   CHECK fODF all finite at every Lmax                    %s\n', VERDICT{1+all_fin});
+ 
+-% CHECK 3. The l = 0 coefficient must still be the fixed isotropic term, i.e.
+-% the p_00 = 1 convention survived the fit.
+-e_l0 = max(abs(sh(:,1) - 1/sqrt(4*pi)));
+-fprintf('   CHECK p_00 == 1 convention held max|err| = %.2e   %s\n\n', ...
++% CHECK. The p_00 = 1 convention must survive the fit at every Lmax.
++e_l0 = 0;
++for iL = 1:numel(LMAX_LIST)
++    e_l0 = max(e_l0, max(abs(fits{iL}.sh(:,1) - 1/sqrt(4*pi))));
++end
++fprintf('   CHECK p_00 == 1 convention held   max|err| = %.2e   %s\n\n', ...
+         e_l0, VERDICT{1+(e_l0 < 1e-12)});
+ 
+-%% Step 7 -- peaks and angular error
+-% Did it work? The only questions a tractography algorithm asks of an fODF are
+-% "how many fibres, and pointing where", so those are what get scored.
++%% Step 7 -- peaks and angular error, per Lmax
++% The only questions a tractography algorithm asks of an fODF are "how many
++% fibres, and pointing where", so those are what get scored.
+ %
+ % Peaks are found by evaluating the fODF on a dense direction set and keeping
+ % every direction not smaller than any neighbour within |PEAK_NBR| degrees,
+@@ -447,165 +515,133 @@ fprintf('   CHECK p_00 == 1 convention held max|err| = %.2e   %s\n\n', ...
+ % floor matters: without it a nearly isotropic fODF looks like it has many
+ % strong peaks.
+ %
+-% *This is the walkthrough's own peak finder, not the report's.* The report
+-% puts every arm through MRtrix's |sh2peaks| so peak extraction is identical
+-% across methods. Step 8 checks the two against each other.
++% Each Lmax is scored against *its own ceiling*: the ground truth truncated to
++% that same Lmax, with no noise and no fitting. That is what separates "the
++% method failed" from "this angular order cannot represent the answer".
+ 
+ PEAK_NBR = 12;      % degrees, neighbourhood for the local-maximum test
+ PEAK_REL = 0.30;    % keep peaks at >= 30% of the largest anisotropic amplitude
+ de  = H.dirs(1500);
+-Ye  = SMI.get_even_SH(de, C.LMAX_FIT, C.CS_PHASE);
+ nbr = (de*de') > cosd(PEAK_NBR);
+ nbr(1:size(de,1)+1:end) = true;               % include self, so >= means "is the max"
+ 
+-A_fit = sh    * Ye' - 1/(4*pi);               % anisotropic amplitude, per voxel
+-A_gt  = sh_gt * Ye' - 1/(4*pi);
+-
+ fprintf('Step 7: peaks (%d directions, %d deg neighbourhood, %.0f%% threshold)\n', ...
+         size(de,1), PEAK_NBR, 100*PEAK_REL);
+-fprintf('   condition   correct count   median angular error   spurious peaks\n');
++fprintf('   The grid spacing sets a floor on angular error of roughly %.1f deg;\n', ...
++        sqrt(4*pi/size(de,1))*180/pi/2);
++fprintf('   the ceiling column shows that floor directly.\n\n');
++fprintf('   Lmax  condition   correct count   median error   spurious   ceiling\n');
++
++res_all = zeros(numel(LMAX_LIST), NCOND);
++for iL = 1:numel(LMAX_LIST)
++    Lf   = LMAX_LIST(iL);
++    Ye   = SMI.get_even_SH(de, Lf, C.CS_PHASE);
++    nc   = size(Ye,2);
++    Afit = fits{iL}.sh * Ye' - 1/(4*pi);
++    Agt  = sh_gt(:,1:nc) * Ye' - 1/(4*pi);    % truth truncated to THIS Lmax
+ 
+-res_frac = zeros(1,NCOND); ang_med = zeros(1,NCOND); spur = zeros(1,NCOND);
+-for ic = 1:NCOND
+-    rows   = find(cond_id == ic);
+-    ntrue  = numel(axes_gt{ic});
+-    nfound = zeros(numel(rows),1);
+-    aerr   = nan(numel(rows),1);
+-    for r = 1:numel(rows)
+-        a  = A_fit(rows(r),:)';
++    for ic = 1:NCOND
++        rows   = find(cond_id == ic);
++        ntrue  = numel(axes_gt{ic});
++        nfound = zeros(numel(rows),1);
++        aerr   = nan(numel(rows),1);
++        for r = 1:numel(rows)
++            a  = Afit(rows(r),:)';
++            lm = find(a > 0 & a >= max(a .* nbr, [], 1)');
++            if isempty(lm), continue; end
++            lm = lm(a(lm) >= PEAK_REL*max(a(lm)));
++            [~, o] = sort(a(lm), 'descend'); lm = lm(o);
++            P = de(lm,:);
++            sel = true(size(P,1),1);
++            for i = 1:size(P,1)
++                if ~sel(i), continue; end
++                dup = abs(P*P(i,:)') > cosd(PEAK_NBR); dup(i) = false; sel(dup) = false;
++            end
++            P = P(sel,:);
++            nfound(r) = size(P,1);
++            d = zeros(1,ntrue);
++            for k = 1:ntrue, d(k) = acosd(min(abs(P(1,:)*axes_gt{ic}{k}'), 1)); end
++            aerr(r) = min(d);
++        end
++
++        % the ceiling for this Lmax and condition
++        a  = Agt(ic,:)';
+         lm = find(a > 0 & a >= max(a .* nbr, [], 1)');
+-        if isempty(lm), continue; end
+         lm = lm(a(lm) >= PEAK_REL*max(a(lm)));
+-        [~, o] = sort(a(lm), 'descend');
+-        lm = lm(o);
+-        P  = de(lm,:);
+-        sel = true(size(P,1),1);              % merge antipodal duplicates
++        [~, o] = sort(a(lm), 'descend'); lm = lm(o);
++        P = de(lm,:);
++        sel = true(size(P,1),1);
+         for i = 1:size(P,1)
+             if ~sel(i), continue; end
+-            dup = abs(P*P(i,:)') > cosd(PEAK_NBR); dup(i) = false;
+-            sel(dup) = false;
++            dup = abs(P*P(i,:)') > cosd(PEAK_NBR); dup(i) = false; sel(dup) = false;
+         end
+-        P = P(sel,:);
+-        nfound(r) = size(P,1);
+-        d = zeros(1,ntrue);
+-        for k = 1:ntrue, d(k) = acosd(min(abs(P(1,:)*axes_gt{ic}{k}'), 1)); end
+-        aerr(r) = min(d);
+-    end
+-    res_frac(ic) = 100*mean(nfound == ntrue);
+-    ang_med(ic)  = median(aerr(isfinite(aerr)));
+-    spur(ic)     = mean(max(nfound - ntrue, 0));
+-    fprintf('   %6d deg   %11.1f%%   %16.2f deg   %14.3f\n', ...
+-            C.ANGLES(ic), res_frac(ic), ang_med(ic), spur(ic));
+-end
++        nceil = size(P(sel,:),1);
+ 
+-% The ceiling. Run the identical finder on the band-limited ground truth, with
+-% no noise and no fitting. Nothing above can beat this, and two things are read
+-% off it.
+-%
+-% * *The 15 degree crossing is not resolvable, by construction.* The truth
+-%   itself comes back as a single peak. The 0.0% above is therefore the correct
+-%   answer, not a failure -- two Watson populations with kappa = 16 only 15
+-%   degrees apart merge into one lobe long before any deconvolution is involved.
+-% * *The finder's own resolution floor.* A single fibre whose truth is "1.7 deg
+-%   off" is measuring the spacing of the evaluation grid, not an error. The
+-%   report avoids this floor by using |sh2peaks|, which refines each peak with
+-%   a Newton search on the continuous expansion instead of snapping to a grid.
+-
+-fprintf('   the ceiling -- the same finder on the band-limited truth, no noise, no fit:\n');
+-ceil_n = zeros(1,NCOND);
+-for ic = 1:NCOND
+-    a  = A_gt(ic,:)';
+-    lm = find(a > 0 & a >= max(a .* nbr, [], 1)');
+-    lm = lm(a(lm) >= PEAK_REL*max(a(lm)));
+-    [~, o] = sort(a(lm), 'descend'); lm = lm(o);
+-    P = de(lm,:);
+-    sel = true(size(P,1),1);
+-    for i = 1:size(P,1)
+-        if ~sel(i), continue; end
+-        dup = abs(P*P(i,:)') > cosd(PEAK_NBR); dup(i) = false; sel(dup) = false;
+-    end
+-    P = P(sel,:);
+-    ntrue     = numel(axes_gt{ic});
+-    ceil_n(ic) = size(P,1);
+-    d = zeros(1,ntrue);
+-    for k = 1:ntrue, d(k) = acosd(min(abs(P(1,:)*axes_gt{ic}{k}'), 1)); end
+-    if ceil_n(ic) == ntrue, note = 'resolvable';
+-    else,                   note = 'NOT resolvable even from the truth';
+-    end
+-    fprintf('   %6d deg   %d peak(s) of a true %d, largest %.2f deg off   %s\n', ...
+-            C.ANGLES(ic), ceil_n(ic), ntrue, min(d), note);
+-end
+-
+-% CHECK. Where the truth itself cannot be resolved, the fit must not claim to
+-% resolve it. A method that "finds" two fibres where the noise-free truth has
+-% one lobe is inventing them, and that is the failure mode worth catching.
+-unres = false; ok_unres = true;
+-for ic = 1:NCOND
+-    if ceil_n(ic) < numel(axes_gt{ic})
+-        unres = true;
+-        ok_unres = ok_unres && (res_frac(ic) < 5);
++        res_all(iL,ic) = 100*mean(nfound == ntrue);
++        if nceil == ntrue, ctxt = 'resolvable';
++        else,              ctxt = sprintf('%d of %d -- NOT resolvable', nceil, ntrue);
++        end
++        fprintf('   %4d  %6d deg   %11.1f%%   %9.2f deg   %8.3f   %s\n', ...
++                Lf, C.ANGLES(ic), res_all(iL,ic), median(aerr(isfinite(aerr))), ...
++                mean(max(nfound - ntrue, 0)), ctxt);
+     end
+ end
+-if unres
+-    fprintf('   CHECK fit does not resolve what the truth cannot        %s\n', ...
+-            VERDICT{1+ok_unres});
+-end
+-
+-% CHECK. The constrained deconvolution's whole claim is that it does not
+-% manufacture peaks. At SNR 50 the spurious count should be flat zero; the
+-% report finds it stays at 0.000 down to SNR 10 and only rises at SNR 5.
+-fprintf('   CHECK no spurious peaks            max = %.3f            %s\n', ...
+-        max(spur), VERDICT{1+(max(spur) < 0.01)});
+ fprintf('\n');
+-
+-%% Step 8 -- cross-check the peak finder against MRtrix
+-% The report does not use the finder above; it runs every arm through MRtrix's
+-% |sh2peaks| so that peak extraction is identical across methods and is not
+-% something this package implements. If MRtrix3 is installed the two are
+-% compared here on the same fODFs. If it is not, this section is skipped and
+-% nothing else depends on it.
+-
+-if system('command -v sh2peaks > /dev/null 2>&1') ~= 0
+-    fprintf('Step 8: sh2peaks not found, skipping the cross-check.\n');
+-    fprintf('        Install MRtrix3 (apt-get install -y mrtrix3) and rerun.\n\n');
+-else
+-    MR   = mrtrix_io();
+-    mdir = fullfile(pkgdir, 'mrtrix');
+-    if ~exist(mdir, 'dir'), mkdir(mdir); end
+-    fod_f = fullfile(mdir, 'walkthrough_smifod');
+-    pk_f  = fullfile(mdir, 'walkthrough_peaks');
+-    MR.write(fod_f, reshape(sh, [GRID numel(L6)]));
+-    st = system(sprintf('sh2peaks -quiet -force -num 4 "%s.mih" "%s.mih"', fod_f, pk_f));
+-    if st ~= 0
+-        fprintf('Step 8: sh2peaks exited %d, skipping.\n\n', st);
+-    else
+-        pk = reshape(MR.read([pk_f '.mih']), [NVOX 12]);
+-        fprintf('Step 8: correct fibre count, sh2peaks vs this walkthrough\n');
+-        fprintf('   condition     sh2peaks   walkthrough\n');
+-        for ic = 1:NCOND
+-            rows  = find(cond_id == ic);
+-            ntrue = numel(axes_gt{ic});
+-            nmr   = zeros(numel(rows),1);
+-            for r = 1:numel(rows)
+-                v   = reshape(pk(rows(r),:), 3, 4)';
+-                nrm = sqrt(sum(v.^2, 2));
+-                nrm = nrm(isfinite(nrm) & nrm > 0);
+-                if isempty(nrm), continue; end
+-                nmr(r) = sum(nrm >= PEAK_REL*max(nrm));
+-            end
+-            fprintf('   %6d deg   %9.1f%%   %10.1f%%\n', ...
+-                    C.ANGLES(ic), 100*mean(nmr == ntrue), res_frac(ic));
+-        end
+-        fprintf(['   These need not match exactly. sh2peaks runs a Newton search on the\n' ...
+-                 '   continuous SH expansion and thresholds raw amplitude; the finder above\n' ...
+-                 '   searches a fixed grid and thresholds anisotropic amplitude. They should\n' ...
+-                 '   agree on the trend. Every number in the report comes from sh2peaks.\n\n']);
+-    end
++fprintf('   Reading this table: a low "correct count" next to a ceiling that says NOT\n');
++fprintf('   resolvable is the angular order failing, not the method. A low count next to\n');
++fprintf('   a resolvable ceiling is the method or the noise.\n\n');
++
++%% Step 8 -- export the fODFs so MRtrix can check them
++% Everything above is scored by this file. That is fine for reading, but it is
++% not independent: the same code wrote the fODF and found its peaks. The point
++% of this step is to hand the fODFs to something that has never seen this
++% package.
++%
++% The fit ran at |CS_phase = 0|, where SMI's spherical harmonic basis *is*
++% MRtrix's, so the coefficients need no conversion -- they are written straight
++% out as MRtrix SH images, one per Lmax.
++
++edir = fullfile(pkgdir, 'export');
++if ~exist(edir, 'dir'), mkdir(edir); end
++MR = mrtrix_io();
++fprintf('Step 8: writing MRtrix SH images to %s\n', edir);
++for iL = 1:numel(LMAX_LIST)
++    Lf = LMAX_LIST(iL);
++    fn = fullfile(edir, sprintf('smifod_lmax%d', Lf));
++    MR.write(fn, reshape(fits{iL}.sh, [GRID size(fits{iL}.sh,2)]));
++    fprintf('   smifod_lmax%d.mih  [%s x %d]\n', Lf, mat2str(GRID), size(fits{iL}.sh,2));
+ end
+ 
+-%% Step 9 -- from here to the published run
++% A voxel-order key, so a peak found in MRtrix can be matched to the condition
++% that produced it. Column 1 is the linear voxel index in MRtrix's order,
++% column 2 the condition, columns 3-5 and 6-8 the true fibre axes.
++key = zeros(NVOX, 8);
++for v = 1:NVOX
++    ic = cond_id(v);
++    key(v,1) = v; key(v,2) = C.ANGLES(ic);
++    key(v,3:5) = axes_gt{ic}{1};
++    if numel(axes_gt{ic}) == 2, key(v,6:8) = axes_gt{ic}{2}; end
++end
++fid = fopen(fullfile(edir,'voxel_key.txt'), 'w');
++fprintf(fid, '%% voxel  crossing_deg  axis1_x axis1_y axis1_z  axis2_x axis2_y axis2_z\n');
++fprintf(fid, '%% axis2 is 0 0 0 for the single fibre condition.\n');
++fprintf(fid, '%% Voxel order is column-major over the %s grid, matching the .mih images.\n', ...
++        mat2str(GRID));
++fprintf(fid, '%d %d %.9f %.9f %.9f %.9f %.9f %.9f\n', key');
++fclose(fid);
++fprintf('   voxel_key.txt     true fibre axes per voxel, for matching peaks back\n\n');
++
++fprintf('   To check these against MRtrix3, from %s:\n', edir);
++fprintf('     sh2peaks smifod_lmax6.mih peaks_lmax6.mih -num 4\n');
++fprintf('     mrinfo   smifod_lmax6.mih\n');
++fprintf('     mrconvert smifod_lmax6.mih smifod_lmax6.mif   # if you prefer a single file\n');
++fprintf('     mrview   smifod_lmax6.mih -odf.load_sh smifod_lmax6.mih\n');
++fprintf('   sh2peaks writes 3 components per peak; compare against voxel_key.txt.\n');
++fprintf('   Nothing in this walkthrough runs those commands -- that is the point.\n\n');
++
++%% Step 9 -- from here to a full campaign
+ % Everything above is one SNR at |NREP| realisations. The published campaign is
+-% the same code at |NREP = 10000| across six noise levels, driven by
++% the same forward model at |NREP = 10000| across six noise levels, driven by
+ % |gen_montecarlo.m| rather than by hand:
+ %
+ %  cd deconv_comparison
+@@ -613,22 +649,24 @@ end
+ %  ./run_mrtrix.sh fit snr50            % CSD, MSMT-CSD and every peak, in MRtrix
+ %  python3 tables.py nf snr50:50 ...    % the tables in Reports/deconv_tables.md
+ %
+-% or |./run_all.sh| for all of it (|NREP=200 ./run_all.sh| for a quick pass).
++% *Note that the pipeline still reads the older synthetic protocol.* This
++% walkthrough runs on the real HCP scheme; |gen_montecarlo.m| has not been
++% switched over, so the published tables and this file are not yet measuring
++% the same acquisition. Switching it is a one-line change in |gen_montecarlo.m|
++% plus a full re-run.
+ %
+ % *What this walkthrough leaves out on purpose.* The comparison arms. CSD and
+-% MSMT-CSD are MRtrix3 binaries driven by |run_mrtrix.sh|, and the scoring that
+-% puts all three side by side is |score_mrtrix.py|. This file is the SMI arm
+-% alone, taken apart.
++% MSMT-CSD are MRtrix3 binaries driven by |run_mrtrix.sh|. This file is the SMI
++% arm alone, taken apart.
+ %
+-% *What to change first if you want to probe it.* |NREP| and |SNR| at the top
+-% of this file. Then |mc_config.m|: |KAPPA| sets fibre dispersion, |K_WM| the
+-% tissue, |ANGLES| the crossings, |LMAX_FIT| what the methods may represent.
+-% Changing them there changes them for the pipeline too, which is the point of
+-% that file existing.
++% *What to change first if you want to probe it.* |NREP|, |SNR|, |LMAX_LIST|
++% and |PROTOCOL| at the top of this file. Then |mc_config.m|: |KAPPA| sets
++% fibre dispersion, |K_WM| the tissue, |ANGLES| the crossings.
+ 
+ fprintf('=== walkthrough complete ===\n');
+-fprintf('SNR %g, %d reps per condition, correct fibre count:\n', SNR, NREP);
+-for ic = 1:NCOND
+-    fprintf('   %2d deg  %5.1f%%\n', C.ANGLES(ic), res_frac(ic));
++fprintf('correct fibre count, %% of %d realisations at SNR %g:\n', NREP, SNR);
++fprintf('        ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
++for iL = 1:numel(LMAX_LIST)
++    fprintf('  Lmax %d', LMAX_LIST(iL)); fprintf('%10.1f', res_all(iL,:)); fprintf('\n');
+ end
+ fprintf('\n');
+diff --git a/deconv_comparison/protocol/hcp_real_3shell.txt b/deconv_comparison/protocol/hcp_real_3shell.txt
+new file mode 100644
+index 0000000..c4b2fd8
+--- /dev/null
++++ b/deconv_comparison/protocol/hcp_real_3shell.txt
+@@ -0,0 +1,306 @@
++% Real HCP 3-shell protocol, as acquired.
++% Columns: b [ms/um^2]  gx  gy  gz
++%
++% Supplied by the user as FSL .bval/.bvec. The b values are DIVIDED BY 1000
++% here: HCP .bval is in scanner units (s/mm^2) and this package carries b in
++% ms/um^2 throughout, where b = 1 means 1000 s/mm^2.
++%
++% 288 volumes: 18 at b = 0.005 plus 90 each at nominal b = 1, 2, 3.
++% Two things here are real-acquisition facts, not defects, and the walkthrough
++% checks both rather than tidying them away:
++%   1. the b = 0 volumes are b = 5 s/mm^2, not 0, and they carry unit direction
++%      vectors like every other volume. The direction is meaningless there.
++%   2. the b values jitter within each shell (990-1005, 1985-2010, 2980-3010
++%      s/mm^2). SMI.Group_dwi_in_shells_b_beta_TE bins the 18 distinct values
++%      into 4 shells; the forward model uses the exact per-volume b.
++%
++% 90 distinct directions per shell, none shared between shells, mean
++% nearest-neighbour separation 12.7 deg, isotropic coverage.
++0.0050000000000000001 0.57560900000000004 -0.56903499999999996 0.58726
++1 0.93845400000000001 -0.21044299999999999 -0.273893
++1.9950000000000001 0.31621500000000002 0.84137600000000001 0.43828499999999998
++3.0049999999999999 0.141071 -0.49870900000000001 0.85521199999999997
++0.995 0.12620200000000001 0.94624200000000003 -0.29782500000000001
++2.9900000000000002 0.48032399999999997 -0.71719500000000003 -0.50489700000000004
++2.0049999999999999 0.75737500000000002 -0.49397099999999999 0.42705399999999999
++0.98999999999999999 0.321469 0.24449499999999999 0.91481100000000004
++1.99 0.57853200000000005 0.20814299999999999 -0.78865499999999999
++3 0.86761699999999997 0.47875499999999999 0.13429199999999999
++1.0049999999999999 0.238814 -0.81936600000000004 -0.52115999999999996
++1.9850000000000001 0.262519 0.021507999999999999 0.96468699999999996
++2.9950000000000001 0.88298600000000005 -0.409584 0.229294
++1.0049999999999999 0.37928800000000001 0.37590499999999999 -0.84548000000000001
++1.9950000000000001 0.95644200000000001 0.28794500000000001 -0.048006
++2.9950000000000001 -0.21534900000000001 -0.97526800000000002 0.049771000000000003
++0.0050000000000000001 0.57690399999999997 -0.56928800000000002 0.58574099999999996
++0.995 0.88088500000000003 0.331488 0.33787099999999998
++2 0.49234699999999998 -0.82691800000000004 -0.27166200000000001
++3.0099999999999998 0.084628999999999996 0.31532900000000003 0.94520099999999996
++3.0049999999999999 0.73754500000000001 0.194103 -0.64680000000000004
++0.995 0.59455599999999997 -0.60939500000000002 0.52453799999999995
++2.0049999999999999 -0.119972 -0.85105500000000001 0.51118799999999998
++1 0.74442699999999995 0.62305299999999997 -0.240068
++1.99 0.33808100000000002 -0.455125 -0.82374899999999995
++2.9849999999999999 0.697824 0.10549799999999999 0.708457
++1.0049999999999999 0.45942899999999998 -0.29167999999999999 -0.83895600000000004
++2 0.77727900000000005 0.26844699999999999 0.56901000000000002
++3 0.38036599999999998 -0.88997000000000004 0.25154799999999999
++0.995 0.42721700000000001 0.81390899999999999 0.39374700000000001
++1.9950000000000001 0.89537999999999995 -0.337945 -0.28998000000000002
++2.9900000000000002 0.459704 0.68733500000000003 -0.56235500000000005
++0.0050000000000000001 0.57922899999999999 -0.56880200000000003 0.58391599999999999
++3.0049999999999999 0.24503900000000001 0.76884200000000003 0.59062400000000004
++1 0.653227 -0.756992 -0.016034
++2 0.55670600000000003 0.81462400000000001 -0.16268299999999999
++0.98999999999999999 0.25441000000000003 -0.34302199999999999 0.90421799999999997
++1.99 0.28556300000000001 -0.56355699999999997 0.77515000000000001
++2.9900000000000002 0.86665499999999995 -0.27856999999999998 -0.41389300000000001
++0.995 0.91914600000000002 -0.173376 0.35371000000000002
++2.9849999999999999 0.272393 0.058936000000000002 -0.96037899999999998
++1.9950000000000001 0.109304 -0.99389499999999997 0.015004
++3.0049999999999999 0.61250700000000002 -0.42877500000000002 0.66406900000000002
++0.995 0.81501900000000005 0.204786 -0.54203900000000005
++2.0099999999999998 0.212311 0.51633399999999996 0.82965199999999995
++1 -0.071183999999999997 0.990892 0.114303
++1.99 0.75995699999999999 0.44486399999999998 -0.47387800000000002
++2.9950000000000001 0.99751999999999996 0.067419000000000007 -0.02019
++0.0050000000000000001 0.57752099999999995 -0.56834700000000005 0.58604699999999998
++1.0049999999999999 -0.0067190000000000001 -0.53498000000000001 -0.84483799999999998
++2.0049999999999999 0.96432300000000004 -0.14254 0.223075
++3 0.145314 -0.94782900000000003 -0.28373300000000001
++3 0.58848500000000004 0.78181900000000004 0.20602100000000001
++1.0049999999999999 -0.0016980000000000001 0.71784700000000001 -0.69619799999999998
++1.9850000000000001 0.138651 0.26829700000000001 -0.95330599999999999
++1.0049999999999999 0.67380399999999996 -0.0095890000000000003 0.73884700000000003
++2.9849999999999999 0.472526 -0.38382500000000003 -0.79334499999999997
++2.0049999999999999 0.50832100000000002 -0.82066700000000004 0.260992
++0.995 0.68864000000000003 -0.55086199999999996 -0.47151399999999999
++1.99 0.694855 -0.26471600000000001 -0.66865699999999995
++3.0049999999999999 -0.014741000000000001 0.82945599999999997 -0.55837800000000004
++1 0.52144000000000001 0.85323400000000005 -0.0095779999999999997
++2.9900000000000002 0.56001699999999999 0.46807500000000002 0.68358300000000005
++2 0.70875500000000002 0.63988500000000004 0.29700599999999999
++0.0050000000000000001 0.57612200000000002 -0.56668499999999999 0.58902500000000002
++0.98999999999999999 0.122225 0.016382000000000001 -0.992367
++2.0049999999999999 0.62172000000000005 -0.16953699999999999 0.76467099999999999
++2.9950000000000001 0.72910600000000003 -0.67951799999999996 -0.081613000000000005
++1 0.98095900000000003 0.18168799999999999 -0.068608000000000002
++2.0049999999999999 -0.124233 0.82575299999999996 0.55017899999999997
++3 0.79969299999999999 0.50362300000000004 -0.32688600000000001
++0.995 0.32574500000000001 -0.88211399999999995 0.34024300000000002
++2.0049999999999999 0.36308400000000002 0.60394400000000004 -0.70952300000000001
++3.0049999999999999 0.91905599999999998 0.014201999999999999 0.39387100000000003
++1.0049999999999999 0.58298700000000003 0.52430100000000002 0.620672
++2 0.80381499999999995 -0.59463900000000003 -0.016920000000000001
++3.0099999999999998 0.285167 -0.099798999999999999 0.953268
++0.995 0.52265700000000004 0.62506700000000004 -0.57975900000000002
++2.0049999999999999 0.13223499999999999 -0.17322399999999999 -0.97596400000000005
++1.9950000000000001 0.280227 0.95863900000000002 0.049841999999999997
++0.0050000000000000001 0.57382 -0.56800499999999998 0.590001
++1 0.88374600000000003 -0.46110000000000001 0.079868999999999996
++3.0099999999999998 0.29944399999999999 0.44234000000000001 -0.84538100000000005
++2.9900000000000002 0.59874799999999995 -0.69049199999999999 0.40586
++1.0049999999999999 0.66042599999999996 -0.049126000000000003 -0.749282
++1.99 0.92572600000000005 0.048294999999999998 -0.37509700000000001
++3.0049999999999999 -0.116884 0.66081000000000001 0.74139600000000005
++1 0.120133 0.81053200000000003 0.57323999999999997
++2.0099999999999998 0.52385599999999999 0.32510099999999997 0.78732599999999997
++3 0.50109300000000001 0.83348999999999995 -0.23281099999999999
++0.98999999999999999 0.559697 -0.34156300000000001 0.75503299999999995
++2.0049999999999999 0.241948 -0.82245400000000002 0.51481100000000002
++2.9900000000000002 -0.70497100000000001 0.14593500000000001 0.69405899999999998
++2.9950000000000001 -0.41555599999999998 0.90499099999999999 0.091134999999999994
++1 0.78947699999999998 0.59555999999999998 0.14843500000000001
++0.0050000000000000001 0.56654199999999999 -0.56467800000000001 0.60014100000000004
++2.9900000000000002 0.79276899999999995 0.42606899999999998 0.43586900000000001
++0.995 0.41177900000000001 -0.89059500000000003 -0.193076
++1.9950000000000001 0.93545100000000003 0.22928100000000001 0.26899899999999999
++1.9950000000000001 0.55900000000000005 -0.63547299999999995 -0.53262900000000002
++1.0049999999999999 0.072191000000000005 0.40285300000000002 -0.91241300000000003
++2 0.79711900000000002 0.59165100000000004 -0.12062299999999999
++2.9900000000000002 0.23454800000000001 0.93313699999999999 0.272476
++1.0049999999999999 0.37417499999999998 -0.59630000000000005 -0.710225
++2.0099999999999998 0.182167 -0.28943799999999997 0.93970200000000004
++2.9950000000000001 0.952658 -0.289078 -0.094209000000000001
++1 0.40904099999999999 0.82714100000000002 -0.38538800000000001
++1.9950000000000001 0.016653999999999999 -0.96256699999999995 -0.27053100000000002
++3.0099999999999998 -0.0017080000000000001 -0.16206200000000001 0.98677899999999996
++1 0.99086200000000002 -0.11031000000000001 0.077609999999999998
++2.0049999999999999 0.45455200000000001 -0.092478000000000005 -0.88590599999999997
++2.9900000000000002 0.92611299999999996 0.165738 -0.33888699999999999
++0.0050000000000000001 0.56738999999999995 -0.56331699999999996 0.60061799999999999
++0.98999999999999999 0.19364799999999999 0.015177 0.98095299999999996
++2.9900000000000002 0.30770500000000001 -0.68770699999999996 0.65755399999999997
++2.0049999999999999 0.82853600000000005 -0.164163 0.53532999999999997
++1 0.23330400000000001 0.96472199999999997 0.121989
++2.0049999999999999 0.45517299999999999 0.76225500000000002 -0.46020100000000003
++2.9849999999999999 0.407611 0.241922 0.88052600000000003
++0.995 0.73508499999999999 0.25194100000000003 0.62942399999999998
++2.0049999999999999 0.493676 0.63264600000000004 0.596692
++2.9900000000000002 0.031394999999999999 -0.96736 0.25145299999999998
++0.995 0.80409399999999998 -0.25767499999999999 -0.53575799999999996
++2.0049999999999999 0.52235699999999996 -0.607375 0.59853100000000004
++2.9900000000000002 0.79377399999999998 -0.22167799999999999 0.56637499999999996
++1.0049999999999999 0.28801700000000002 -0.72834600000000005 0.62173800000000001
++2 0.98655000000000004 -0.13733000000000001 -0.088650999999999994
++3.0099999999999998 0.22015699999999999 -0.31599899999999997 -0.92286199999999996
++0.0050000000000000001 0.568415 -0.56315599999999999 0.59979899999999997
++0.995 0.72863900000000004 -0.62423700000000004 0.28180300000000003
++3 0.72076899999999999 -0.57023699999999999 -0.39410800000000001
++1.99 0.069364999999999996 -0.62374399999999997 -0.77854400000000001
++1.0049999999999999 0.30624699999999999 0.57190200000000002 0.76101300000000005
++0.995 0.88444299999999998 0.35136899999999999 -0.30708200000000002
++2.0049999999999999 0.070994000000000002 0.59137600000000001 -0.80326399999999998
++2.9900000000000002 0.58728499999999995 0.41749399999999998 -0.69339300000000004
++2 0.41151900000000002 -0.91111900000000001 0.022686000000000001
++2.9950000000000001 0.72830499999999998 0.68154499999999996 -0.071193000000000006
++1 0.27420299999999997 -0.95698399999999995 0.094842999999999997
++2.0049999999999999 0.77767699999999995 0.045315000000000001 -0.62702800000000003
++2.9849999999999999 0.16311400000000001 0.66854100000000005 -0.72556699999999996
++0.98999999999999999 0.42060900000000001 0.051011000000000001 -0.905806
++1.9950000000000001 0.14410500000000001 0.95952099999999996 -0.241977
++2.9849999999999999 0.21373300000000001 0.59676399999999996 0.77342699999999998
++0.0050000000000000001 0.57120000000000004 -0.561581 0.59862899999999997
++0.98999999999999999 0.118158 -0.32006200000000001 -0.93999900000000003
++2 0.73284899999999997 -0.613398 -0.294406
++3.0099999999999998 0.52078199999999997 -0.18563399999999999 0.83326199999999995
++0.995 0.77383900000000005 -0.312417 0.55096999999999996
++1.99 0.52917400000000003 0.074167999999999998 0.84526500000000004
++2.9950000000000001 0.95912600000000003 0.21724399999999999 0.18133099999999999
++1.0049999999999999 0.27310499999999999 0.69208400000000003 -0.668157
++2 0.53383499999999995 0.82914500000000002 0.16594500000000001
++3.0049999999999999 0.52848799999999996 0.040939000000000003 -0.84795299999999996
++1 0.80336200000000002 -0.55951099999999998 -0.20385400000000001
++1.99 0.12918399999999999 0.28795300000000001 0.94889100000000004
++2.9950000000000001 0.168882 -0.849136 -0.50044699999999998
++2 0.89293999999999996 -0.41528700000000002 0.17376800000000001
++0.995 0.66405999999999998 0.65838300000000005 0.35433799999999999
++2.9900000000000002 0.71501400000000004 -0.67590300000000003 0.17863599999999999
++0.0050000000000000001 0.57205799999999996 -0.56039600000000001 0.59892100000000004
++0.995 0.65222400000000003 0.35136200000000001 -0.67167600000000005
++3.0049999999999999 0.54321399999999997 0.70510700000000004 0.45578800000000003
++1.99 0.58648900000000004 0.46670600000000001 -0.66197799999999996
++3.0049999999999999 0.25497999999999998 0.87938899999999998 -0.40207100000000001
++1 0.95375500000000002 0.10051300000000001 0.28327999999999998
++1.9950000000000001 0.86373999999999995 0.46957700000000002 0.18289
++1 -0.0059439999999999996 0.93147599999999997 0.36375400000000002
++1.99 -0.34045199999999998 0.73296899999999998 0.58893899999999999
++2.9900000000000002 0.64244299999999999 -0.465507 -0.60874399999999995
++2.9950000000000001 0.15563299999999999 -0.98781200000000002 0.0023419999999999999
++0.98999999999999999 0.45072000000000001 -0.050744999999999998 0.89122199999999996
++2.0099999999999998 0.46687699999999999 -0.36471399999999998 0.80561099999999997
++0.995 0.51265300000000003 -0.75278599999999996 -0.41291600000000001
++2.0049999999999999 0.179566 -0.93566400000000005 0.30379299999999998
++3 0.97082500000000005 -0.17446900000000001 0.164497
++0.0050000000000000001 0.572465 -0.56024799999999997 0.59867000000000004
++1.0049999999999999 -0.058833999999999997 0.878224 -0.47461700000000001
++2.98 0.031140999999999999 0.10209600000000001 0.99428700000000003
++2.0049999999999999 0.17285800000000001 0.76035299999999995 0.62608600000000003
++1 0.94954300000000003 0.033340000000000002 -0.311859
++1.9850000000000001 0.34412999999999999 0.16320899999999999 -0.92462800000000001
++2.0049999999999999 0.90405400000000002 0.292881 -0.31129899999999999
++1 0.88991100000000001 0.45526899999999998 -0.028060999999999999
++2.9849999999999999 0.37966800000000001 -0.44350299999999998 0.81188499999999997
++2.9950000000000001 0.92129799999999995 0.36101899999999998 -0.144479
++0.995 0.22305900000000001 -0.54427599999999998 0.80870799999999998
++1.9950000000000001 0.69463399999999997 -0.68217499999999998 0.228302
++3.0049999999999999 0.88264900000000002 -0.054918000000000002 -0.46681299999999998
++2.9950000000000001 0.42586299999999999 0.90303999999999995 0.056211999999999998
++0.995 0.29865199999999997 0.94685399999999997 -0.119475
++0.0050000000000000001 -0.56812300000000004 0.54868099999999997 -0.61334
++1.9950000000000001 0.86449500000000001 0.082654000000000005 0.49579800000000002
++1.0049999999999999 -0.12327 0.71837799999999996 0.684643
++2.9950000000000001 0.56906100000000004 -0.78967900000000002 -0.229295
++1.99 0.77828600000000003 -0.40343000000000001 -0.48115999999999998
++0.995 0.52618799999999999 0.29661599999999999 0.79695899999999997
++2.0099999999999998 0.001013 0.034255000000000001 -0.99941199999999997
++2.9900000000000002 0.81011599999999995 0.222686 0.54232899999999995
++0.995 0.55432300000000001 -0.78905800000000004 0.26479000000000003
++2.0049999999999999 0.66920400000000002 0.65076900000000004 -0.35869899999999999
++2.9900000000000002 0.25737700000000002 -0.83860699999999999 0.480101
++0.995 0.63691699999999996 -0.40090900000000002 -0.65848899999999999
++2 0.26676 -0.93344199999999999 -0.239845
++2.9849999999999999 0.32268400000000003 -0.58299000000000001 -0.74565199999999998
++1.0049999999999999 0.21162 0.19839399999999999 -0.95700399999999997
++2.9900000000000002 0.645316 0.618757 -0.44800299999999998
++1.9950000000000001 0.67270099999999999 0.52388699999999999 0.52250799999999997
++0.0050000000000000001 0.56539899999999998 -0.548149 0.61632500000000001
++3.0099999999999998 0.117338 0.35352600000000001 -0.92803599999999997
++1.0049999999999999 0.83153699999999997 0.010569 0.55536799999999997
++1.99 0.076561000000000004 -0.718306 0.69150199999999995
++1 0.59577500000000005 0.75732200000000005 -0.26742199999999999
++2.0049999999999999 0.52334700000000001 -0.32225500000000001 -0.78883400000000004
++2.9900000000000002 0.76591799999999999 -0.43648599999999999 0.47206900000000002
++0.995 0.35650900000000002 0.73652300000000004 0.57483399999999996
++2 0.99446800000000002 0.063896999999999995 0.083366999999999997
++2.9950000000000001 0.061469000000000003 0.89055700000000004 0.45069799999999999
++1 0.94016100000000002 -0.334457 -0.065086000000000005
++2 0.35192600000000002 0.90679799999999999 -0.23208799999999999
++2.9900000000000002 0.36059799999999997 0.46035999999999999 0.81119399999999997
++2.9950000000000001 0.87065300000000001 -0.47924600000000001 -0.110843
++1.0049999999999999 0.32637500000000003 -0.189161 -0.92611900000000003
++1.99 0.67303199999999996 -0.35684500000000002 0.64783400000000002
++0.0050000000000000001 0.56427400000000005 -0.54676999999999998 0.61857700000000004
++0.995 0.03814 -0.98601399999999995 0.162243
++3.0099999999999998 0.48244399999999998 0.24280299999999999 -0.84160199999999996
++2.0049999999999999 0.10759100000000001 -0.43379400000000001 -0.89456500000000005
++0.995 0.72587800000000002 0.49465700000000001 -0.47792800000000002
++2.0049999999999999 0.187833 0.95432799999999995 0.23233000000000001
++3 0.73406700000000003 0.61238000000000004 0.293489
++2.9849999999999999 0.48776900000000001 0.051189999999999999 0.87146999999999997
++0.995 0.83728599999999997 -0.40464899999999998 0.36770999999999998
++1.99 0.26537899999999998 0.435581 -0.86014100000000004
++2.9950000000000001 0.54756000000000005 -0.82495399999999997 0.14010700000000001
++0.98999999999999999 0.113383 0.37804700000000002 0.91881699999999999
++2 0.63874500000000001 -0.76885700000000001 -0.029398000000000001
++0.995 0.44054700000000002 -0.51905900000000005 0.73245899999999997
++2.0049999999999999 0.88145799999999996 -0.15303900000000001 -0.44677899999999998
++3.0099999999999998 0.450708 -0.19128000000000001 -0.87193600000000004
++0.0050000000000000001 0.56434899999999999 -0.54525100000000004 0.61984799999999995
++3 0.97699800000000003 -0.054944 -0.20604700000000001
++1 0.61135399999999995 0.77798 0.14488799999999999
++1.99 0.69900499999999999 0.091452000000000006 0.70924399999999999
++0.995 0.84189899999999995 -0.034181000000000003 -0.538551
++1.99 0.31966800000000001 0.359597 0.87664200000000003
++3 0.062150999999999998 0.99512900000000004 0.076517000000000002
++1 0.64604399999999995 -0.73801000000000005 -0.194855
++2 0.700013 0.71237399999999995 0.050049000000000003
++2.9849999999999999 0.063 -0.64559800000000001 0.76107499999999995
++0.98999999999999999 0.24094099999999999 0.52797099999999997 -0.81436699999999995
++1.99 0.44259999999999999 -0.74706300000000003 0.49598700000000001
++2.9900000000000002 0.79695300000000002 0.34804000000000002 -0.49369299999999999
++1 0.74160499999999996 0.46344600000000002 0.485014
++3.0049999999999999 0.052523 -0.51955099999999999 -0.852823
++1.99 0.749861 0.25425500000000001 -0.610788
++0.0050000000000000001 -0.56396900000000005 0.54455699999999996 -0.62080299999999999
++1.0049999999999999 0.073907 -0.163247 0.98381300000000005
++2 0.93213800000000002 -0.36165399999999998 -0.018020999999999999
++2.9900000000000002 0.27932800000000002 0.76886900000000002 -0.57516699999999998
++1 0.230404 -0.93796000000000002 -0.25912499999999999
++1.99 0.35714800000000002 -0.144625 0.92278300000000002
++3 0.36904500000000001 -0.86823700000000004 -0.331617
++1 0.94896199999999997 0.28697299999999998 0.130828
++2 0.50512000000000001 0.76704000000000006 0.39560299999999998
++2.9849999999999999 0.707121 -0.078353000000000006 0.70273799999999997
++0.995 0.62945300000000004 0.14652299999999999 -0.76309800000000005
++1.99 0.26951000000000003 0.72893200000000002 -0.62930299999999995
++3 0.38974599999999998 0.853518 0.34583799999999998
++1.0049999999999999 0.263208 -0.50791900000000001 -0.82020599999999999
++3.0049999999999999 0.48562699999999998 -0.61871799999999999 0.61753899999999995
++2.0049999999999999 0.52106200000000003 -0.53029499999999996 -0.66879
++0.0050000000000000001 0.56276199999999998 -0.54352400000000001 0.62280100000000005
++0.995 0.19584699999999999 0.82583099999999998 -0.52881599999999995
++1.9950000000000001 0.066521999999999998 0.99756599999999995 -0.020900999999999999
++3.0049999999999999 0.89807099999999995 -0.20518 0.38906299999999999
++1 0.21987100000000001 0.91249800000000003 0.34497
++0.995 0.48120200000000002 -0.73974700000000004 0.47033900000000001
++2.9900000000000002 0.67049099999999995 0.701067 -0.242788
++2.9849999999999999 0.20868500000000001 0.16131599999999999 0.96458600000000005
++2.0049999999999999 0.87658199999999997 -0.27687 0.39363199999999998
++1.99 0.28208499999999997 -0.049230999999999997 -0.958125
++1 0.84526299999999999 -0.40481600000000001 -0.34878999999999999
++2.9900000000000002 0.77529800000000004 -0.30676399999999998 -0.552095
++1.9950000000000001 0.37799300000000002 -0.83843299999999998 -0.392621
++1.0049999999999999 0.666798 -0.16505500000000001 0.72672999999999999
++1.9950000000000001 0.98321599999999998 0.100937 -0.151977
++3.0049999999999999 0.40405000000000002 0.65287899999999999 0.64069600000000004
+-- 
+2.43.0
+
+
+From 451990b57d084ef7581eb6f21da156e501ba30cf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 19:34:50 +0000
+Subject: [PATCH 2/4] Move the whole package onto the real HCP protocol, and
+ warn loudly
+
+Two changes asked for.
+
+ONE PROTOCOL, READ THROUGH ONE FUNCTION. mc_config.m gains PROTOCOL and
+load_protocol(), and gen_montecarlo.m, sweep_nonneg.m and the walkthrough
+all read the acquisition through it instead of loading bvals/bvecs from
+binio's gitignored data/. The package now runs on the real HCP scheme
+everywhere, not just in the walkthrough.
+
+protocol/hcp_like_3shell.txt, the synthetic scheme, is kept but its header
+now opens with SUPERSEDED and states that nothing reads it and that every
+number in Reports/ was measured on it. Deleting it would strand the
+provenance of the published tables; regenerating those tables is now a
+re-run rather than a code change.
+
+THE .bvec WARNING IS LOUD, NOT SILENT. Previously the walkthrough normalised
+the directions and mentioned it in passing. The warning now lives in
+load_protocol(), so it fires for the pipeline too and cannot be bypassed by
+reading the file directly: a banner with the measured max||g|-1| = 1.13e-06,
+what is being done about it, and what it costs if it is not -- the Lmax 8
+zonal-response identity degrading from ~1e-15 to ~5e-7.
+
+Documentation follows: both READMEs describe the real protocol and the three
+real-acquisition properties the walkthrough checks rather than assumes (b=0
+volumes are b=5 s/mm^2 with meaningless unit directions, b jitters within
+shells so SMI's own binning is checked to recover [18 90 90 90], and the
+.bvec is unit only to 1e-6). Stale claims corrected: the walkthrough takes
+about six minutes now that it fits three angular orders, not two, and
+setup_protocol.py is described as producing the evaluation sphere since it
+no longer supplies the protocol in use.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/README.md                   | 40 +++++++++++++---
+ deconv_comparison/gen_montecarlo.m            | 11 ++---
+ deconv_comparison/mc_config.m                 | 39 +++++++++++++++
+ deconv_comparison/notebooks/README.md         | 39 ++++++++++-----
+ .../notebooks/smi_simulation_walkthrough.m    | 47 ++++++++-----------
+ .../protocol/hcp_like_3shell.txt              | 17 ++++---
+ deconv_comparison/sweep_nonneg.m              |  5 +-
+ 7 files changed, 137 insertions(+), 61 deletions(-)
+
+diff --git a/deconv_comparison/README.md b/deconv_comparison/README.md
+index 99f1d57..50513d8 100644
+--- a/deconv_comparison/README.md
++++ b/deconv_comparison/README.md
+@@ -28,18 +28,45 @@ exactly what that does and does not buy.
+ 
+ All three deconvolve at Lmax 6 and read the same image. The band limited ground
+ truth is written as an SH image too and run through the same `sh2peaks`, which
+-is where the "ceiling" column in the report comes from.
++is where the "ceiling" column in the report comes from. (The walkthrough fits
++SMI at Lmax 4, 6 and 8 to show what the angular order costs; the comparison
++arms are fixed at 6 so the three methods stay comparable.)
+ 
+ **`CS_phase = 0` matters.** At SMI's default of 1 the SH basis differs from
+ MRtrix's by `(-1)^m`, which is a 180 degree rotation about z of every fODF.
+ `check_mrtrix_basis.sh` measures that against MRtrix itself.
+ 
++## The protocol
++
++Everything now runs on **a real HCP 3-shell acquisition** — 288 volumes, 18 at
++b = 5 s/mm² plus 90 directions each at nominal b = 1, 2, 3 ms/µm², read from
++`protocol/hcp_real_3shell.txt` through `mc_config.m` so no arm can disagree
++about what was acquired.
++
++**The tables in `Reports/` predate this** and were measured on the older
++synthetic scheme, which is still on disk and marked superseded. Regenerating
++them is a re-run, not a code change.
++
++Two properties of the real scheme are worth knowing because synthetic
++protocols do not have them, and both are checked rather than assumed:
++
++- the b = 0 volumes are **b = 5 s/mm², not 0**, and carry unit direction
++  vectors even though the direction is meaningless there;
++- the b values **jitter within each shell** (18 distinct values), and
++  `SMI.Group_dwi_in_shells_b_beta_TE` is what bins them — the walkthrough
++  checks it recovers `[18 90 90 90]`;
++- the supplied `.bvec` is unit only to **1.1e-6**. `mc_config.m` warns loudly
++  and normalises. Left alone this breaks any calculation that reads `g(3)` as
++  `cos(theta)`: at Lmax 8 the zonal-response identity degrades from 1e-15 to
++  5e-7.
++
+ ## Start here if you want to check it yourself
+ 
+ `notebooks/smi_simulation_walkthrough.m` is the SMI arm taken apart, one step
+ at a time, with a `CHECK` after every step that compares its output against
+-something computed a different way. It needs no data, no Python and about two
+-minutes, and it opens as a MATLAB Live Script with no edits. Read
++something computed a different way. It needs no data and no Python, takes
++about six minutes (it fits at Lmax 4, 6 and 8 in turn), and it opens as a
++MATLAB Live Script with no edits. Read
+ `notebooks/README.md` for what each check establishes.
+ 
+ The CSD and MSMT-CSD arms do not have a walkthrough yet.
+@@ -50,7 +77,7 @@ The CSD and MSMT-CSD arms do not have a walkthrough yet.
+ Step by step:
+ 
+ ```
+-python3 setup_protocol.py                                   # gradient table
++python3 setup_protocol.py                                   # evaluation sphere
+ octave --eval "oct_path; gen_phantom(30,'p30')"             # response phantom
+ ./run_mrtrix.sh responses                                   # dwi2response x3
+ ./check_mrtrix_basis.sh                                     # SH basis vs MRtrix
+@@ -76,8 +103,9 @@ still be compared.
+ | file | what |
+ |---|---|
+ | `notebooks/` | narrated step-by-step walkthroughs, with a `CHECK` after every step |
+-| `protocol/hcp_like_3shell.txt` | the gradient table as tracked text, so the MATLAB side needs no Python |
+-| `setup_protocol.py` | regenerates the gradient table (the only thing that uses dipy) |
++| `protocol/hcp_real_3shell.txt` | **the acquisition in use**: a real HCP 3-shell scheme, as tracked text |
++| `protocol/hcp_like_3shell.txt` | the synthetic scheme the published tables were measured on. Superseded, kept for provenance |
++| `setup_protocol.py` | the evaluation sphere, and the superseded synthetic table (the only thing that uses dipy) |
+ | `mc_config.m` | **every constant of the experiment, in one place.** `gen_montecarlo.m` and `sweep_nonneg.m` both read from it, so the main run and the sweep cannot disagree about what is being simulated. Start here to see what the experiment *is* |
+ | `gen_phantom.m` | the synthetic voxel population the responses are estimated from |
+ | `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |
+diff --git a/deconv_comparison/gen_montecarlo.m b/deconv_comparison/gen_montecarlo.m
+index 1a51102..5214651 100644
+--- a/deconv_comparison/gen_montecarlo.m
++++ b/deconv_comparison/gen_montecarlo.m
+@@ -38,14 +38,13 @@ more off
+ IO = binio();
+ MR = mrtrix_io();
+ 
+-bvals     = IO.load('bvals'); bvals = bvals(:)';
+-bvecs     = IO.load('bvecs');
+-Ndwi      = numel(bvals);
+-
+ % Every constant of the experiment comes from mc_config.m, which sweep_nonneg.m
+-% reads too, so the main run and the regularizer sweep cannot disagree about
+-% what is being simulated.
++% and notebooks/smi_simulation_walkthrough.m read too, so no two of them can
++% disagree about what is being simulated -- including the acquisition, which
++% now comes from the tracked protocol file rather than from binio's data/.
+ C        = mc_config();
++[bvals, bvecs] = C.load_protocol();
++Ndwi     = numel(bvals);
+ LMAX_FIT = C.LMAX_FIT;
+ LMAX_GT  = C.LMAX_GT;
+ CS       = C.CS_PHASE;
+diff --git a/deconv_comparison/mc_config.m b/deconv_comparison/mc_config.m
+index 134fe48..7addba6 100644
+--- a/deconv_comparison/mc_config.m
++++ b/deconv_comparison/mc_config.m
+@@ -32,6 +32,7 @@ function C = mc_config()
+ %   C.rotate_about(n,deg) a unit vector `deg` degrees from n, in a fixed plane
+ 
+ C = struct();
++C.PROTOCOL   = 'hcp_real_3shell.txt';
+ C.LMAX_FIT   = 6;
+ C.LMAX_GT    = 8;
+ C.CS_PHASE   = 0;
+@@ -49,6 +50,44 @@ C.AXIS1 = n1/norm(n1);
+ C.pick_grid     = @pick_grid;
+ C.rotate_about  = @rotate_about;
+ C.condition_axes = @(ic) condition_axes(C.AXIS1, C.ANGLES, ic);
++C.load_protocol  = @() load_protocol(C.PROTOCOL);
++end
++
++% =====================================================================
++function [bvals, bvecs] = load_protocol(fname)
++% [bvals, bvecs] = load_protocol(fname)
++%
++% The acquisition, read from protocol/<fname>. b comes back in ms/um^2 as a
++% row; bvecs is [N x 3] and unit.
++%
++% Every arm reads the protocol through here so there is one definition of what
++% was acquired, and so the normalisation warning below cannot be bypassed by
++% loading the file directly.
++here = fileparts(mfilename('fullpath'));
++txt  = fileread(fullfile(here, 'protocol', fname));
++cols = textscan(txt, '%f %f %f %f', 'CommentStyle', '%');
++bvals = cols{1}(:)';
++bvecs = [cols{2} cols{3} cols{4}];
++
++% Real .bvec files are written at finite precision, so the directions are not
++% quite unit. This is NOT harmless, and it is not silently repaired: anything
++% that treats g(3) as cos(theta) without normalising inherits the error, and at
++% Lmax 8 an error of 1e-6 in |g| is enough to break the zonal-response identity
++% by 5e-7 -- six orders of magnitude worse than machine precision. Warn with the
++% measured number, then correct it.
++nrm   = sqrt(sum(bvecs.^2, 2));
++e_raw = max(abs(nrm - 1));
++if e_raw > 1e-12
++    fprintf(2, ['\n' repmat('!',1,72) '\n']);
++    fprintf(2, 'WARNING  %s: gradient directions are not unit vectors.\n', fname);
++    fprintf(2, '         max | |g| - 1 | = %.3e over %d volumes.\n', e_raw, numel(bvals));
++    fprintf(2, '         They are being normalised. Left uncorrected this breaks any\n');
++    fprintf(2, '         calculation that reads g(3) as cos(theta) -- measured at Lmax 8,\n');
++    fprintf(2, '         the zonal response vs forward model identity degrades from\n');
++    fprintf(2, '         ~1e-15 to ~5e-7. Check the source of the .bvec if this is large.\n');
++    fprintf(2, [repmat('!',1,72) '\n\n']);
++end
++bvecs = bvecs ./ repmat(nrm, 1, 3);
+ end
+ 
+ % =====================================================================
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index 2e3f457..d920a6e 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -5,7 +5,7 @@ running in bulk. They are the answer to "how do I check this myself?".
+ 
+ | notebook | what it walks through |
+ |---|---|
+-| `smi_simulation_walkthrough.m` | the SMI arm end to end: protocol, ground truth, kernel, forward convolution, Rician noise, `SMI.fit`, peaks |
++| `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export |
+ 
+ The CSD and MSMT-CSD arms are not covered yet.
+ 
+@@ -13,7 +13,7 @@ The CSD and MSMT-CSD arms are not covered yet.
+ 
+ ```
+ cd deconv_comparison/notebooks
+-octave-cli --no-gui -q smi_simulation_walkthrough.m      # about 2 minutes
++octave-cli --no-gui -q smi_simulation_walkthrough.m      # about 6 minutes
+ ```
+ 
+ or from MATLAB, from anywhere:
+@@ -22,10 +22,16 @@ or from MATLAB, from anywhere:
+ run('deconv_comparison/notebooks/smi_simulation_walkthrough.m')
+ ```
+ 
+-Nothing needs to be generated first and no data is downloaded. The gradient
+-table is read from `../protocol/hcp_like_3shell.txt`, which is tracked, so the
+-MATLAB side of the package needs no Python. The last step calls MRtrix's
+-`sh2peaks` if it is installed and skips itself if it is not.
++Nothing needs to be generated first and no data is downloaded. The acquisition
++is a **real HCP 3-shell scheme**, read from `../protocol/hcp_real_3shell.txt`
++via `mc_config.m`, so the MATLAB side of the package needs no Python. Almost
++all the runtime is Step 6: `SMI.fit` is dominated by training its regression
++rather than by voxel count, so each of the three Lmax values costs the same
++~2 minutes whether there are 100 voxels or 10,000.
++
++MRtrix is **not** required. The last step writes the fODFs as MRtrix SH images
++so you can check them with `sh2peaks` or `mrview` yourself; the walkthrough
++prints those commands and runs none of them.
+ 
+ ## Opening it as a MATLAB Live Script
+ 
+@@ -56,11 +62,11 @@ understanding:
+ | harmonics vs direct convolution | the signal computed with no spherical harmonics anywhere, by summing over the quadrature grid. Catches a basis or normalisation error that a self-consistent SH round-trip would hide |
+ | spherical mean is orientation-blind | SMI fits the kernel from rotational invariants, so the `l = 0` invariant must not depend on where the fibres point |
+ | recovered sigma | the noise level read back out of the simulated data, rather than the value that was typed in |
+-| the ceiling | the same peak finder run on the noise-free band-limited truth. Separates "the method failed" from "nothing could have succeeded" |
+-| `sh2peaks` cross-check | the walkthrough's own peak finder against the one every number in the report actually comes from |
++| the ceiling | the same peak finder run on the noise-free truth *truncated to the same Lmax as the fit*. Separates "the method failed" from "this angular order cannot represent the answer" |
++| SMI bins the shells | the real protocol has 18 distinct b values; `SMI.Group_dwi_in_shells_b_beta_TE` must recover `[18 90 90 90]`, or every rotational invariant downstream is built from a fraction of the directions |
+ 
+-Two results in the output are *findings, not failures*, and both are called out
+-in place because they look alarming otherwise:
++Three results in the output are *findings, not failures*, and each is called out
++in place because it looks alarming otherwise:
+ 
+ - **The band-limited ground truth is negative over roughly 40% of the sphere.**
+   Truncating a Watson mixture at `Lmax` rings, and the rings cross zero. The
+@@ -70,12 +76,19 @@ in place because they look alarming otherwise:
+   The ceiling shows the noise-free truth also comes back as a single peak. Two
+   Watson populations with `kappa = 16` merge well before any deconvolution is
+   involved.
++- **A loud `WARNING` about gradient directions on every run.** The supplied
++  `.bvec` is unit only to `1.1e-6`, because it was written at seven significant
++  figures. `mc_config.m` warns and normalises. It is deliberately noisy: left
++  uncorrected it degrades the zonal-response identity at Lmax 8 from `1e-15` to
++  `5e-7`, and that failure is invisible unless something checks for it.
+ 
+ ## Relationship to the pipeline
+ 
+ The walkthrough is not a copy of `gen_montecarlo.m`; it reads its constants
+ from `../mc_config.m`, the same file the pipeline reads, so the two cannot
+ drift apart about what is being simulated. It does differ from the pipeline in
+-one deliberate way: peaks are found on a fixed direction grid so the operation
+-is visible in the file, where the pipeline uses `sh2peaks` for every arm. Step
+-8 measures the gap between the two.
++two deliberate ways: peaks are found on a fixed direction grid so the operation
++is visible in the file, where the pipeline uses `sh2peaks` for every arm; and it
++fits at three angular orders where the pipeline fixes Lmax 6 to keep the three
++methods comparable. Step 8 exports the fODFs so `sh2peaks` can be run on them
++directly.
+diff --git a/deconv_comparison/notebooks/smi_simulation_walkthrough.m b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+index f983b70..04bfb96 100644
+--- a/deconv_comparison/notebooks/smi_simulation_walkthrough.m
++++ b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+@@ -51,7 +51,7 @@ run(fullfile(pkgdir, 'oct_path.m'));
+ NREP      = 25;                 % realisations per condition. The report used 10000.
+ SNR       = 50;                 % 1/sigma. The report sweeps 5, 10, 20, 30, 50, inf.
+ LMAX_LIST = [4 6 8];            % angular orders to fit at -- see the next section
+-PROTOCOL  = 'hcp_real_3shell.txt';
++                                % the protocol itself is named in mc_config.m
+ 
+ C = mc_config();                % conditions, kernel, dispersion, seeds
+ H = fODF_modulation_helpers();
+@@ -88,7 +88,7 @@ VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
+ LMAX_GT = C.LMAX_GT;
+ fprintf('\n=== SMI simulation walkthrough ===\n');
+ fprintf('protocol %s, NREP %d per condition, SNR %g, CS_phase %d\n', ...
+-        PROTOCOL, NREP, SNR, C.CS_PHASE);
++        C.PROTOCOL, NREP, SNR, C.CS_PHASE);
+ fprintf('fitting at Lmax %s   (%s coefficients)\n', mat2str(LMAX_LIST), ...
+         mat2str((LMAX_LIST/2+1).*(LMAX_LIST+1)));
+ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
+@@ -114,24 +114,14 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
+ %   into shells for the kernel fit, and Step 1 checks that it bins them the way
+ %   a human would.
+ 
+-proto = fileread(fullfile(pkgdir, 'protocol', PROTOCOL));
+-cols  = textscan(proto, '%f %f %f %f', 'CommentStyle', '%');
+-bvals = cols{1}(:)';
+-bvecs = [cols{2} cols{3} cols{4}];
+-Ndwi  = numel(bvals);
++% Read through mc_config, which every other arm also uses, so there is one
++% definition of what was acquired. It prints a loud warning if the .bvec is not
++% unit -- expect one here, and see the note under Step 3 for why it matters.
++[bvals, bvecs] = C.load_protocol();
++Ndwi = numel(bvals);
+ 
+ fprintf('Step 1: %d volumes, %d distinct b values\n', Ndwi, numel(unique(bvals)));
+ 
+-% The directions are only unit to the precision the .bvec file was written at.
+-% That sounds like a nuisance and is not: anything that treats g(3) as cos(theta)
+-% without normalising inherits the error, and at Lmax 8 that is enough to break
+-% the Step 3 identity by 5e-7 -- six orders of magnitude worse than it should be.
+-% So normalise here, once, and report what was corrected.
+-e_raw = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
+-bvecs = bvecs ./ repmat(sqrt(sum(bvecs.^2, 2)), 1, 3);
+-fprintf('   .bvec unit-norm error as supplied: %.2e, normalised to %.2e\n', ...
+-        e_raw, max(abs(sqrt(sum(bvecs.^2, 2)) - 1)));
+-
+ % Let SMI group the shells, and report what it decided. This is the function the
+ % fit itself uses, and its shell assignment is used for every per-shell number
+ % below -- rather than a hand-rolled "within x% of the nominal b", which
+@@ -146,8 +136,9 @@ for i = 1:numel(b_shell)
+ end
+ dw = shell_id(:)' > 1;                        % everything above the b~0 shell
+ 
+-% CHECK 1. Every direction must be a unit vector. Now trivially true, but the
+-% number printed above is the one that matters.
++% CHECK 1. Every direction must be a unit vector. This passes trivially because
++% mc_config normalised them on load -- the number that matters is the one in the
++% warning it printed just above, which is the error as the .bvec was supplied.
+ e_nrm = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
+ fprintf('   CHECK all directions are unit    max| |g|-1 | = %.2e   %s\n', ...
+         e_nrm, VERDICT{1+(e_nrm < 1e-12)});
+@@ -649,19 +640,21 @@ fprintf('   Nothing in this walkthrough runs those commands -- that is the point
+ %  ./run_mrtrix.sh fit snr50            % CSD, MSMT-CSD and every peak, in MRtrix
+ %  python3 tables.py nf snr50:50 ...    % the tables in Reports/deconv_tables.md
+ %
+-% *Note that the pipeline still reads the older synthetic protocol.* This
+-% walkthrough runs on the real HCP scheme; |gen_montecarlo.m| has not been
+-% switched over, so the published tables and this file are not yet measuring
+-% the same acquisition. Switching it is a one-line change in |gen_montecarlo.m|
+-% plus a full re-run.
++% *The published tables predate the real protocol.* Everything in |Reports/| was
++% measured on the older synthetic scheme, which is still on disk at
++% |protocol/hcp_like_3shell.txt| and marked superseded. |gen_montecarlo.m| and
++% |sweep_nonneg.m| now read the same real HCP protocol this walkthrough does, so
++% regenerating those tables is a re-run rather than a code change.
+ %
+ % *What this walkthrough leaves out on purpose.* The comparison arms. CSD and
+ % MSMT-CSD are MRtrix3 binaries driven by |run_mrtrix.sh|. This file is the SMI
+ % arm alone, taken apart.
+ %
+-% *What to change first if you want to probe it.* |NREP|, |SNR|, |LMAX_LIST|
+-% and |PROTOCOL| at the top of this file. Then |mc_config.m|: |KAPPA| sets
+-% fibre dispersion, |K_WM| the tissue, |ANGLES| the crossings.
++% *What to change first if you want to probe it.* |NREP|, |SNR| and |LMAX_LIST|
++% at the top of this file. Then |mc_config.m|: |PROTOCOL| names the acquisition,
++% |KAPPA| sets fibre dispersion, |K_WM| the tissue, |ANGLES| the crossings.
++% Changing them there changes them for the pipeline too, which is the point of
++% that file existing.
+ 
+ fprintf('=== walkthrough complete ===\n');
+ fprintf('correct fibre count, %% of %d realisations at SNR %g:\n', NREP, SNR);
+diff --git a/deconv_comparison/protocol/hcp_like_3shell.txt b/deconv_comparison/protocol/hcp_like_3shell.txt
+index beb8aa7..8d10321 100644
+--- a/deconv_comparison/protocol/hcp_like_3shell.txt
++++ b/deconv_comparison/protocol/hcp_like_3shell.txt
+@@ -1,10 +1,15 @@
+-% HCP-like 3-shell protocol, shared by every arm of the Monte Carlo.
+-% Columns: b [ms/um^2]  gx  gy  gz   (unit vectors; b=0 rows have g=0)
++% SUPERSEDED -- kept only so the published tables keep their provenance.
++%
++% This is a SYNTHETIC 3-shell scheme (dipy electrostatic repulsion, seeds
++% 1000+i). Every number in Reports/deconv_tables.md and
++% Reports/REPORT_SMI_deconvolution_MonteCarlo.md was measured on it.
+ %
+-% Generated once by setup_protocol.py (dipy electrostatic repulsion,
+-% seeds 1000+i, 90 directions per shell at b = 1, 2, 3 plus 18 b=0)
+-% and tracked here so the MATLAB side of the package needs no Python
+-% and reproduces the report exactly rather than approximately.
++% The package now runs on protocol/hcp_real_3shell.txt, a real HCP acquisition.
++% mc_config.m names the protocol in use; nothing reads this file any more.
++% Those published tables therefore predate the switch and would need
++% regenerating before they can be quoted against the real protocol.
++%
++% Columns: b [ms/um^2]  gx  gy  gz   (unit vectors; b=0 rows have g=0)
+ 0 0 0 0
+ 0 0 0 0
+ 0 0 0 0
+diff --git a/deconv_comparison/sweep_nonneg.m b/deconv_comparison/sweep_nonneg.m
+index b9cdc98..759d924 100644
+--- a/deconv_comparison/sweep_nonneg.m
++++ b/deconv_comparison/sweep_nonneg.m
+@@ -23,15 +23,14 @@ MR = mrtrix_io();
+ mdir = fullfile(fileparts(mfilename('fullpath')), 'mrtrix');
+ if ~exist(mdir,'dir'), mkdir(mdir); end
+ 
+-bvals     = IO.load('bvals'); bvals = bvals(:)';
+-bvecs     = IO.load('bvecs');
+ eval_dirs = IO.load('eval_dirs');
+-Ndwi      = numel(bvals);
+ 
+ % Same constants as gen_montecarlo.m, from the same place, so the sweep and the
+ % main run cannot disagree about what is being simulated. Only the RNG seed
+ % differs (C.SEED_SWEEP), which keeps the two sets of realisations independent.
+ C        = mc_config();
++[bvals, bvecs] = C.load_protocol();
++Ndwi     = numel(bvals);
+ LMAX_FIT = C.LMAX_FIT;
+ LMAX_GT  = C.LMAX_GT;
+ CS       = C.CS_PHASE;
+-- 
+2.43.0
+
+
+From b03b382bb0f30846233f470f2bd912f40297eacf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 19:37:13 +0000
+Subject: [PATCH 3/4] Change the narrow crossing from 15 to 30 degrees
+
+C.ANGLES is now [0 30 45 60]. The column headers in the walkthrough followed
+the old list literally, so they are now built from C.ANGLES rather than
+hardcoded -- changing the angle in one place changes it everywhere.
+
+This does NOT fix the degenerate condition, and the docs now say so rather
+than implying otherwise. Measured on the noise-free ground truth, with no
+fitting and no noise: at KAPPA = 16 a 30 degree crossing returns a SINGLE
+lobe at Lmax 4, 6 and 8, exactly as 15 degrees did. Two Watson populations
+that close merge before any deconvolution is involved.
+
+Where the boundary actually sits, measured at Lmax 8 over KAPPA 8 to 128:
+
+  kappa   dispersion   30deg  45deg  60deg
+      8      22.4 deg      1      2      2
+     16      14.9 deg      1      2      2
+     32      10.3 deg      1      2      2
+     48       8.4 deg      2      2      2
+    128       5.1 deg      2      2      2
+
+So 30 degrees needs KAPPA >= 48, about 8 degrees of dispersion, before it
+separates at all; 45 and 60 separate everywhere. That note is now in
+mc_config.m next to ANGLES, where anyone changing the angle will read it,
+and in notebooks/README.md as one of the results that looks like a failure
+and is not.
+
+Raising KAPPA is not done here: mc_config.m picks 16 deliberately because
+real white matter disperses and an estimated response absorbs that
+dispersion. Trading it away to make one condition resolvable is a design
+decision, not a fix.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/gen_montecarlo.m                 |  2 +-
+ deconv_comparison/mc_config.m                      |  7 +++++--
+ deconv_comparison/notebooks/README.md              | 14 ++++++++++----
+ .../notebooks/smi_simulation_walkthrough.m         | 11 ++++++++---
+ 4 files changed, 24 insertions(+), 10 deletions(-)
+
+diff --git a/deconv_comparison/gen_montecarlo.m b/deconv_comparison/gen_montecarlo.m
+index 5214651..22a91d2 100644
+--- a/deconv_comparison/gen_montecarlo.m
++++ b/deconv_comparison/gen_montecarlo.m
+@@ -7,7 +7,7 @@ function gen_montecarlo(SNR, NREP, tag)
+ % noise so the magnitude is Rician, and deconvolve NREP independent
+ % realisations of each condition.
+ %
+-% Conditions: a single fibre plus 15, 45 and 60 degree crossings of two equal
++% Conditions: a single fibre plus 30, 45 and 60 degree crossings of two equal
+ % fibre populations. Each fibre population is a Watson distribution, kappa =
+ % KAPPA, so the ground truth carries realistic dispersion rather than being a
+ % delta -- which matters, because a response function estimated from real white
+diff --git a/deconv_comparison/mc_config.m b/deconv_comparison/mc_config.m
+index 7addba6..5259869 100644
+--- a/deconv_comparison/mc_config.m
++++ b/deconv_comparison/mc_config.m
+@@ -20,7 +20,10 @@ function C = mc_config()
+ %              delta: a response estimated from real white matter absorbs
+ %              fibre dispersion, and a delta truth would hand every method a
+ %              mismatch that does not exist in practice
+-%   ANGLES     crossing angles in degrees; 0 means a single fibre
++%   ANGLES     crossing angles in degrees; 0 means a single fibre. NOTE that at
++%              KAPPA = 16 a 30 degree crossing does not separate even in the
++%              noise-free truth -- measured at Lmax 8 it needs KAPPA >= 48.
++%              45 and 60 separate at every KAPPA from 8 upward
+ %   K_WM       [f Da Depar Deperp fw] of the white matter kernel
+ %   AXIS1      the first fibre axis, fixed and off every coordinate plane
+ %   NDIR_Q     quadrature directions used to project a sampled fODF onto plm
+@@ -38,7 +41,7 @@ C.LMAX_GT    = 8;
+ C.CS_PHASE   = 0;
+ C.D_FW       = 3;
+ C.KAPPA      = 16;
+-C.ANGLES     = [0 15 45 60];
++C.ANGLES     = [0 30 45 60];
+ C.K_WM       = [0.60 2.0 2.0 0.50 0.02];
+ C.NDIR_Q     = 3000;
+ C.SEED_MC    = 31415;
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index d920a6e..86baec4 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -72,10 +72,16 @@ in place because it looks alarming otherwise:
+   Truncating a Watson mixture at `Lmax` rings, and the rings cross zero. The
+   non-negativity constraint is therefore a regularizer, not a statement of
+   fact — the truth does not satisfy it either.
+-- **The 15 degree crossing is resolved 0% of the time, and that is correct.**
+-  The ceiling shows the noise-free truth also comes back as a single peak. Two
+-  Watson populations with `kappa = 16` merge well before any deconvolution is
+-  involved.
++- **The 30 degree crossing is resolved 0% of the time, and that is correct.**
++  The ceiling shows the noise-free truth also comes back as a single peak: two
++  Watson populations at `kappa = 16` merge into one lobe well before any
++  deconvolution is involved. This is a property of the *ground truth*, not of
++  any method, and it is worth knowing where the boundary sits — measured on the
++  truth at Lmax 8, a 30 degree crossing needs `kappa >= 48` (about 8 degrees of
++  dispersion) before it separates at all, while 45 and 60 degrees separate at
++  every `kappa` from 8 upward. `mc_config.m` keeps `kappa = 16` because real
++  white matter disperses; the cost is that the 30 degree condition currently
++  measures the band limit rather than the method.
+ - **A loud `WARNING` about gradient directions on every run.** The supplied
+   `.bvec` is unit only to `1.1e-6`, because it was written at seven significant
+   figures. `mc_config.m` warns and normalises. It is deliberately noisy: left
+diff --git a/deconv_comparison/notebooks/smi_simulation_walkthrough.m b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+index 04bfb96..f8ff432 100644
+--- a/deconv_comparison/notebooks/smi_simulation_walkthrough.m
++++ b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+@@ -165,7 +165,7 @@ fprintf('\n');
+ 
+ %% Step 2 -- the ground truth fibre geometry
+ % Four conditions: a single fibre, and two equal fibre populations crossing at
+-% 15, 45 and 60 degrees. Each population is a *Watson* distribution with
++% 30, 45 and 60 degrees. Each population is a *Watson* distribution with
+ % concentration |kappa = 16|, not a delta.
+ %
+ % That choice is deliberate and is the one most likely to be questioned, so:
+@@ -180,6 +180,11 @@ fprintf('\n');
+ 
+ dq    = H.dirs(C.NDIR_Q);
+ NCOND = numel(C.ANGLES);
++COLHDR = cell(1, NCOND);
++for ic = 1:NCOND
++    if C.ANGLES(ic) == 0, COLHDR{ic} = 'single';
++    else, COLHDR{ic} = sprintf('%d deg', C.ANGLES(ic)); end
++end
+ L_gt  = repelem(0:2:LMAX_GT, 2*(0:2:LMAX_GT)+1)';
+ 
+ fodf_gt = zeros(size(dq,1), NCOND);
+@@ -335,7 +340,7 @@ end
+ 
+ fprintf('Step 4: noise-free signal\n');
+ fprintf('   mean signal per shell (shells as SMI assigned them in Step 1):\n');
+-fprintf('        b   ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
++fprintf('        b   ');  fprintf('%10s', COLHDR{:}); fprintf('\n');
+ for i = 1:numel(b_shell)
+     fprintf('     %4.2f   ', b_shell(i));
+     fprintf('%10.4f', mean(S_clean(:, shell_id == i), 2)); fprintf('\n');
+@@ -658,7 +663,7 @@ fprintf('   Nothing in this walkthrough runs those commands -- that is the point
+ 
+ fprintf('=== walkthrough complete ===\n');
+ fprintf('correct fibre count, %% of %d realisations at SNR %g:\n', NREP, SNR);
+-fprintf('        ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
++fprintf('        ');  fprintf('%10s', COLHDR{:}); fprintf('\n');
+ for iL = 1:numel(LMAX_LIST)
+     fprintf('  Lmax %d', LMAX_LIST(iL)); fprintf('%10.1f', res_all(iL,:)); fprintf('\n');
+ end
+-- 
+2.43.0
+
+
+From 5fd3ada2494673ed808ec05c2871edf335ffe639 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 19:40:10 +0000
+Subject: [PATCH 4/4] Add figures for geometry, kernel, signal and
+ reconstructed fODFs
+
+A Figures section between Step 8 and Step 9, drawing the four things the
+walkthrough produces, in the order they happen:
+
+  1. ground truth fibre geometry -- one glyph per condition
+  2. the kernel as a response function -- angular profile per shell, the
+     zonal coefficients as a bar chart (an MRtrix response file), and the
+     response glyph at the highest shell
+  3. forward convolution and noise -- signal against angle to the first
+     fibre, noisy over noise-free, one panel per shell
+  4. the reconstructed fODFs -- a grid of Lmax against condition
+
+Glyphs go through SMI_response_helpers, so radius is |amplitude| and colour
+is the SIGNED amplitude. That is deliberate: the band-limited truth really
+is negative over much of the sphere, and a renderer that folded the sign
+away would hide the one result in this file most likely to surprise.
+
+MAKE_FIGURES = false skips the section.
+
+Rendering is NOT verified here: Octave's print is broken in this container,
+so what was checked is that the block executes end to end against the
+repository's graphics stubs -- i.e. the indexing, the glyph calls and the
+reconstruction of plm from the fitted SH coefficients are right, and only
+the drawing itself is untested. In MATLAB the figures appear inline in the
+Live Script.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/notebooks/README.md         |  7 ++
+ .../notebooks/smi_simulation_walkthrough.m    | 87 ++++++++++++++++++-
+ 2 files changed, 93 insertions(+), 1 deletion(-)
+
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index 86baec4..5163ad6 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -7,6 +7,13 @@ running in bulk. They are the answer to "how do I check this myself?".
+ |---|---|
+ | `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export |
+ 
++It also draws four figures — the ground truth fibre geometry, the kernel as a
++response function, the forward convolution with and without noise, and the
++reconstructed fODFs at each Lmax. Set `MAKE_FIGURES = false` in that section to
++skip them. In MATLAB they appear inline in the Live Script; under Octave
++graphics are often unavailable, and the printed numbers are the deliverable
++either way.
++
+ The CSD and MSMT-CSD arms are not covered yet.
+ 
+ ## Running it
+diff --git a/deconv_comparison/notebooks/smi_simulation_walkthrough.m b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+index f8ff432..d025aaa 100644
+--- a/deconv_comparison/notebooks/smi_simulation_walkthrough.m
++++ b/deconv_comparison/notebooks/smi_simulation_walkthrough.m
+@@ -20,13 +20,14 @@
+ % read only the CHECK lines, you have audited the simulation.
+ %
+ %  Step 1  the acquisition protocol         -> a real HCP 3-shell scheme
+-%  Step 2  the ground truth fibre geometry  -> Watson fODFs at 0/15/45/60 deg
++%  Step 2  the ground truth fibre geometry  -> Watson fODFs at 0/30/45/60 deg
+ %  Step 3  the kernel, and it as a response -> K_l(b), zonal harmonics
+ %  Step 4  forward convolution              -> noise-free signal
+ %  Step 5  Rician noise                     -> the measured data
+ %  Step 6  SMI.fit at Lmax 4, 6 and 8       -> kernel and fODF recovery
+ %  Step 7  peaks and angular error          -> did it work, and at which Lmax?
+ %  Step 8  export the fODFs for MRtrix      -> check them outside this file
++%  Figures the four things above, rendered   -> geometry, kernel, signal, fODFs
+ %  Step 9  how to scale this up
+ %
+ % *Runtime is about six minutes*, almost all of it Step 6. |SMI.fit| is
+@@ -635,6 +636,90 @@ fprintf('     mrview   smifod_lmax6.mih -odf.load_sh smifod_lmax6.mih\n');
+ fprintf('   sh2peaks writes 3 components per peak; compare against voxel_key.txt.\n');
+ fprintf('   Nothing in this walkthrough runs those commands -- that is the point.\n\n');
+ 
++%% Figures
++% Four renderings of what the steps above produced, in the order they happened.
++% Set |MAKE_FIGURES = false| at the top of this section to skip them.
++%
++% Glyphs use |SMI_response_helpers|, the same renderer MRtrix's |shview| logic
++% implies: *radius is |amplitude|, colour is the signed amplitude*, so negative
++% lobes show up as a colour change instead of being folded silently into the
++% surface. That matters here because the band-limited truth really is negative
++% over much of the sphere (Step 2).
++
++MAKE_FIGURES = true;
++if MAKE_FIGURES
++    fprintf('Figures: rendering 4 panels ...\n');
++
++    % ---- 1. ground truth fibre geometry
++    figure('Name', 'Ground truth fibre geometry');
++    for ic = 1:NCOND
++        subplot(1, NCOND, ic);
++        [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, 81, 81, 1);
++        surf(X, Y, Z, Cc); shading interp; axis equal off; view(30, 18);
++        title(sprintf('%s\nkappa = %g', COLHDR{ic}, C.KAPPA));
++    end
++
++    % ---- 2. the kernel, as a response function
++    figure('Name', 'Estimated kernel as a response function');
++    th_p = linspace(0, pi, 181);
++    subplot(1, 3, 1);          % angular profile per shell
++    hold on;
++    for i = 1:numel(b_shell)
++        plot(th_p*180/pi, RH.profile(RH.zh(K, b_shell(i), LMAX_GT, C.D_FW), th_p), ...
++             'LineWidth', 1.6);
++    end
++    xlabel('angle from the fibre (deg)'); ylabel('R(\theta)');
++    title('response profile per shell'); grid on;
++    legend(arrayfun(@(b) sprintf('b = %.0f', b), b_shell, 'UniformOutput', false));
++    subplot(1, 3, 2);          % zonal coefficients = an MRtrix response file
++    bar(RH.zh(K, b_shell, LMAX_GT, C.D_FW)');
++    set(gca, 'XTickLabel', arrayfun(@(l) sprintf('r_%d', l), 0:2:LMAX_GT, ...
++             'UniformOutput', false));
++    ylabel('coefficient'); title('zonal harmonics'); grid on;
++    subplot(1, 3, 3);          % the response glyph at the highest shell
++    [X, Y, Z, Cc] = RH.zh_glyph(RH.zh(K, b_shell(end), LMAX_GT, C.D_FW), 81, 81, 1);
++    surf(X, Y, Z, Cc); shading interp; axis equal off; view(30, 18);
++    title(sprintf('response glyph, b = %.0f', b_shell(end)));
++
++    % ---- 3. forward convolution, and what the noise does to it
++    figure('Name', 'Forward convolution and noise');
++    ic_show = NCOND;                                  % the widest crossing
++    v_show  = find(cond_id == ic_show, 1);
++    for i = 2:numel(b_shell)
++        subplot(1, numel(b_shell)-1, i-1);
++        m  = (shell_id(:)' == i);
++        ct = abs(bvecs(m,:) * axes_gt{ic_show}{1}');  % angle to the first fibre
++        sc = S_clean(ic_show, m);
++        sn = S_noisy(v_show, m);
++        hold on;
++        plot(acosd(min(ct,1)), sn, '.', 'MarkerSize', 9);
++        plot(acosd(min(ct,1)), sc, 'o', 'MarkerSize', 4, 'LineWidth', 1.2);
++        xlabel('angle to fibre 1 (deg)'); ylabel('S / S_0');
++        title(sprintf('b = %.0f, SNR %g', b_shell(i), SNR)); grid on;
++        if i == 2, legend({'noisy', 'noise free'}); end
++    end
++
++    % ---- 4. the reconstructed fODFs, one column per Lmax
++    figure('Name', 'Reconstructed fODFs');
++    for iL = 1:numel(LMAX_LIST)
++        Lf  = LMAX_LIST(iL);
++        nc  = (Lf/2+1)*(Lf+1);
++        for ic = 1:NCOND
++            subplot(numel(LMAX_LIST), NCOND, (iL-1)*NCOND + ic);
++            v   = find(cond_id == ic, 1);
++            % back to the p_00 = 1 convention the glyph renderer expects
++            Lv  = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
++            plm_v = fits{iL}.sh(v, 2:nc) ./ sqrt((2*Lv(2:end)'+1)/(4*pi));
++            [X, Y, Z, Cc] = RH.sh_glyph(plm_v, Lf, C.CS_PHASE, 61, 61, 1);
++            surf(X, Y, Z, Cc); shading interp; axis equal off; view(30, 18);
++            title(sprintf('Lmax %d, %s', Lf, COLHDR{ic}));
++        end
++    end
++    fprintf('   4 figures drawn. In MATLAB they appear inline in the Live Script.\n');
++    fprintf('   Under Octave, graphics may be unavailable -- the numbers above are\n');
++    fprintf('   the deliverable either way.\n\n');
++end
++
+ %% Step 9 -- from here to a full campaign
+ % Everything above is one SNR at |NREP| realisations. The published campaign is
+ % the same forward model at |NREP = 10000| across six noise levels, driven by
+-- 
+2.43.0
+

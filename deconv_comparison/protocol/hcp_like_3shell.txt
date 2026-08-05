@@ -1,10 +1,15 @@
-% HCP-like 3-shell protocol, shared by every arm of the Monte Carlo.
-% Columns: b [ms/um^2]  gx  gy  gz   (unit vectors; b=0 rows have g=0)
+% SUPERSEDED -- kept only so the published tables keep their provenance.
 %
-% Generated once by setup_protocol.py (dipy electrostatic repulsion,
-% seeds 1000+i, 90 directions per shell at b = 1, 2, 3 plus 18 b=0)
-% and tracked here so the MATLAB side of the package needs no Python
-% and reproduces the report exactly rather than approximately.
+% This is a SYNTHETIC 3-shell scheme (dipy electrostatic repulsion, seeds
+% 1000+i). Every number in Reports/deconv_tables.md and
+% Reports/REPORT_SMI_deconvolution_MonteCarlo.md was measured on it.
+%
+% The package now runs on protocol/hcp_real_3shell.txt, a real HCP acquisition.
+% mc_config.m names the protocol in use; nothing reads this file any more.
+% Those published tables therefore predate the switch and would need
+% regenerating before they can be quoted against the real protocol.
+%
+% Columns: b [ms/um^2]  gx  gy  gz   (unit vectors; b=0 rows have g=0)
 0 0 0 0
 0 0 0 0
 0 0 0 0

@@ -6,3 +6,4 @@ deconv_comparison/__pycache__/
 octave-workspace
 response_SMI_wm.txt
 deconv_comparison/mrtrix/
+deconv_comparison/export/
