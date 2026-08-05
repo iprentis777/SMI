@@ -19,15 +19,15 @@ reimplementations and onto MRtrix3 itself, and changed one shipped default.
 
 ### On master
 
-| feature | option | default | report |
+| feature | option | default | documentation |
 |---|---|---|---|
 | Regularized deconvolution | `options.fODF_regularization` | off | `Reports/REPORT_fODF_regularization_sweep.md` |
-| Anisotropy modulation | `options.fODF_modulation` | off | `Reports/REPORT_fODF_modulation.md` |
+| Anisotropy modulation *(semi-retired)* | `options.fODF_modulation` | off | `Archive/README.md` |
 | Post hoc outlier cap | `options.fODF_outlier` | off | `Reports/REPORT_fODF_outlier_cap.md` |
 
 All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
 whether any of them is on or off. That invariant is tested, not asserted — keep
-it. Patches `Patches/0001`-`Patches/0009` record each change and apply with
+it. Patches `Patches/0001`-`Patches/0010` record each change and apply with
 `git am --3way`.
 
 The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
@@ -35,6 +35,11 @@ The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
 `lambda_nonneg` default change from 10 to 1 were merged in PR #7. The shared
 Monte Carlo configuration was merged in PR #9. Section 6.4 justifies the
 default change.
+
+**Current pipeline posture:** keep anisotropy modulation available for
+reproducibility, but do not present it as an active pipeline recommendation.
+The zonal-harmonics response viewer is likewise a learning and convention-check
+exercise. Both are indexed in `Archive/README.md`.
 
 ### Still on a branch, not merged
 
@@ -101,7 +106,7 @@ against the real binaries; run that rather than trusting either claim.
 ### 2.3 Still standing from the previous handoff
 
 1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do much
-   of anything.** Re-confirmed this session: 0.3 vs 0 moves the 45 degree error
+   of anything.**[^regularization-review-posture] Re-confirmed this session: 0.3 vs 0 moves the 45 degree error
    from 21.28 to 21.27 deg. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
    loss to it and is **still wrong** and still unfixed. The real cause is the
    non-negativity constraint plus error in the estimated kernel, whose `K_l` at
@@ -112,8 +117,17 @@ against the real binaries; run that rather than trusting either claim.
 3. **§7.5's rejection of tissue-fraction weights is bounded, not universal.**
    A tissue-fraction weight fails on axonal loss and is safe under water
    redistribution. Which regime real peritumoral tissue is in decides whether
-   `f` is usable, and that is measurable in a known ROI. Still the most
-   promising untested weight, still untested.
+   `f` is usable, and that is measurable in a known ROI. It was historically
+   the most promising untested weight, but modulation is now semi-retired; do
+   not prioritize it unless a concrete real-data question reactivates the work.
+
+[^regularization-review-posture]: **Reviewer posture:** We are increasingly
+    skeptical of departing from established CSD/deconvolution regularization
+    conventions, including nonstandard uses or interpretations of Tikhonov
+    damping. A reviewer is likely to ask why a deviation is necessary. Begin
+    from the conventional baseline and require a reviewer-facing motivation,
+    an ablation, and evidence that the change improves the downstream quantity
+    that matters.
 
 ---
 
@@ -253,22 +267,23 @@ force-pushed.
 | file | what |
 |---|---|
 | `SMI.m` | the toolbox. All three opt-in features live here as static methods |
-| `README.md` | user-facing documentation of every feature |
+| `README.md` | user-facing documentation of the recommended pipeline, with short status notes for archived work |
+| `Archive/README.md` | learning exercises and semi-retired exploratory work; modulation and the zonal-harmonics viewer are indexed here |
 | `examples/example.m`, `examples/example_SMI_SSM.m` | the original data-fit and sensitivity-specificity examples |
 | `Reports/REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
 | `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
 | `Reports/REPORT_fODF_outlier_cap.md` | the cap measurement |
 | `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
-| `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | the 7-class simulation. The helpers are the reusable forward model |
+| `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
 | `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
-| `Patches/0001`-`Patches/0009*.patch` | one patch per measured change, `git am --3way`-able |
+| `Patches/0001`-`Patches/0010*.patch` | one patch per measured change, `git am --3way`-able |
 
 The response/deconvolution work now on master:
 
 | file | what |
 |---|---|
-| `helpers/SMI_response_helpers.m` | kernel → zonal harmonics → glyph. Function-handle struct: `Kell zh profile grid glyph zh_glyph sh_glyph write_response read_response kernel_from_out` |
-| `examples/example_SMI_response_shview.m` | draws the kernel four ways per shell, decomposes it by compartment, writes `response_SMI_wm.txt` for `shview`. Self-checks against SMI's forward model |
+| `helpers/SMI_response_helpers.m` | archived learning helper: kernel → zonal harmonics → glyph |
+| `examples/example_SMI_response_shview.m` | archived learning exercise for response conventions and visualization |
 | `tests/test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
 | `deconv_comparison/` | the Monte Carlo package. Has its own `README.md` — read that one for the run order |
 | `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
@@ -452,9 +467,9 @@ it has never touched real data.
    crossings.** Everything measured so far is two equal fibres. Unequal
    fractions are where spurious-peak counts usually separate methods, and the
    three-way case is where the modulation work already knows SMI has trouble.
-6. **Test `f` as a modulation weight in a known edema ROI** (section 2.3,
-   item 3). This decides whether the modulation approach can use tissue
-   fractions at all.
+6. **Add an edematous-kernel condition to the existing
+   `deconv_comparison/` simulation package.** This is only a scope marker for
+   now; the edema model, parameters, and evaluation should be designed later.
 7. **Land `claude/freewater-simulations`**, or the measured numbers quoted in
    `Reports/REPORT_fODF_outlier_cap.md` have no reproducible source.
 8. Spatial context beyond the cap — a neighbour-agreement *weight* rather than

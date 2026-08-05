@@ -130,6 +130,12 @@ Requires **MRtrix3 3.0.4**, Octave (`statistics`) and Python
 (`numpy matplotlib`, plus `dipy` for `setup_protocol.py` alone). Intermediate
 arrays land in `data/` and `mrtrix/`, neither of which is tracked.
 
+## Planned extension: edematous kernel
+
+A future simulation condition should consider a kernel in an edematous
+environment. This is a scope marker only: no edema model, parameterization,
+response-estimation strategy, or result is defined yet.
+
 ## Superseded
 
 An earlier version of this package ran CSD and MSMT-CSD through dipy and
