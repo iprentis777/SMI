@@ -27,7 +27,7 @@ reimplementations and onto MRtrix3 itself, and changed one shipped default.
 
 All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
 whether any of them is on or off. That invariant is tested, not asserted — keep
-it. Patches `Patches/0001`-`Patches/0009` record each change and apply with
+it. Patches `Patches/0001`-`Patches/0010` record each change and apply with
 `git am --3way`.
 
 The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
@@ -276,7 +276,7 @@ force-pushed.
 | `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
 | `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
 | `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
-| `Patches/0001`-`Patches/0009*.patch` | one patch per measured change, `git am --3way`-able |
+| `Patches/0001`-`Patches/0010*.patch` | one patch per measured change, `git am --3way`-able |
 
 The response/deconvolution work now on master:
 
