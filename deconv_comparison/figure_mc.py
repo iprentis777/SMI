@@ -65,7 +65,7 @@ def collect(tags):
     return out, angles, ceiling
 
 
-def main(out='fodf_deconv_montecarlo.png', *tagspec):
+def main(out='../Figures/fodf_deconv_montecarlo.png', *tagspec):
     tags = []
     for t in tagspec:
         tag, snr = t.split(':')

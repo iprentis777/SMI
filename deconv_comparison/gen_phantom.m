@@ -5,7 +5,7 @@ function gen_phantom(SNR, tag)
 % `dwi2response` something to estimate a response FROM.
 %
 % READ THIS BEFORE QUOTING ANY NUMBER THAT DEPENDS ON IT. The intended design
-% (see REPORT_SMI_deconvolution_MonteCarlo.md section 2) estimates the
+% (see Reports/REPORT_SMI_deconvolution_MonteCarlo.md section 2) estimates the
 % responses from real data with `dwi2response dhollander`. No real data exists
 % in this repository, so the responses are estimated from this phantom instead.
 % That makes the response functions REALISTIC -- blunted by fibre dispersion,

@@ -1,7 +1,7 @@
 function gen_montecarlo(SNR, NREP, tag)
 % gen_montecarlo(SNR, NREP, tag)
 %
-% The Monte Carlo experiment of REPORT_SMI_deconvolution_MonteCarlo.md, in the
+% The Monte Carlo experiment of Reports/REPORT_SMI_deconvolution_MonteCarlo.md, in the
 % design of Jeurissen et al. (2014): synthesise noise-free signal vectors for
 % crossing white matter fibres by forward convolution, add complex Gaussian
 % noise so the magnitude is Rician, and deconvolve NREP independent

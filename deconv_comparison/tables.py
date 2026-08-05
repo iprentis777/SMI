@@ -1,4 +1,4 @@
-"""Emit the result tables of REPORT_SMI_deconvolution_MonteCarlo.md as markdown.
+"""Emit the result tables of Reports/REPORT_SMI_deconvolution_MonteCarlo.md as markdown.
 
 The report quotes numbers; this writes them, so no number in it is transcribed
 by hand. Peaks come from MRtrix's `sh2peaks` (score_mrtrix.py).

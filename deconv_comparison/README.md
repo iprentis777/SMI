@@ -1,6 +1,6 @@
 # Monte Carlo comparison: constrained SMI vs MSMT-CSD vs SSST-CSD
 
-The simulation behind `../REPORT_SMI_deconvolution_MonteCarlo.md`, in the design
+The simulation behind `../Reports/REPORT_SMI_deconvolution_MonteCarlo.md`, in the design
 of Jeurissen et al. (2014): synthesise noise-free signal vectors for crossing
 white matter fibres by forward convolution, add complex Gaussian noise so the
 magnitude is Rician, and deconvolve 10,000 independent realisations of each
@@ -48,9 +48,9 @@ octave --eval "oct_path; gen_phantom(30,'p30')"             # response phantom
 octave --eval "oct_path; gen_montecarlo(30,10000,'snr30')"  # signal + SMI
 ./run_mrtrix.sh fit snr30                                   # dwi2fod + sh2peaks
 
-python3 tables.py nf snr50:50 snr30:30 ...  | tee ../deconv_tables.md
-python3 figure_mc.py ../fodf_deconv_montecarlo.png snr50:50 snr30:30 ...
-python3 figure_response.py p30 ../fodf_response_shview.png
+python3 tables.py nf snr50:50 snr30:30 ...  | tee ../Reports/deconv_tables.md
+python3 figure_mc.py ../Figures/fodf_deconv_montecarlo.png snr50:50 snr30:30 ...
+python3 figure_response.py p30 ../Figures/fodf_response_shview.png
 
 octave --eval "oct_path; sweep_nonneg(30,2000,'sw30')"      # report section 6
 ./run_mrtrix.sh sweep sw30 6 && python3 score_sweep.py sw30 30

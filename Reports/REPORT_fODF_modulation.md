@@ -2,7 +2,7 @@
 
 Measurement report for `SMI.fODF_ModulationWeight` and `SMI.modulate_fODF`.
 Everything below is measured, not assumed; the simulation is
-`example_fODF_modulation.m`.
+`examples/example_fODF_modulation.m`.
 
 ---
 
@@ -282,9 +282,9 @@ basis before feeding it to `tckgen`** — this has not been checked here.
 | file | contents |
 |---|---|
 | `SMI.m` | the five new static methods and the `SMI.fit` integration, see the map below |
-| `example_fODF_modulation.m` | the simulation and scoring above |
-| `fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
-| `REPORT_fODF_modulation.md` | this file |
+| `examples/example_fODF_modulation.m` | the simulation and scoring above |
+| `helpers/fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
+| `Reports/REPORT_fODF_modulation.md` | this file |
 | `0004fODFmodulation.patch` | the exact diff of the two commits, applies with `git am` |
 
 ### Exactly what changed in `SMI.m`

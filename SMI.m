@@ -139,7 +139,7 @@ classdef SMI
     % options.fODF_regularization.lambda_nonneg weight of the non-negativity
     %                     penalty (default 10, dimensionless). This default
     %                     is the optimum measured by
-    %                     example_fODF_regularization_sweep.m
+    %                     examples/example_fODF_regularization_sweep.m
     % options.fODF_regularization.tau directions where the fODF is below
     %                     tau*mean(fODF) are penalized (default 0.1)
     % options.fODF_regularization.Ndirs number of directions where the
@@ -152,7 +152,7 @@ classdef SMI
     % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
     %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
     %
-    % fODF post hoc outlier cap (OFF by default, see REPORT_fODF_outlier_cap.md)
+    % fODF post hoc outlier cap (OFF by default, see Reports/REPORT_fODF_outlier_cap.md)
     %
     % Removes isolated glyphs whose amplitude is pathologically large, without
     % touching orientation and without keying on tissue type. A voxel is
@@ -186,7 +186,7 @@ classdef SMI
     % If both this and the modulation are enabled the cap runs FIRST and the
     % modulation is applied to the corrected fODF.
     %
-    % fODF anisotropy modulation (OFF by default, see REPORT_fODF_modulation.md)
+    % fODF anisotropy modulation (OFF by default, see Reports/REPORT_fODF_modulation.md)
     %
     % The fODF is stored with p_00 = 1, so it integrates to 1 in every voxel
     % and its isotropic floor is a fixed 1/(4*pi) = 0.0796, above MRtrix's
@@ -935,11 +935,11 @@ classdef SMI
             % reg.lambda_nonneg     weight of the non-negativity block (default 1).
             %                       Two independent measurements disagree about
             %                       this weight and the smaller one wins:
-            %                       example_fODF_regularization_sweep.m minimizes
+            %                       examples/example_fODF_regularization_sweep.m minimizes
             %                       the relative L2 error of the fODF and prefers
             %                       10, but the Monte Carlo in
             %                       deconv_comparison/ (sections 5 and 6 of
-            %                       REPORT_SMI_deconvolution_MonteCarlo.md) finds
+            %                       Reports/REPORT_SMI_deconvolution_MonteCarlo.md) finds
             %                       10 is not on the Pareto front at all: 1 has
             %                       the best angular correlation against the
             %                       ground truth at every crossing angle and
@@ -1261,8 +1261,8 @@ classdef SMI
             % WHY THE PRODUCT, AND WHY NOT p4
             %
             % Measured on a 7 class simulation, regularized deconvolution at
-            % SNR 15 (see example_fODF_modulation.m and
-            % REPORT_fODF_modulation.md). Fraction of voxels left above
+            % SNR 15 (see examples/example_fODF_modulation.m and
+            % Reports/REPORT_fODF_modulation.md). Fraction of voxels left above
             % MRtrix's default iFOD2 cutoff of 0.05:
             %
             %                    unweighted  kernel_p2  kernel_p2^2  pl2  product
@@ -1539,7 +1539,7 @@ classdef SMI
             %
             % Using T/peak instead would shrink the floor as well and undershoot
             % the target. This is the same trap noted for the fODF rescaling in
-            % REPORT_fODF_modulation.md.
+            % Reports/REPORT_fODF_modulation.md.
             %
             % ROBUST STATISTICS ON PURPOSE. The median has a 50% breakdown
             % point; a mean and standard deviation have none. A cluster of
@@ -1548,7 +1548,7 @@ classdef SMI
             %
             % ON THE CEILING. Measured at Lmax 6 on the free-water simulation
             % branch (claude/freewater-simulations), see
-            % REPORT_fODF_outlier_cap.md section 4:
+            % Reports/REPORT_fODF_outlier_cap.md section 4:
             %
             %   hard physical max of a band limited fODF,
             %     sum_{l even <= 6} (2l+1)/(4*pi)                     = 2.228

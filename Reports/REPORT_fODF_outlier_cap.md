@@ -2,7 +2,7 @@
 
 Measurement report for `SMI.fODF_OutlierDefaults`, `SMI.cap_fODF_outliers` and
 `SMI.neighbour_median`. Everything below is measured; the test harnesses are
-`test_fODF_outlier_cap.m` (the method in isolation) and `test_SMI_outlier_cap.m`
+`tests/test_fODF_outlier_cap.m` (the method in isolation) and `tests/test_SMI_outlier_cap.m`
 (the flag on `SMI.fit`), both of which are in this PR and need no data.
 
 The numbers used to choose the ceiling in section 4, and the peak distributions
@@ -34,7 +34,7 @@ Defaults: `orders = 1` (one order of magnitude), `ceiling = 1`,
 
 ## 2. Why this is not a tissue type criterion
 
-Every per voxel weight in `REPORT_fODF_modulation.md` was rejected, or nearly
+Every per voxel weight in `Reports/REPORT_fODF_modulation.md` was rejected, or nearly
 rejected, because it keyed on something edema shares with CSF. The
 neighbourhood test cannot: it is **relative**, and edema is spatially
 **contiguous**. An edematous voxel's neighbours are edematous too, so the local
@@ -134,7 +134,7 @@ are.
 
 ## 6. Verification
 
-`test_fODF_outlier_cap.m` — the method on a 12x12x5 phantom of realistic
+`tests/test_fODF_outlier_cap.m` — the method on a 12x12x5 phantom of realistic
 SMI-amplitude fODFs, with planted spikes at 50x, 1e4x and 1e12x, a spike inside
 a near-isotropic (CSF analogue) region, and a contiguous bright block:
 
@@ -155,7 +155,7 @@ tolerance: `acosd` cannot resolve below about 1e-5 degrees near a dot product of
 The residual 1.2e-06 degrees reported below is `acosd(1-eps)` on the *same*
 vertex, not a real rotation.
 
-`test_SMI_outlier_cap.m` — the flag on a real `SMI.fit`, 8x8x4 at SNR 30:
+`tests/test_SMI_outlier_cap.m` — the flag on a real `SMI.fit`, 8x8x4 at SNR 30:
 
 | check | result |
 |---|---|

@@ -7,7 +7,7 @@ function [e_odf,e_plm,e_neg,e_pkamp,e_pkratio,e_peak,e_npk] = fODF_regularizatio
 % actually asks for a 6th output.
 %
 % Scores one fODF deconvolution regularization setting against a known
-% ground truth. Used by example_fODF_regularization_sweep.m.
+% ground truth. Used by examples/example_fODF_regularization_sweep.m.
 %
 % Every voxel of the experiment is deconvolved in a single call, with the
 % noise realizations stacked along the first image dimension. That is much

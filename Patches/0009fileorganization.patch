@@ -1,0 +1,1096 @@
+From 499fac2f61bd19194d0738ca90c4a04437b4e2a8 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Tue, 4 Aug 2026 21:10:25 -0700
+Subject: [PATCH] Organize repository support files
+
+Move examples, shared helpers, tests, generated tables, and figures into focused directories. Update path setup and live documentation so MATLAB, Octave, and the Monte Carlo entry points resolve the new layout from any working directory.
+---
+ .../fodf_deconv_montecarlo.png                | Bin
+ .../fodf_response_shview.png                  | Bin
+ Patches/empty                                 |   1 -
+ README for Claude.md                          |  78 +++++++++---------
+ README.md                                     |  38 ++++++---
+ .../REPORT_SMI_deconvolution_MonteCarlo.md    |  24 +++---
+ Reports/REPORT_fODF_modulation.md             |   8 +-
+ Reports/REPORT_fODF_outlier_cap.md            |   8 +-
+ Reports/REPORT_fODF_regularization_sweep.md   |   6 +-
+ deconv_tables.md => Reports/deconv_tables.md  |   0
+ Reports/placeholder                           |   1 -
+ SMI.m                                         |  18 ++--
+ deconv_comparison/README.md                   |   8 +-
+ deconv_comparison/figure_mc.py                |   2 +-
+ deconv_comparison/figure_response.py          |   7 +-
+ deconv_comparison/gen_montecarlo.m            |   2 +-
+ deconv_comparison/gen_phantom.m               |   2 +-
+ deconv_comparison/oct_path.m                  |   4 +-
+ deconv_comparison/run_all.sh                  |   8 +-
+ deconv_comparison/tables.py                   |   2 +-
+ example.m => examples/example.m               |   4 +
+ .../example_SMI_SSM.m                         |  10 ++-
+ examples/example_SMI_response_shview.m        |   8 +-
+ examples/example_fODF_modulation.m            |  11 ++-
+ examples/example_fODF_regularization.m        |   5 +-
+ examples/example_fODF_regularization_sweep.m  |   8 +-
+ .../SMI_response_helpers.m                    |   6 +-
+ .../fODF_modulation_helpers.m                 |   4 +-
+ .../fODF_regularization_score.m               |   2 +-
+ tests/README.md                               |  17 ++++
+ .../test_SMI_outlier_cap.m                    |   8 +-
+ .../test_SMI_response_helpers.m               |  12 ++-
+ .../test_fODF_outlier_cap.m                   |   8 +-
+ 33 files changed, 199 insertions(+), 121 deletions(-)
+ rename fodf_deconv_montecarlo.png => Figures/fodf_deconv_montecarlo.png (100%)
+ rename fodf_response_shview.png => Figures/fodf_response_shview.png (100%)
+ delete mode 100644 Patches/empty
+ rename deconv_tables.md => Reports/deconv_tables.md (100%)
+ delete mode 100644 Reports/placeholder
+ rename example.m => examples/example.m (98%)
+ rename example_SMI_SSM.m => examples/example_SMI_SSM.m (96%)
+ rename SMI_response_helpers.m => helpers/SMI_response_helpers.m (98%)
+ rename fODF_modulation_helpers.m => helpers/fODF_modulation_helpers.m (96%)
+ rename fODF_regularization_score.m => helpers/fODF_regularization_score.m (98%)
+ create mode 100644 tests/README.md
+ rename test_SMI_outlier_cap.m => tests/test_SMI_outlier_cap.m (96%)
+ rename test_SMI_response_helpers.m => tests/test_SMI_response_helpers.m (92%)
+ rename test_fODF_outlier_cap.m => tests/test_fODF_outlier_cap.m (96%)
+
+diff --git a/fodf_deconv_montecarlo.png b/Figures/fodf_deconv_montecarlo.png
+similarity index 100%
+rename from fodf_deconv_montecarlo.png
+rename to Figures/fodf_deconv_montecarlo.png
+diff --git a/fodf_response_shview.png b/Figures/fodf_response_shview.png
+similarity index 100%
+rename from fodf_response_shview.png
+rename to Figures/fodf_response_shview.png
+diff --git a/Patches/empty b/Patches/empty
+deleted file mode 100644
+index 19765bd..0000000
+--- a/Patches/empty
++++ /dev/null
+@@ -1 +0,0 @@
+-null
+diff --git a/README for Claude.md b/README for Claude.md
+index b88a664..07fbd09 100644
+--- a/README for Claude.md	
++++ b/README for Claude.md	
+@@ -21,27 +21,28 @@ reimplementations and onto MRtrix3 itself, and changed one shipped default.
+ 
+ | feature | option | default | report |
+ |---|---|---|---|
+-| Regularized deconvolution | `options.fODF_regularization` | off | `REPORT_fODF_regularization_sweep.md` |
+-| Anisotropy modulation | `options.fODF_modulation` | off | `REPORT_fODF_modulation.md` |
+-| Post hoc outlier cap | `options.fODF_outlier` | off | `REPORT_fODF_outlier_cap.md` |
++| Regularized deconvolution | `options.fODF_regularization` | off | `Reports/REPORT_fODF_regularization_sweep.md` |
++| Anisotropy modulation | `options.fODF_modulation` | off | `Reports/REPORT_fODF_modulation.md` |
++| Post hoc outlier cap | `options.fODF_outlier` | off | `Reports/REPORT_fODF_outlier_cap.md` |
+ 
+ All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
+ whether any of them is on or off. That invariant is tested, not asserted — keep
+-it. Patches `0001`-`0006` record each change and apply with `git am --3way`.
++it. Patches `Patches/0001`-`Patches/0009` record each change and apply with
++`git am --3way`.
+ 
+-### On branches, not merged
++The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
++`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`, its two figures, and the
++`lambda_nonneg` default change from 10 to 1 were merged in PR #7. The shared
++Monte Carlo configuration was merged in PR #9. Section 6.4 justifies the
++default change.
+ 
+-**`claude/smi-deconvolution-sims-lv1xyy` (PR #7, 12 commits)** — the current
+-work. The shview-style response viewer, the `deconv_comparison/` Monte Carlo
+-package, `REPORT_SMI_deconvolution_MonteCarlo.md`, two figures, and **one change
+-to shipped behaviour**: `lambda_nonneg` default 10 → 1 at `SMI.m:978`. Section
+-6.4 is what justifies it.
++### Still on a branch, not merged
+ 
+ **`claude/freewater-simulations` (`1be06ea`, 3 commits)** — the free-water
+ comparison package, `REPORT_fODF_freewater.md`,
+ `REPORT_fODF_compartment_split.md`, two figures. **Still no PR, still unmerged,
+ now three sessions old.** Every measured number quoted in
+-`REPORT_fODF_outlier_cap.md` sections 4-5 comes from this branch, so it should
++`Reports/REPORT_fODF_outlier_cap.md` sections 4-5 comes from this branch, so it should
+ land or those numbers lose their provenance. `deconv_comparison/binio.{m,py}`
+ and `kernel.py` are *copies* of files on that branch — de-duplicate if it lands.
+ 
+@@ -68,7 +69,7 @@ done. The default is now 1** (`SMI.m:978`).
+ The two sweeps genuinely disagree, and the reason is that they score different
+ things:
+ 
+-- `example_fODF_regularization_sweep.m` minimises **relative L2 error over the
++- `examples/example_fODF_regularization_sweep.m` minimises **relative L2 error over the
+   whole sphere**. That integral is dominated by the isotropic part and by
+   negative mass, both of which a heavier penalty fixes. It prefers 10.
+ - The Monte Carlo scores **peak orientation, fibre count and `l >= 2` ACC**.
+@@ -93,7 +94,7 @@ Both were made against dipy and both were wrong. MRtrix settled them.
+    `CS_phase = 0`, **SMI's basis is MRtrix's exactly** — the map is the
+    identity and the peak is recovered to machine precision.
+ 
+-`REPORT_SMI_deconvolution_MonteCarlo.md` carries the corrected version.
++`Reports/REPORT_SMI_deconvolution_MonteCarlo.md` carries the corrected version.
+ `deconv_comparison/check_mrtrix_basis.sh` re-measures it in about a minute
+ against the real binaries; run that rather than trusting either claim.
+ 
+@@ -101,7 +102,7 @@ against the real binaries; run that rather than trusting either claim.
+ 
+ 1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do much
+    of anything.** Re-confirmed this session: 0.3 vs 0 moves the 45 degree error
+-   from 21.28 to 21.27 deg. `REPORT_fODF_modulation.md` §3 attributes the `pl4`
++   from 21.28 to 21.27 deg. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
+    loss to it and is **still wrong** and still unfixed. The real cause is the
+    non-negativity constraint plus error in the estimated kernel, whose `K_l` at
+    high `l` is tiny and very sensitive.
+@@ -119,7 +120,7 @@ against the real binaries; run that rather than trusting either claim.
+ ## 3. Conventions that must not be got wrong
+ 
+ Pinned analytically and verified numerically (round-trip `max|err| = 1.2e-15`,
+-`test_SMI_response_helpers.m`).
++`tests/test_SMI_response_helpers.m`).
+ 
+ `out.plm` is in the **normalized** convention `p_00 = 1`, covering `l = 2..Lmax`
+ only (the `l=0` term is not stored).
+@@ -159,7 +160,7 @@ shell — is
+ r_l(b) = K_l(b) * sqrt((2l+1) * 4*pi)
+ ```
+ 
+-`SMI_response_helpers.m` implements this and `example_SMI_response_shview.m`
++`helpers/SMI_response_helpers.m` implements this and `examples/example_SMI_response_shview.m`
+ checks it against SMI's own forward model on every run, aborting above 1e-10
+ (measured 1.6e-15). Use those rather than rederiving.
+ 
+@@ -209,8 +210,8 @@ the repo at `deconv_comparison/stubs/` — `oct_path.m` puts them on the path:
+ Other traps, all hit at least once:
+ 
+ - **Octave cannot call functions defined at the end of a script**, MATLAB
+-  requires them there. That is why `SMI_response_helpers.m` and
+-  `fODF_modulation_helpers.m` are separate files returning function-handle
++  requires them there. That is why `helpers/SMI_response_helpers.m` and
++  `helpers/fODF_modulation_helpers.m` are separate files returning function-handle
+   structs rather than local functions.
+ - **`SMI.vectorize` takes a different branch if any spatial dimension is a
+   singleton.** Always build simulation volumes with all three dims > 1.
+@@ -253,25 +254,26 @@ force-pushed.
+ |---|---|
+ | `SMI.m` | the toolbox. All three opt-in features live here as static methods |
+ | `README.md` | user-facing documentation of every feature |
+-| `REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
+-| `REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
+-| `REPORT_fODF_outlier_cap.md` | the cap measurement |
+-| `example_fODF_regularization*.m` | regularization examples and the sweep |
+-| `example_fODF_modulation.m` + `fODF_modulation_helpers.m` | the 7-class simulation. The helpers are the reusable forward model |
+-| `test_fODF_outlier_cap.m`, `test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
+-| `0001`-`0006*.patch` | one patch per change, `git am --3way`-able |
++| `examples/example.m`, `examples/example_SMI_SSM.m` | the original data-fit and sensitivity-specificity examples |
++| `Reports/REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
++| `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
++| `Reports/REPORT_fODF_outlier_cap.md` | the cap measurement |
++| `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
++| `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | the 7-class simulation. The helpers are the reusable forward model |
++| `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
++| `Patches/0001`-`Patches/0009*.patch` | one patch per measured change, `git am --3way`-able |
+ 
+-New on `claude/smi-deconvolution-sims-lv1xyy`:
++The response/deconvolution work now on master:
+ 
+ | file | what |
+ |---|---|
+-| `SMI_response_helpers.m` | kernel → zonal harmonics → glyph. Function-handle struct: `Kell zh profile grid glyph zh_glyph sh_glyph write_response read_response kernel_from_out` |
+-| `example_SMI_response_shview.m` | draws the kernel four ways per shell, decomposes it by compartment, writes `response_SMI_wm.txt` for `shview`. Self-checks against SMI's forward model |
+-| `test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
++| `helpers/SMI_response_helpers.m` | kernel → zonal harmonics → glyph. Function-handle struct: `Kell zh profile grid glyph zh_glyph sh_glyph write_response read_response kernel_from_out` |
++| `examples/example_SMI_response_shview.m` | draws the kernel four ways per shell, decomposes it by compartment, writes `response_SMI_wm.txt` for `shview`. Self-checks against SMI's forward model |
++| `tests/test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
+ | `deconv_comparison/` | the Monte Carlo package. Has its own `README.md` — read that one for the run order |
+-| `REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
+-| `deconv_tables.md` | every result table, generated by `deconv_comparison/tables.py` |
+-| `fodf_response_shview.png`, `fodf_deconv_montecarlo.png` | the two figures |
++| `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
++| `Reports/deconv_tables.md` | every result table, generated by `deconv_comparison/tables.py` |
++| `Figures/fodf_response_shview.png`, `Figures/fodf_deconv_montecarlo.png` | the two figures |
+ 
+ The division of labour in `deconv_comparison/` is deliberate and is what the
+ user asked for: **Octave/SMI generates the signals and fits the SMI arm; MRtrix3
+@@ -454,7 +456,7 @@ it has never touched real data.
+    item 3). This decides whether the modulation approach can use tissue
+    fractions at all.
+ 7. **Land `claude/freewater-simulations`**, or the measured numbers quoted in
+-   `REPORT_fODF_outlier_cap.md` have no reproducible source.
++   `Reports/REPORT_fODF_outlier_cap.md` have no reproducible source.
+ 8. Spatial context beyond the cap — a neighbour-agreement *weight* rather than
+    just an outlier test — is the remaining unexplored axis.
+ 
+@@ -462,21 +464,21 @@ it has never touched real data.
+ 
+ ## 9. Documentation and clutter debt
+ 
+-- **`REPORT_fODF_modulation.md` §3 states a wrong cause** for the `pl4` loss.
++- **`Reports/REPORT_fODF_modulation.md` §3 states a wrong cause** for the `pl4` loss.
+   Two handoffs have now flagged it and nobody has fixed it. Fix it in place.
+-- **`REPORT_fODF_regularization_sweep.md` now disagrees with the shipped
++- **`Reports/REPORT_fODF_regularization_sweep.md` now disagrees with the shipped
+   default.** It argues for 10; the default is 1. `SMI.m:935` and `README.md`
+   both explain the disagreement, but the report itself does not, and a reader
+   who finds it first will be misled. Add a header pointing at section 6 of
+-  `REPORT_SMI_deconvolution_MonteCarlo.md`.
++  `Reports/REPORT_SMI_deconvolution_MonteCarlo.md`.
+ - **Six reports, no index.** A reader has no map of which report supersedes
+   which, or which numbers are simulation-only. Everything in every report is
+   simulation-only; that is worth saying once, loudly, in `README.md`.
+ - **The patch files roughly double the apparent size of every change** because
+   they duplicate their own diff. That is the repo convention, so it stays.
+ - **CI runs `claude-review` only.** There is no MATLAB or Octave runner, so
+-  `test_fODF_outlier_cap.m`, `test_SMI_outlier_cap.m` and
+-  `test_SMI_response_helpers.m` are never executed by CI — they pass locally
++  `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` and
++  `tests/test_SMI_response_helpers.m` are never executed by CI — they pass locally
+   under Octave and that is invisible on a PR. An Octave job would be
+   straightforward and the repo has never had one. With three test files now,
+   this is worth more than it was.
+diff --git a/README.md b/README.md
+index 031573b..5924552 100644
+--- a/README.md
++++ b/README.md
+@@ -1,8 +1,23 @@
+ # Standard Model Imaging (SMI) toolbox
+-[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See the '[example.m](https://github.com/NYU-DiffusionMRI/SMI/blob/master/example.m)' script that performs the parameter estimation in an [example dataset](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/).
++[This MATLAB toolbox](https://github.com/NYU-DiffusionMRI/SMI/blob/master/SMI.m) contains all necessary functions for parameter estimation of the Standard Model (SM) of diffusion in white matter[^note]. Check [our recent paper](https://arxiv.org/pdf/2202.02399.pdf) for details on this implementation and on the Standard Model in general. Below we provide instructions on how to run the toolbox. See [`examples/example.m`](examples/example.m) for parameter estimation on the [example datasets](https://cai2r.net/resources/standard-model-of-diffusion-in-white-matter-the-smi-toolbox/).
+ 
+ For a python implementation of SMI check our [TMI package here](https://nyu-diffusionmri.github.io/DESIGNER-v2/docs/TMI).
+ 
++## Repository layout
++
++| path | contents |
++|---|---|
++| `SMI.m` | the toolbox implementation |
++| `examples/` | data-driven and synthetic MATLAB examples |
++| `helpers/` | shared MATLAB helpers used by examples, tests, and simulations |
++| `tests/` | self-contained MATLAB/Octave test scripts and run instructions |
++| `Reports/` | measurement reports and generated result tables |
++| `Figures/` | generated figures used by the reports |
++| `deconv_comparison/` | the reproducible SMI/CSD/MRtrix Monte Carlo package |
++| `Patches/` | historical `git am --3way` patches for the measured changes |
++
++The examples and tests add the repository root and `helpers/` directory to the MATLAB/Octave path from their own locations, so they can be launched from any working directory.
++
+ <br>
+ 
+ ## Overview: The Standard Model of diffusion in white matter
+@@ -85,7 +100,7 @@ We provide three example datasets [here](https://cai2r.net/resources/standard-mo
+ - Multiple b-values and tensor shapes
+ - Multiple b-values, tensor shapes, and echo times.
+ 
+-See the example file 'example.m' with the SMI fit. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
++See the example file 'examples/example.m' with the SMI fit. Note that data is provided in nifti format, we used [this nifti toolbox](https://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) but feel free to use any and modify the lines where the data is loaded.
+ 
+ ```
+ % =====================================================================
+@@ -184,13 +199,13 @@ options.fODF_regularization.TikhonovMatrix  = 'laplacebeltrami';  % or 'identity
+ ```
+ `out.fODF_regularization` returns the options that were used together with the number of iterations, the number of constrained directions, and a convergence flag for each voxel.
+ 
+-The script `example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.10 (non-negativity), and 0.10 (both), while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
++The script `examples/example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.10 (non-negativity), and 0.10 (both), while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
+ 
+ The script also plots the resulting fODFs. In 2D it shows the amplitude along the plane containing both fibers, both as a signed profile (where the spurious negative lobes are easiest to see) and as a polar shape. In 3D it draws one glyph per deconvolution, with the radius equal to the fODF amplitude, the surface coloured by orientation, and the negative part of the fODF overlaid as a translucent red surface at radius `|fODF|` instead of being clipped away, so that what the non-negativity constraint removes is visible. All glyphs share a common radial scale, so they can be compared directly.
+ 
+ 
+ #### Choosing the regularization parameters
+-The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `example_fODF_regularization_sweep.m` (which also needs no data, and uses `fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg` against `lambda_tikhonov` jointly, then `tau`, then `Lmax_init`, then the two Tikhonov matrices. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
++The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `examples/example_fODF_regularization_sweep.m` (which also needs no data, and uses `helpers/fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg` against `lambda_tikhonov` jointly, then `tau`, then `Lmax_init`, then the two Tikhonov matrices. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
+ 
+ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directions each, Lmax = 6):
+ 
+@@ -204,7 +219,7 @@ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directio
+ On this score the non-negativity weight wants to be considerably larger than 1: the error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum of *this* metric. `tau` = 0.1 and `Lmax_init` = 4, the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
+ 
+ ##### The default is 1, and the two sweeps disagree about that
+-**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the Monte Carlo in `deconv_comparison/` (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of `REPORT_SMI_deconvolution_MonteCarlo.md`) finds that
++**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the Monte Carlo in `deconv_comparison/` (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of `Reports/REPORT_SMI_deconvolution_MonteCarlo.md`) finds that
+ 
+ - at `lambda_nonneg = 10` a 45 degree crossing is resolved in **0.0%** of realisations at every SNR, including noise free; at 3, in 0.2%; at 1, in 55%;
+ - `lambda_nonneg = 1` has the **best angular correlation against the ground truth at every crossing angle** — 0.980 / 0.986 / 0.966 / 0.972 for a single fibre, 15, 45 and 60 degrees, against 0.930 / 0.947 / 0.887 / 0.903 at 10;
+@@ -234,7 +249,7 @@ The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground tru
+ `tau` behaves the same way: the ratio rises with it (0.964 at 0.02, 0.998 at 0.1, 1.213 at 0.4), and the accuracy optimum at 0.1 is also where the peak height is most faithful.
+ 
+ ##### Figures
+-`example_fODF_regularization_sweep.m` produces four figures, saved by default to `figures_fODF_sweep/` as both PNG and EPS at 300 dpi (set `saveFigures = false` to only display them):
++`examples/example_fODF_regularization_sweep.m` produces four figures, saved by default to `figures_fODF_sweep/` as both PNG and EPS at 300 dpi (set `saveFigures = false` to only display them):
+ 
+ 1. **The regularization landscape** — the `lambda_nonneg` x `lambda_tikhonov` grid as four heat maps: relative fODF error, negative mass, peak angular error, and peak amplitude ratio, with the optimum marked.
+ 2. **Peak amplitude shrinkage** — the ratio against each weight separately, plus the accuracy against shrinkage trade-off as a scatter over the whole grid.
+@@ -292,7 +307,7 @@ The default `'p2product'` is their product: a voxel is kept only if **both** est
+ **`p4` is not recommended in either flavour.** The kernel `p4` carries the same upward bias, and is bounded above by the training prior, which draws `p4 = rand*p2*0.9`. The deconvolved `pl4` comes back at roughly a third of its true value (median 0.26 in single-fiber white matter against a true 0.71) — weighting by it measures the regularizer, not the tissue. (An earlier version of this text blamed the Tikhonov term. That was measured to be wrong: `lambda_tikhonov` has no effect on the high `l` bands. The cause is the non-negativity constraint plus error in the estimated kernel.)
+ 
+ #### Measured results
+-`example_fODF_modulation.m` (no data needed, helpers in `fODF_modulation_helpers.m`) simulates seven voxel classes with 200 noise realizations each, 6 shells (b = 0, 1, 2, 3, 4.5, 6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), fitted through the real `SMI.fit` at SNR 30 and 15, with and without the regularized deconvolution. The forward model is the same construction the deconvolution inverts, so it round-trips to `max|error| = 1.2e-15`.
++`examples/example_fODF_modulation.m` (no data needed, helpers in `helpers/fODF_modulation_helpers.m`) simulates seven voxel classes with 200 noise realizations each, 6 shells (b = 0, 1, 2, 3, 4.5, 6 ms/um^2, `Lmax = [0 2 2 2 4 4]`), fitted through the real `SMI.fit` at SNR 30 and 15, with and without the regularized deconvolution. The forward model is the same construction the deconvolution inverts, so it round-trips to `max|error| = 1.2e-15`.
+ 
+ The third class, **white matter inside edema**, is the control that must survive: `f` = 0.30 and `fw` = 0.50, but the fibers are still coherent. A weight that suppresses it along with grey matter and CSF is a tissue-type criterion in disguise.
+ 
+@@ -336,7 +351,7 @@ The weight is clipped at 1, so it cannot rescue a blown-up voxel — `w*1e13` is
+ - `out.fODF_modulated` is in SMI's own SH basis (`SMI.get_even_SH` with `out.CS_phase`). **This has not been checked against MRtrix's basis** — verify the coefficient ordering and the Condon-Shortley convention before running `tckgen`.
+ - These are simulations. `p2` in real edema should be checked against a known ROI before this is relied on: the simulated edema class assumes fibers stay coherent, which is the assumption the whole approach rests on.
+ 
+-Full methodology, all result tables and limitations are in `REPORT_fODF_modulation.md`.
++Full methodology, all result tables and limitations are in `Reports/REPORT_fODF_modulation.md`.
+ 
+ 
+ ### fODF outlier capping
+@@ -390,7 +405,7 @@ With the shipped regularization the simulation has no outlier population at all:
+ #### Order of operations
+ If both the cap and the modulation are enabled, **the cap runs first** and the modulation is applied to the corrected fODF. That ordering is forced: the cap works on absolute amplitudes and modulation rescales them, the same reason peak truncation has to precede modulation.
+ 
+-Full methodology, all result tables and verification are in `REPORT_fODF_outlier_cap.md`.
++Full methodology, all result tables and verification are in `Reports/REPORT_fODF_outlier_cap.md`.
+ 
+ 
+ ### Viewing the response kernel as zonal harmonics
+@@ -402,10 +417,11 @@ R(theta) = sum_l K_l(b) (2l+1) P_l(cos theta) = sum_l r_l Y_l0(theta),   r_l = K
+ 
+ and `r_l` is exactly what MRtrix keeps in a response function file: one row per shell, one column per even `l`.
+ 
+-`example_SMI_response_shview.m` (with `SMI_response_helpers.m`) draws an SMI kernel the way MRtrix3's `shview` draws a response: `K_l(b)`, the zonal coefficients per shell, the angular profile `R(theta)`, and a 3D glyph per shell. It also takes the compartments apart -- free water is isotropic, so it only ever moves `r_0`, which is why an SMI fODF's amplitude is blind to free water while an AFD-style fODF is not -- and puts a response glyph next to an fODF glyph from the same renderer. No data is needed; a kernel from a real fit goes in with
++`examples/example_SMI_response_shview.m` (with `helpers/SMI_response_helpers.m`) draws an SMI kernel the way MRtrix3's `shview` draws a response: `K_l(b)`, the zonal coefficients per shell, the angular profile `R(theta)`, and a 3D glyph per shell. It also takes the compartments apart -- free water is isotropic, so it only ever moves `r_0`, which is why an SMI fODF's amplitude is blind to free water while an AFD-style fODF is not -- and puts a response glyph next to an fODF glyph from the same renderer. No data is needed; a kernel from a real fit goes in with
+ 
+ ```
+ out    = SMI.fit(dwi, options);
++addpath('helpers');
+ H      = SMI_response_helpers();
+ kernel = H.kernel_from_out(out, [x y z]);
+ ```
+@@ -413,7 +429,7 @@ kernel = H.kernel_from_out(out, [x y z]);
+ The script writes `response_SMI_wm.txt` in MRtrix's response format, so `shview response_SMI_wm.txt` opens the same object in MRtrix, and `H.read_response` reads an MRtrix response back for overlay against a kernel. Before drawing anything it checks itself: the zonal reconstruction is compared against SMI's own forward model for a delta fODF, and the run aborts if they disagree by more than 1e-10 (measured: `1.7e-15`).
+ 
+ ### How the deconvolution compares to CSD and MSMT-CSD
+-`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF goes through the same `sh2peaks`, so peak extraction is identical for every arm. Full methodology and result tables are in `REPORT_SMI_deconvolution_MonteCarlo.md` and `deconv_tables.md`. **It is all simulation**, including the "real data" the responses are estimated from.
++`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF goes through the same `sh2peaks`, so peak extraction is identical for every arm. Full methodology and result tables are in `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` and `Reports/deconv_tables.md`. **It is all simulation**, including the "real data" the responses are estimated from.
+ 
+ The short version: no method dominates. Single-shell CSD is the sharpest and the most fragile — at SNR 50 it resolves 45 degree crossings 96.9% of the time, and by SNR 5 it returns the right number of fibres in 15.6% of *single fibre* voxels with 1.6 spurious peaks in each. MSMT-CSD is the most stable and the most biased: essentially no spurious peaks at any SNR, and a 45 degree crossing it does not resolve in any of 10,000 realisations — which survives both an exact response and Lmax 8. Constrained SMI sits between them: 81.1% of 45 degree crossings at SNR 50, the best 60 degree accuracy of the three from SNR 50 down to SNR 10, and at SNR 10 the correct fibre count in 99.8% of 60 degree crossings where single-shell CSD manages 49.6%.
+ 
+diff --git a/Reports/REPORT_SMI_deconvolution_MonteCarlo.md b/Reports/REPORT_SMI_deconvolution_MonteCarlo.md
+index de6696d..c7cd67c 100644
+--- a/Reports/REPORT_SMI_deconvolution_MonteCarlo.md
++++ b/Reports/REPORT_SMI_deconvolution_MonteCarlo.md
+@@ -12,8 +12,8 @@ every arm and is not something this package implements.
+ patient scan, or any real scan. Section 2 says exactly which part of the
+ intended design that compromises and how much it costs.
+ 
+-Code: `deconv_comparison/`. Figures: `fodf_deconv_montecarlo.png`,
+-`fodf_response_shview.png`. Full result tables: `deconv_tables.md`.
++Code: `deconv_comparison/`. Figures: `Figures/fodf_deconv_montecarlo.png`,
++`Figures/fodf_response_shview.png`. Full result tables: `Reports/deconv_tables.md`.
+ 
+ ## Findings, shortest form
+ 
+@@ -159,7 +159,7 @@ density.
+ 
+ Comparing four fODFs computed by three different codebases only means something
+ if the conventions line up. `deconv_comparison/check_conventions.py` checks
+-them, and `test_SMI_response_helpers.m` checks the MATLAB side (8 tests, all
++them, and `tests/test_SMI_response_helpers.m` checks the MATLAB side (8 tests, all
+ passing).
+ 
+ | check | result |
+@@ -167,7 +167,7 @@ passing).
+ | SMI's SH basis vs dipy's `descoteaux07`: is there an exact linear map? | yes, residual `3.9e-15`. It is a **signed permutation**, not the identity |
+ | a delta along a known axis, mapped and run through the peak finder | recovered at that axis, `0.0000` deg |
+ | the convolution rule `s_lm = c_lm r_l sqrt(4 pi/(2l+1))` vs SMI's forward model | `5.6e-16` |
+-| the MRtrix response file written by `example_SMI_response_shview.m` vs `kernel.py` | `3.8e-9`, i.e. the `%.8g` write precision |
++| the MRtrix response file written by `examples/example_SMI_response_shview.m` vs `kernel.py` | `3.8e-9`, i.e. the `%.8g` write precision |
+ | the zonal response `r_l = K_l sqrt((2l+1) 4 pi)` vs SMI's forward model, in MATLAB | `1.2e-15` |
+ 
+ ### 4.1 SMI's basis is MRtrix's at `CS_phase = 0`, and rotated at `CS_phase = 1`
+@@ -217,8 +217,8 @@ on the way out.
+ 
+ ## 5. Results
+ 
+-Figure: `fodf_deconv_montecarlo.png`. Every table below is a slice of
+-`deconv_tables.md`, generated by `deconv_comparison/tables.py` from the peaks
++Figure: `Figures/fodf_deconv_montecarlo.png`. Every table below is a slice of
++`Reports/deconv_tables.md`, generated by `deconv_comparison/tables.py` from the peaks
+ MRtrix's `sh2peaks` returned — no number in this report is transcribed by hand.
+ 
+ ### 5.1 In one paragraph
+@@ -277,7 +277,7 @@ within 0.5 degrees of its own noise-free value at every SNR down to 20 — the
+ failure is structural, and section 7 shows it survives both an exact response
+ and Lmax 8.
+ 
+-The 15 degree crossing (`deconv_tables.md`) is unresolvable at Lmax 6 by
++The 15 degree crossing (`Reports/deconv_tables.md`) is unresolvable at Lmax 6 by
+ construction: the band limited ground truth itself presents a single peak 7.50
+ degrees from each fibre, and all three methods reproduce that within 0.3
+ degrees at SNR 50. What that column measures is how gracefully each degrades.
+@@ -351,12 +351,12 @@ _crossing 60°_ (mean over 10,000 realisations)
+ The crossover is at about SNR 20-30. Above it SSST-CSD reconstructs the fODF
+ best; below it constrained SMI does, and by SNR 5 MSMT-CSD's flat curve has
+ overtaken both. The same ordering and the same crossover appear at 45 degrees,
+-at 15 degrees and on the single fibre (`deconv_tables.md`).
++at 15 degrees and on the single fibre (`Reports/deconv_tables.md`).
+ 
+ ### 5.6 Peak amplitude
+ 
+ Normalised to each method's own noise-free median, so methods whose fODFs are
+-not on the same scale can still be compared. Full table in `deconv_tables.md`.
++not on the same scale can still be compared. Full table in `Reports/deconv_tables.md`.
+ The pattern is the one that matters for any amplitude-thresholded tractography:
+ **noise inflates the peak of the sharper methods and leaves MSMT-CSD's almost
+ alone.** At SNR 5 on a 45 degree crossing SSST-CSD's peak is well above its own
+@@ -533,10 +533,10 @@ octave --eval "oct_path; gen_montecarlo(1e4,500,'nf')"
+ 
+ ./check_mrtrix_basis.sh                                    # SH basis vs MRtrix
+ python3 tables.py nf snr50:50 snr30:30 snr20:20 snr10:10 snr5:5 \
+-    | tee ../deconv_tables.md
+-python3 figure_mc.py ../fodf_deconv_montecarlo.png \
++    | tee ../Reports/deconv_tables.md
++python3 figure_mc.py ../Figures/fodf_deconv_montecarlo.png \
+     snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
+-python3 figure_response.py p30 ../fodf_response_shview.png
++python3 figure_response.py p30 ../Figures/fodf_response_shview.png
+ 
+ octave --eval "oct_path; sweep_nonneg(30,2000,'sw30')"     # section 6
+ ./run_mrtrix.sh sweep sw30 6
+diff --git a/Reports/REPORT_fODF_modulation.md b/Reports/REPORT_fODF_modulation.md
+index 4a83c1c..4629452 100644
+--- a/Reports/REPORT_fODF_modulation.md
++++ b/Reports/REPORT_fODF_modulation.md
+@@ -2,7 +2,7 @@
+ 
+ Measurement report for `SMI.fODF_ModulationWeight` and `SMI.modulate_fODF`.
+ Everything below is measured, not assumed; the simulation is
+-`example_fODF_modulation.m`.
++`examples/example_fODF_modulation.m`.
+ 
+ ---
+ 
+@@ -282,9 +282,9 @@ basis before feeding it to `tckgen`** — this has not been checked here.
+ | file | contents |
+ |---|---|
+ | `SMI.m` | the five new static methods and the `SMI.fit` integration, see the map below |
+-| `example_fODF_modulation.m` | the simulation and scoring above |
+-| `fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
+-| `REPORT_fODF_modulation.md` | this file |
++| `examples/example_fODF_modulation.m` | the simulation and scoring above |
++| `helpers/fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
++| `Reports/REPORT_fODF_modulation.md` | this file |
+ | `0004fODFmodulation.patch` | the exact diff of the two commits, applies with `git am` |
+ 
+ ### Exactly what changed in `SMI.m`
+diff --git a/Reports/REPORT_fODF_outlier_cap.md b/Reports/REPORT_fODF_outlier_cap.md
+index c3dff21..e2aa436 100644
+--- a/Reports/REPORT_fODF_outlier_cap.md
++++ b/Reports/REPORT_fODF_outlier_cap.md
+@@ -2,7 +2,7 @@
+ 
+ Measurement report for `SMI.fODF_OutlierDefaults`, `SMI.cap_fODF_outliers` and
+ `SMI.neighbour_median`. Everything below is measured; the test harnesses are
+-`test_fODF_outlier_cap.m` (the method in isolation) and `test_SMI_outlier_cap.m`
++`tests/test_fODF_outlier_cap.m` (the method in isolation) and `tests/test_SMI_outlier_cap.m`
+ (the flag on `SMI.fit`), both of which are in this PR and need no data.
+ 
+ The numbers used to choose the ceiling in section 4, and the peak distributions
+@@ -34,7 +34,7 @@ Defaults: `orders = 1` (one order of magnitude), `ceiling = 1`,
+ 
+ ## 2. Why this is not a tissue type criterion
+ 
+-Every per voxel weight in `REPORT_fODF_modulation.md` was rejected, or nearly
++Every per voxel weight in `Reports/REPORT_fODF_modulation.md` was rejected, or nearly
+ rejected, because it keyed on something edema shares with CSF. The
+ neighbourhood test cannot: it is **relative**, and edema is spatially
+ **contiguous**. An edematous voxel's neighbours are edematous too, so the local
+@@ -134,7 +134,7 @@ are.
+ 
+ ## 6. Verification
+ 
+-`test_fODF_outlier_cap.m` — the method on a 12x12x5 phantom of realistic
++`tests/test_fODF_outlier_cap.m` — the method on a 12x12x5 phantom of realistic
+ SMI-amplitude fODFs, with planted spikes at 50x, 1e4x and 1e12x, a spike inside
+ a near-isotropic (CSF analogue) region, and a contiguous bright block:
+ 
+@@ -155,7 +155,7 @@ tolerance: `acosd` cannot resolve below about 1e-5 degrees near a dot product of
+ The residual 1.2e-06 degrees reported below is `acosd(1-eps)` on the *same*
+ vertex, not a real rotation.
+ 
+-`test_SMI_outlier_cap.m` — the flag on a real `SMI.fit`, 8x8x4 at SNR 30:
++`tests/test_SMI_outlier_cap.m` — the flag on a real `SMI.fit`, 8x8x4 at SNR 30:
+ 
+ | check | result |
+ |---|---|
+diff --git a/Reports/REPORT_fODF_regularization_sweep.md b/Reports/REPORT_fODF_regularization_sweep.md
+index a3d46c6..0be587f 100644
+--- a/Reports/REPORT_fODF_regularization_sweep.md
++++ b/Reports/REPORT_fODF_regularization_sweep.md
+@@ -3,8 +3,8 @@
+ Measurement of the regularization parameters of the SMI fODF deconvolution against a
+ synthetic ground truth, and the resulting change of defaults.
+ 
+-Everything below is produced by `example_fODF_regularization_sweep.m` (scoring in
+-`fODF_regularization_score.m`). It needs no data and reruns in a few minutes.
++Everything below is produced by `examples/example_fODF_regularization_sweep.m` (scoring in
++`helpers/fODF_regularization_score.m`). It needs no data and reruns in a few minutes.
+ 
+ ---
+ 
+@@ -285,7 +285,7 @@ choose a weight. That user previously got a setting measurably ~2x worse than ac
+ 
+ ### 5.4 Effect on the shipped example
+ 
+-`example_fODF_regularization.m` enables non-negativity without naming a weight, so it picks
++`examples/example_fODF_regularization.m` enables non-negativity without naming a weight, so it picks
+ up the new default. Its published numbers move accordingly (SNR 30, single condition):
+ 
+ | | rel err fODF, before | after |
+diff --git a/deconv_tables.md b/Reports/deconv_tables.md
+similarity index 100%
+rename from deconv_tables.md
+rename to Reports/deconv_tables.md
+diff --git a/Reports/placeholder b/Reports/placeholder
+deleted file mode 100644
+index 19765bd..0000000
+--- a/Reports/placeholder
++++ /dev/null
+@@ -1 +0,0 @@
+-null
+diff --git a/SMI.m b/SMI.m
+index 8b19125..7d356ad 100644
+--- a/SMI.m
++++ b/SMI.m
+@@ -139,7 +139,7 @@ classdef SMI
+     % options.fODF_regularization.lambda_nonneg weight of the non-negativity
+     %                     penalty (default 10, dimensionless). This default
+     %                     is the optimum measured by
+-    %                     example_fODF_regularization_sweep.m
++    %                     examples/example_fODF_regularization_sweep.m
+     % options.fODF_regularization.tau directions where the fODF is below
+     %                     tau*mean(fODF) are penalized (default 0.1)
+     % options.fODF_regularization.Ndirs number of directions where the
+@@ -152,7 +152,7 @@ classdef SMI
+     % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
+     %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
+     %
+-    % fODF post hoc outlier cap (OFF by default, see REPORT_fODF_outlier_cap.md)
++    % fODF post hoc outlier cap (OFF by default, see Reports/REPORT_fODF_outlier_cap.md)
+     %
+     % Removes isolated glyphs whose amplitude is pathologically large, without
+     % touching orientation and without keying on tissue type. A voxel is
+@@ -186,7 +186,7 @@ classdef SMI
+     % If both this and the modulation are enabled the cap runs FIRST and the
+     % modulation is applied to the corrected fODF.
+     %
+-    % fODF anisotropy modulation (OFF by default, see REPORT_fODF_modulation.md)
++    % fODF anisotropy modulation (OFF by default, see Reports/REPORT_fODF_modulation.md)
+     %
+     % The fODF is stored with p_00 = 1, so it integrates to 1 in every voxel
+     % and its isotropic floor is a fixed 1/(4*pi) = 0.0796, above MRtrix's
+@@ -935,11 +935,11 @@ classdef SMI
+             % reg.lambda_nonneg     weight of the non-negativity block (default 1).
+             %                       Two independent measurements disagree about
+             %                       this weight and the smaller one wins:
+-            %                       example_fODF_regularization_sweep.m minimizes
++            %                       examples/example_fODF_regularization_sweep.m minimizes
+             %                       the relative L2 error of the fODF and prefers
+             %                       10, but the Monte Carlo in
+             %                       deconv_comparison/ (sections 5 and 6 of
+-            %                       REPORT_SMI_deconvolution_MonteCarlo.md) finds
++            %                       Reports/REPORT_SMI_deconvolution_MonteCarlo.md) finds
+             %                       10 is not on the Pareto front at all: 1 has
+             %                       the best angular correlation against the
+             %                       ground truth at every crossing angle and
+@@ -1261,8 +1261,8 @@ classdef SMI
+             % WHY THE PRODUCT, AND WHY NOT p4
+             %
+             % Measured on a 7 class simulation, regularized deconvolution at
+-            % SNR 15 (see example_fODF_modulation.m and
+-            % REPORT_fODF_modulation.md). Fraction of voxels left above
++            % SNR 15 (see examples/example_fODF_modulation.m and
++            % Reports/REPORT_fODF_modulation.md). Fraction of voxels left above
+             % MRtrix's default iFOD2 cutoff of 0.05:
+             %
+             %                    unweighted  kernel_p2  kernel_p2^2  pl2  product
+@@ -1539,7 +1539,7 @@ classdef SMI
+             %
+             % Using T/peak instead would shrink the floor as well and undershoot
+             % the target. This is the same trap noted for the fODF rescaling in
+-            % REPORT_fODF_modulation.md.
++            % Reports/REPORT_fODF_modulation.md.
+             %
+             % ROBUST STATISTICS ON PURPOSE. The median has a 50% breakdown
+             % point; a mean and standard deviation have none. A cluster of
+@@ -1548,7 +1548,7 @@ classdef SMI
+             %
+             % ON THE CEILING. Measured at Lmax 6 on the free-water simulation
+             % branch (claude/freewater-simulations), see
+-            % REPORT_fODF_outlier_cap.md section 4:
++            % Reports/REPORT_fODF_outlier_cap.md section 4:
+             %
+             %   hard physical max of a band limited fODF,
+             %     sum_{l even <= 6} (2l+1)/(4*pi)                     = 2.228
+diff --git a/deconv_comparison/README.md b/deconv_comparison/README.md
+index da318b6..f173488 100644
+--- a/deconv_comparison/README.md
++++ b/deconv_comparison/README.md
+@@ -1,6 +1,6 @@
+ # Monte Carlo comparison: constrained SMI vs MSMT-CSD vs SSST-CSD
+ 
+-The simulation behind `../REPORT_SMI_deconvolution_MonteCarlo.md`, in the design
++The simulation behind `../Reports/REPORT_SMI_deconvolution_MonteCarlo.md`, in the design
+ of Jeurissen et al. (2014): synthesise noise-free signal vectors for crossing
+ white matter fibres by forward convolution, add complex Gaussian noise so the
+ magnitude is Rician, and deconvolve 10,000 independent realisations of each
+@@ -48,9 +48,9 @@ octave --eval "oct_path; gen_phantom(30,'p30')"             # response phantom
+ octave --eval "oct_path; gen_montecarlo(30,10000,'snr30')"  # signal + SMI
+ ./run_mrtrix.sh fit snr30                                   # dwi2fod + sh2peaks
+ 
+-python3 tables.py nf snr50:50 snr30:30 ...  | tee ../deconv_tables.md
+-python3 figure_mc.py ../fodf_deconv_montecarlo.png snr50:50 snr30:30 ...
+-python3 figure_response.py p30 ../fodf_response_shview.png
++python3 tables.py nf snr50:50 snr30:30 ...  | tee ../Reports/deconv_tables.md
++python3 figure_mc.py ../Figures/fodf_deconv_montecarlo.png snr50:50 snr30:30 ...
++python3 figure_response.py p30 ../Figures/fodf_response_shview.png
+ 
+ octave --eval "oct_path; sweep_nonneg(30,2000,'sw30')"      # report section 6
+ ./run_mrtrix.sh sweep sw30 6 && python3 score_sweep.py sw30 30
+diff --git a/deconv_comparison/figure_mc.py b/deconv_comparison/figure_mc.py
+index 3cd607d..67b327c 100644
+--- a/deconv_comparison/figure_mc.py
++++ b/deconv_comparison/figure_mc.py
+@@ -65,7 +65,7 @@ def collect(tags):
+     return out, angles, ceiling
+ 
+ 
+-def main(out='fodf_deconv_montecarlo.png', *tagspec):
++def main(out='../Figures/fodf_deconv_montecarlo.png', *tagspec):
+     tags = []
+     for t in tagspec:
+         tag, snr = t.split(':')
+diff --git a/deconv_comparison/figure_response.py b/deconv_comparison/figure_response.py
+index 5b68d12..488dac5 100644
+--- a/deconv_comparison/figure_response.py
++++ b/deconv_comparison/figure_response.py
+@@ -1,7 +1,8 @@
+ """Figure: the SMI kernel as a response function, next to the estimated ones.
+ 
+-The glyphs and profiles here are the same quantities example_SMI_response_shview.m
+-draws in MATLAB. test_SMI_response_helpers.m checks that MATLAB side against
++The glyphs and profiles here are the same quantities
++examples/example_SMI_response_shview.m draws in MATLAB.
++tests/test_SMI_response_helpers.m checks that MATLAB side against
+ SMI's own forward model to 1e-15, and the response functions overlaid in panel F
+ are the ones `dwi2response` actually wrote.
+ """
+@@ -47,7 +48,7 @@ def style(ax):
+     ax.tick_params(colors=MUTED, labelsize=8)
+ 
+ 
+-def main(tag='p30', out='fodf_response_shview.png'):
++def main(tag='p30', out='../Figures/fodf_response_shview.png'):
+     th = np.linspace(0, np.pi, 361)
+     R = np.stack([response_sh(b, KERN, LMAX) for b in SHELLS])
+ 
+diff --git a/deconv_comparison/gen_montecarlo.m b/deconv_comparison/gen_montecarlo.m
+index 608aa8d..1a51102 100644
+--- a/deconv_comparison/gen_montecarlo.m
++++ b/deconv_comparison/gen_montecarlo.m
+@@ -1,7 +1,7 @@
+ function gen_montecarlo(SNR, NREP, tag)
+ % gen_montecarlo(SNR, NREP, tag)
+ %
+-% The Monte Carlo experiment of REPORT_SMI_deconvolution_MonteCarlo.md, in the
++% The Monte Carlo experiment of Reports/REPORT_SMI_deconvolution_MonteCarlo.md, in the
+ % design of Jeurissen et al. (2014): synthesise noise-free signal vectors for
+ % crossing white matter fibres by forward convolution, add complex Gaussian
+ % noise so the magnitude is Rician, and deconvolve NREP independent
+diff --git a/deconv_comparison/gen_phantom.m b/deconv_comparison/gen_phantom.m
+index 7953670..8f1c2fe 100644
+--- a/deconv_comparison/gen_phantom.m
++++ b/deconv_comparison/gen_phantom.m
+@@ -5,7 +5,7 @@ function gen_phantom(SNR, tag)
+ % `dwi2response` something to estimate a response FROM.
+ %
+ % READ THIS BEFORE QUOTING ANY NUMBER THAT DEPENDS ON IT. The intended design
+-% (see REPORT_SMI_deconvolution_MonteCarlo.md section 2) estimates the
++% (see Reports/REPORT_SMI_deconvolution_MonteCarlo.md section 2) estimates the
+ % responses from real data with `dwi2response dhollander`. No real data exists
+ % in this repository, so the responses are estimated from this phantom instead.
+ % That makes the response functions REALISTIC -- blunted by fibre dispersion,
+diff --git a/deconv_comparison/oct_path.m b/deconv_comparison/oct_path.m
+index 82eba1e..fcca875 100644
+--- a/deconv_comparison/oct_path.m
++++ b/deconv_comparison/oct_path.m
+@@ -2,7 +2,9 @@
+ % MATLAB does not need the shims; they are no-ops there because MATLAB already
+ % provides round(x,n), discretize and datetime.
+ here = fileparts(mfilename('fullpath'));
+-addpath(fileparts(here));
++repo_root = fileparts(here);
++addpath(repo_root);
++addpath(fullfile(repo_root,'helpers'));
+ addpath(here);
+ if exist('OCTAVE_VERSION','builtin')
+     addpath(fullfile(here,'stubs'));
+diff --git a/deconv_comparison/run_all.sh b/deconv_comparison/run_all.sh
+index c668fb7..acd00ba 100755
+--- a/deconv_comparison/run_all.sh
++++ b/deconv_comparison/run_all.sh
+@@ -1,5 +1,5 @@
+ #!/bin/bash
+-# Everything in REPORT_SMI_deconvolution_MonteCarlo.md, from an empty data/.
++# Everything in Reports/REPORT_SMI_deconvolution_MonteCarlo.md, from an empty data/.
+ #
+ # MATLAB/Octave does SMI and writes the images; MRtrix3 does CSD, MSMT-CSD and
+ # every peak extraction; Python does the bookkeeping and the figures.
+@@ -39,10 +39,10 @@ done
+ 
+ echo "== tables and figures"
+ python3 tables.py nf snr50:50 snr30:30 snr20:20 snr10:10 snr5:5 \
+-    | tee ../deconv_tables.md
+-python3 figure_mc.py ../fodf_deconv_montecarlo.png \
++    | tee ../Reports/deconv_tables.md
++python3 figure_mc.py ../Figures/fodf_deconv_montecarlo.png \
+     snr50:50 snr30:30 snr20:20 snr10:10 snr5:5
+-python3 figure_response.py p30 ../fodf_response_shview.png
++python3 figure_response.py p30 ../Figures/fodf_response_shview.png
+ 
+ echo "== the non-negativity sweep (report section 6)"
+ $OCT "run('$P'); sweep_nonneg(30,$((NREP/5)),'sw30');"
+diff --git a/deconv_comparison/tables.py b/deconv_comparison/tables.py
+index d5e0f29..d19c115 100644
+--- a/deconv_comparison/tables.py
++++ b/deconv_comparison/tables.py
+@@ -1,4 +1,4 @@
+-"""Emit the result tables of REPORT_SMI_deconvolution_MonteCarlo.md as markdown.
++"""Emit the result tables of Reports/REPORT_SMI_deconvolution_MonteCarlo.md as markdown.
+ 
+ The report quotes numbers; this writes them, so no number in it is transcribed
+ by hand. Peaks come from MRtrix's `sh2peaks` (score_mrtrix.py).
+diff --git a/example.m b/examples/example.m
+similarity index 98%
+rename from example.m
+rename to examples/example.m
+index fc6c01c..fdd4765 100644
+--- a/example.m
++++ b/examples/example.m
+@@ -13,6 +13,10 @@
+ %% EXAMPLE 1
+ clc,clear,close all
+ 
++repo_root = fileparts(fileparts(mfilename('fullpath')));
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++
+ % Path were the test dataset is located
+ pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_1';
+ 
+diff --git a/example_SMI_SSM.m b/examples/example_SMI_SSM.m
+similarity index 96%
+rename from example_SMI_SSM.m
+rename to examples/example_SMI_SSM.m
+index 174a070..0dbb90d 100644
+--- a/example_SMI_SSM.m
++++ b/examples/example_SMI_SSM.m
+@@ -6,9 +6,13 @@
+ %               disease using diffusion MRI. Imaging Neuroscience.
+ %------------------------------------------------------------------------------------
+ 
+-clear;clc;close all
+-
+-% placeholder for ground truth and estimates of SM parameters
++clear;clc;close all
++
++repo_root = fileparts(fileparts(mfilename('fullpath')));
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++
++% placeholder for ground truth and estimates of SM parameters
+ N_samples = 1e3;
+ N_params = 6; % [p2, f, Da, Depa, Depe, ffw]
+ gt = rand(N_samples, N_params); 
+diff --git a/examples/example_SMI_response_shview.m b/examples/example_SMI_response_shview.m
+index 709e7ee..81381b8 100644
+--- a/examples/example_SMI_response_shview.m
++++ b/examples/example_SMI_response_shview.m
+@@ -1,4 +1,4 @@
+-% example_SMI_response_shview.m
++% examples/example_SMI_response_shview.m
+ %
+ % Viewing the SMI response kernel as zonal harmonics, the way MRtrix3's
+ % `shview` displays a response function.
+@@ -35,11 +35,15 @@
+ %
+ % and it writes `response_SMI_wm.txt`, which `shview response_SMI_wm.txt` opens.
+ %
+-% Helper functions live in SMI_response_helpers.m rather than at the end of
++% Helper functions live in helpers/SMI_response_helpers.m rather than at the end of
+ % this script, so that it runs under Octave as well as MATLAB.
+ 
+ clear; close all
+ 
++repo_root = fileparts(fileparts(mfilename('fullpath')));
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++
+ H  = SMI_response_helpers();
+ HF = fODF_modulation_helpers();
+ 
+diff --git a/examples/example_fODF_modulation.m b/examples/example_fODF_modulation.m
+index b61d056..c3364de 100644
+--- a/examples/example_fODF_modulation.m
++++ b/examples/example_fODF_modulation.m
+@@ -1,11 +1,11 @@
+-% example_fODF_modulation.m
++% examples/example_fODF_modulation.m
+ %
+ % Modulating the SMI fODF by orientational coherence (p2), so that its
+ % amplitude separates coherent tissue from grey matter and CSF the way an
+ % MRtrix FOD does -- without using a tissue type criterion, which would delete
+ % peritumoral edema, the region of interest.
+ %
+-% Full methodology and results: REPORT_fODF_modulation.md
++% Full methodology and results: Reports/REPORT_fODF_modulation.md
+ %
+ % THE PROBLEM
+ %
+@@ -26,12 +26,17 @@
+ % wanted; a weight that suppresses it too is a tissue type criterion in
+ % disguise and must be rejected.
+ %
+-% Helper functions live in fODF_modulation_helpers.m rather than at the end of
++% Helper functions live in helpers/fODF_modulation_helpers.m rather than at the end of
+ % this script, so that this example runs under Octave as well as MATLAB.
+ %
+ % Runtime is a few minutes per arm. Set QUICK = 1 for a smaller version.
+ 
+ clear; close all
++
++repo_root = fileparts(fileparts(mfilename('fullpath')));
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++
+ QUICK = 0;
+ 
+ H = fODF_modulation_helpers();
+diff --git a/examples/example_fODF_regularization.m b/examples/example_fODF_regularization.m
+index 28f41e4..2ae9c5e 100644
+--- a/examples/example_fODF_regularization.m
++++ b/examples/example_fODF_regularization.m
+@@ -21,7 +21,10 @@
+ % By: Santiago Coelho
+ % =========================================================================
+ clear; close all
+-% addpath('/Documents/SantiagoCoelho/Git/SMI')
++
++repo_root = fileparts(fileparts(mfilename('fullpath')));
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
+ 
+ CS_phase = 1; D_FW = 3; Lmax = 6;
+ L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);
+diff --git a/examples/example_fODF_regularization_sweep.m b/examples/example_fODF_regularization_sweep.m
+index 3cd8082..091d2d8 100644
+--- a/examples/example_fODF_regularization_sweep.m
++++ b/examples/example_fODF_regularization_sweep.m
+@@ -1,7 +1,7 @@
+ % =========================================================================
+ % Example: choosing the fODF deconvolution regularization parameters
+ %
+-% example_fODF_regularization.m compares a few fixed settings. This script
++% examples/example_fODF_regularization.m compares a few fixed settings. This script
+ % sweeps them, so that the values in the documentation are measured rather
+ % than guessed, and so that they can be re-measured for a different
+ % protocol by editing the protocol block below.
+@@ -28,7 +28,7 @@
+ %                  closest peak of the estimated fODF. This is the
+ %                  quantity tractography actually consumes.
+ %
+-% Scoring lives in fODF_regularization_score.m (a separate file rather
++% Scoring lives in helpers/fODF_regularization_score.m (a separate file rather
+ % than a local function, so that the script also runs in GNU Octave).
+ %
+ % All the deconvolutions for one parameter setting are batched into a
+@@ -42,6 +42,10 @@
+ % =========================================================================
+ clear; close all
+ 
++repo_root = fileparts(fileparts(mfilename('fullpath')));
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++
+ CS_phase = 1; D_FW = 3; Lmax = 6;
+ L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);
+ L_rest = L_all(2:end);
+diff --git a/SMI_response_helpers.m b/helpers/SMI_response_helpers.m
+similarity index 98%
+rename from SMI_response_helpers.m
+rename to helpers/SMI_response_helpers.m
+index 1c13dc1..017abc5 100644
+--- a/SMI_response_helpers.m
++++ b/helpers/SMI_response_helpers.m
+@@ -3,7 +3,7 @@ function H = SMI_response_helpers()
+ %
+ % Helpers for viewing the SMI response kernel as zonal harmonics, the way
+ % MRtrix3's `shview` displays a response function. Used by
+-% example_SMI_response_shview.m.
++% examples/example_SMI_response_shview.m.
+ %
+ %   H.Kell(kernel,b,Lmax,D_FW)        rotational invariants K_l(b) of the kernel
+ %   H.zh(kernel,b,Lmax,D_FW,S0)       zonal harmonic (m=0) coefficients per shell
+@@ -18,7 +18,7 @@ function H = SMI_response_helpers()
+ %                                     an SMI.fit output struct
+ %
+ % CONVENTIONS. SMI's forward model (SMI.m:818-820, and
+-% fODF_modulation_helpers.m) is
++% helpers/fODF_modulation_helpers.m) is
+ %
+ %     S(u)/S0 = sum_{lm} K_l(b) p_lm Y_lm(u) sqrt((2l+1)*4*pi)
+ %
+@@ -37,7 +37,7 @@ function H = SMI_response_helpers()
+ % These live in their own file rather than as local functions at the end of the
+ % example because MATLAB requires local functions at the END of a script while
+ % Octave cannot call them there at all. Same reasoning as
+-% fODF_modulation_helpers.m.
++% helpers/fODF_modulation_helpers.m.
+ H = struct();
+ H.Kell           = @kernel_Kell;
+ H.zh             = @kernel_zh;
+diff --git a/fODF_modulation_helpers.m b/helpers/fODF_modulation_helpers.m
+similarity index 96%
+rename from fODF_modulation_helpers.m
+rename to helpers/fODF_modulation_helpers.m
+index dea5764..b76783f 100644
+--- a/fODF_modulation_helpers.m
++++ b/helpers/fODF_modulation_helpers.m
+@@ -1,7 +1,7 @@
+ function H = fODF_modulation_helpers()
+ % H = fODF_modulation_helpers()
+ %
+-% Returns a struct of function handles used by example_fODF_modulation.m:
++% Returns a struct of function handles used by examples/example_fODF_modulation.m:
+ %
+ %   H.dirs(N)                              N nearly uniform directions on the sphere
+ %   H.watson_plm(dirs_q,n,kappa,Lmax,CS)   normalized plm of a Watson fODF about n
+@@ -14,7 +14,7 @@ function H = fODF_modulation_helpers()
+ % the example script, because MATLAB requires local functions at the END of a
+ % script while Octave cannot call them there at all. Subfunctions of a function
+ % file work in both, which keeps the example runnable and testable outside
+-% MATLAB. Same reasoning as fODF_regularization_score.m.
++% MATLAB. Same reasoning as helpers/fODF_regularization_score.m.
+ H = struct();
+ H.dirs        = @uniform_sphere_dirs;
+ H.watson      = @watson_amp;
+diff --git a/fODF_regularization_score.m b/helpers/fODF_regularization_score.m
+similarity index 98%
+rename from fODF_regularization_score.m
+rename to helpers/fODF_regularization_score.m
+index 8c41e37..d33fed8 100644
+--- a/fODF_regularization_score.m
++++ b/helpers/fODF_regularization_score.m
+@@ -7,7 +7,7 @@ function [e_odf,e_plm,e_neg,e_pkamp,e_pkratio,e_peak,e_npk] = fODF_regularizatio
+ % actually asks for a 6th output.
+ %
+ % Scores one fODF deconvolution regularization setting against a known
+-% ground truth. Used by example_fODF_regularization_sweep.m.
++% ground truth. Used by examples/example_fODF_regularization_sweep.m.
+ %
+ % Every voxel of the experiment is deconvolved in a single call, with the
+ % noise realizations stacked along the first image dimension. That is much
+diff --git a/tests/README.md b/tests/README.md
+new file mode 100644
+index 0000000..8ed128f
+--- /dev/null
++++ b/tests/README.md
+@@ -0,0 +1,17 @@
++# Tests
++
++The scripts in this directory are self-contained and need no input data. Each
++script resolves the repository root and shared `helpers/` directory from its
++own location.
++
++From MATLAB, run:
++
++```matlab
++run('tests/test_fODF_outlier_cap.m')
++run('tests/test_SMI_outlier_cap.m')
++run('tests/test_SMI_response_helpers.m')
++```
++
++GNU Octave additionally needs the `statistics` and `image` packages. The test
++scripts add the compatibility shims from `deconv_comparison/stubs/`
++automatically.
+diff --git a/test_SMI_outlier_cap.m b/tests/test_SMI_outlier_cap.m
+similarity index 96%
+rename from test_SMI_outlier_cap.m
+rename to tests/test_SMI_outlier_cap.m
+index 7fa4e68..1865750 100644
+--- a/test_SMI_outlier_cap.m
++++ b/tests/test_SMI_outlier_cap.m
+@@ -13,7 +13,13 @@
+ %   4. a contiguous bright region is NOT capped
+ %   5. the cap and the modulation compose in the documented order
+ clear; clc
+-addpath(pwd);
++test_dir = fileparts(mfilename('fullpath'));
++repo_root = fileparts(test_dir);
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++if exist('OCTAVE_VERSION','builtin')
++    addpath(fullfile(repo_root, 'deconv_comparison', 'stubs'));
++end
+ if exist('OCTAVE_VERSION','builtin'), pkg load statistics; pkg load image; end
+ TF = {'FAIL','PASS'};
+ 
+diff --git a/test_SMI_response_helpers.m b/tests/test_SMI_response_helpers.m
+similarity index 92%
+rename from test_SMI_response_helpers.m
+rename to tests/test_SMI_response_helpers.m
+index 1042802..1405739 100644
+--- a/test_SMI_response_helpers.m
++++ b/tests/test_SMI_response_helpers.m
+@@ -1,7 +1,7 @@
+ % test_SMI_response_helpers
+ %
+-% Self-contained tests for SMI_response_helpers.m, the zonal harmonic view of
+-% the SMI kernel used by example_SMI_response_shview.m. Needs no data and no
++% Self-contained tests for helpers/SMI_response_helpers.m, the zonal harmonic view of
++% the SMI kernel used by examples/example_SMI_response_shview.m. Needs no data and no
+ % fit. Runs in MATLAB and in Octave.
+ %
+ % Every test checks the helpers against something computed a different way,
+@@ -15,7 +15,13 @@
+ %   7  free water moves r_0 and leaves every l >= 2 coefficient alone
+ %   8  kernel_from_out pulls the requested voxel out of an SMI.fit output
+ clear; clc
+-addpath(pwd);
++test_dir = fileparts(mfilename('fullpath'));
++repo_root = fileparts(test_dir);
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++if exist('OCTAVE_VERSION','builtin')
++    addpath(fullfile(repo_root, 'deconv_comparison', 'stubs'));
++end
+ if exist('OCTAVE_VERSION','builtin'), pkg load statistics; end
+ TF = {'FAIL','PASS'};
+ 
+diff --git a/test_fODF_outlier_cap.m b/tests/test_fODF_outlier_cap.m
+similarity index 96%
+rename from test_fODF_outlier_cap.m
+rename to tests/test_fODF_outlier_cap.m
+index 53d1231..7241b18 100644
+--- a/test_fODF_outlier_cap.m
++++ b/tests/test_fODF_outlier_cap.m
+@@ -12,7 +12,13 @@
+ %   4. peak ORIENTATION of a capped voxel is unchanged
+ %   5. both rules work in isolation
+ clear; clc
+-addpath(pwd);
++test_dir = fileparts(mfilename('fullpath'));
++repo_root = fileparts(test_dir);
++addpath(repo_root);
++addpath(fullfile(repo_root, 'helpers'));
++if exist('OCTAVE_VERSION','builtin')
++    addpath(fullfile(repo_root, 'deconv_comparison', 'stubs'));
++end
+ if exist('OCTAVE_VERSION','builtin'), pkg load statistics; end
+ TF = {'FAIL','PASS'};
+ 
+-- 
+2.53.0.windows.3
+
