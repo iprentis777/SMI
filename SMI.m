@@ -938,13 +938,12 @@ classdef SMI
             %                       example_fODF_regularization_sweep.m minimizes
             %                       the relative L2 error of the fODF and prefers
             %                       10, but the Monte Carlo in
-            %                       deconv_comparison/ (10,000 realizations per
-            %                       condition, section 6 of
+            %                       deconv_comparison/ (sections 5 and 6 of
             %                       REPORT_SMI_deconvolution_MonteCarlo.md) finds
             %                       10 is not on the Pareto front at all: 1 has
             %                       the best angular correlation against the
             %                       ground truth at every crossing angle and
-            %                       resolves 63.5% of 45 degree crossings at
+            %                       resolves 63.4% of 45 degree crossings at
             %                       SNR 30, where 10 resolves 0.0%. Raise it
             %                       towards 10 to buy smoothness at the cost of
             %                       angular resolution.
