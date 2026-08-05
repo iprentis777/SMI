@@ -28,9 +28,17 @@ bvecs     = IO.load('bvecs');
 eval_dirs = IO.load('eval_dirs');
 Ndwi      = numel(bvals);
 
-LMAX_FIT = 6; LMAX_GT = 8; CS = 0; D_FW = 3; KAPPA = 16;   % CS 0 == MRtrix's basis
-ANGLES = [0 15 45 60];
-K_WM   = [0.60 2.0 2.0 0.50 0.02];
+% Same constants as gen_montecarlo.m, from the same place, so the sweep and the
+% main run cannot disagree about what is being simulated. Only the RNG seed
+% differs (C.SEED_SWEEP), which keeps the two sets of realisations independent.
+C        = mc_config();
+LMAX_FIT = C.LMAX_FIT;
+LMAX_GT  = C.LMAX_GT;
+CS       = C.CS_PHASE;
+D_FW     = C.D_FW;
+KAPPA    = C.KAPPA;
+ANGLES   = C.ANGLES;
+K_WM     = C.K_WM;
 
 % {label, lambda_nonneg (0 = constraint off), lambda_tikhonov}
 SETTINGS = { 'nonneg off, tik 0.3',   0, 0.3
@@ -41,12 +49,11 @@ SETTINGS = { 'nonneg off, tik 0.3',   0, 0.3
              'nonneg 3,   tik 0',     3, 0.0 };
 
 H  = fODF_modulation_helpers();
-dq = H.dirs(3000);
-n1 = [0.30 -0.50 0.81]; n1 = n1/norm(n1);
+dq = H.dirs(C.NDIR_Q);
 
 NCOND = numel(ANGLES);
 NVOX  = NCOND*NREP;
-GRID  = pick_grid(NVOX);
+GRID  = C.pick_grid(NVOX);
 fprintf('sweep: SNR %g, %d x %d = %d voxels, grid %s\n', ...
         SNR, NCOND, NREP, NVOX, mat2str(GRID));
 
@@ -56,8 +63,7 @@ S_cond = zeros(NCOND, Ndwi);
 sh_gt6 = zeros(NCOND, sum(keep6));
 ax     = nan(2, 3, NCOND);
 for ic = 1:NCOND
-    if ANGLES(ic) == 0, axes_ = {n1};
-    else, axes_ = {n1, rotate_about(n1, ANGLES(ic))}; end
+    axes_ = C.condition_axes(ic);
     fod = zeros(size(dq,1),1);
     for k = 1:numel(axes_), fod = fod + H.watson(dq, axes_{k}, KAPPA); end
     plm_gt = H.mixture_plm(fod, dq, LMAX_GT, CS);
@@ -71,7 +77,7 @@ end
 
 cond_id = repelem((1:NCOND)', NREP, 1);
 sigma   = 1/SNR;
-rand('seed', 2718); randn('seed', 2718);
+rand('seed', C.SEED_SWEEP); randn('seed', C.SEED_SWEEP);
 S_clean = S_cond(cond_id, :);
 S_noisy = sqrt((S_clean + sigma*randn(size(S_clean))).^2 + ...
                (         sigma*randn(size(S_clean))).^2);
@@ -129,33 +135,5 @@ end
 fclose(fid);
 end
 
-% =====================================================================
-function G = pick_grid(N)
-d = divisors_of(N); d = d(d > 1 & d < N);
-best = [];
-for a = d
-    m = N/a; e = divisors_of(m); e = e(e > 1 & e < m);
-    for b = e
-        c = m/b;
-        if c > 1
-            cand = sort([a b c]);
-            if isempty(best) || (max(cand)-min(cand)) < (max(best)-min(best))
-                best = cand;
-            end
-        end
-    end
-end
-if isempty(best), error('pick_grid: cannot factor %d', N); end
-G = best;
-end
-
-function d = divisors_of(n)
-d = 1:floor(sqrt(n)); d = d(mod(n,d) == 0); d = unique([d n./d]);
-end
-
-function m = rotate_about(n, deg)
-n = n(:)'/norm(n);
-t = [0 0 1]; if abs(n*t') > 0.9, t = [1 0 0]; end
-e = t - (t*n')*n; e = e/norm(e);
-m = cosd(deg)*n + sind(deg)*e; m = m/norm(m);
-end
+% pick_grid, divisors_of and rotate_about used to live here as local functions,
+% duplicating gen_montecarlo.m's copies. They are mc_config.m's now.

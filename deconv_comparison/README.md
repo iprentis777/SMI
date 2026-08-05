@@ -66,6 +66,7 @@ still be compared.
 | file | what |
 |---|---|
 | `setup_protocol.py` | the HCP-like 3-shell gradient table (the only thing that uses dipy) |
+| `mc_config.m` | **every constant of the experiment, in one place.** `gen_montecarlo.m` and `sweep_nonneg.m` both read from it, so the main run and the sweep cannot disagree about what is being simulated. Start here to see what the experiment *is* |
 | `gen_phantom.m` | the synthetic voxel population the responses are estimated from |
 | `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |
 | `sweep_nonneg.m` | one kernel fit, six regularizer settings (report section 6) |

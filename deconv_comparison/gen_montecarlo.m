@@ -42,23 +42,24 @@ bvals     = IO.load('bvals'); bvals = bvals(:)';
 bvecs     = IO.load('bvecs');
 Ndwi      = numel(bvals);
 
-LMAX_FIT = 6;      % every method deconvolves at this angular order
-LMAX_GT  = 8;      % the truth is NOT band limited to it (8 is the SM kernel's
-                   % ceiling, SMI.m:2470-2480)
-CS       = 0;      % == MRtrix's basis, see above
-D_FW     = 3;
-KAPPA    = 16;
-ANGLES   = [0 15 45 60];        % 0 = single fibre
-K_WM     = [0.60 2.0 2.0 0.50 0.02];
+% Every constant of the experiment comes from mc_config.m, which sweep_nonneg.m
+% reads too, so the main run and the regularizer sweep cannot disagree about
+% what is being simulated.
+C        = mc_config();
+LMAX_FIT = C.LMAX_FIT;
+LMAX_GT  = C.LMAX_GT;
+CS       = C.CS_PHASE;
+D_FW     = C.D_FW;
+KAPPA    = C.KAPPA;
+ANGLES   = C.ANGLES;
+K_WM     = C.K_WM;
 
 H  = fODF_modulation_helpers();
-dq = H.dirs(3000);
-
-n1 = [0.30 -0.50 0.81]; n1 = n1/norm(n1);
+dq = H.dirs(C.NDIR_Q);
 
 NCOND = numel(ANGLES);
 NVOX  = NCOND*NREP;
-GRID  = pick_grid(NVOX);
+GRID  = C.pick_grid(NVOX);
 mdir  = fullfile(fileparts(mfilename('fullpath')), 'mrtrix');
 if ~exist(mdir,'dir'), mkdir(mdir); end
 fprintf('SNR %g, %d conditions x %d reps = %d voxels, grid %s\n', ...
@@ -73,11 +74,7 @@ S_cond = zeros(NCOND, Ndwi);
 sh_gt6 = zeros(NCOND, sum(keep6));
 ax     = nan(2, 3, NCOND);
 for ic = 1:NCOND
-    if ANGLES(ic) == 0
-        axes_ = {n1};
-    else
-        axes_ = {n1, rotate_about(n1, ANGLES(ic))};
-    end
+    axes_ = C.condition_axes(ic);
     fod = zeros(size(dq,1),1);
     for k = 1:numel(axes_), fod = fod + H.watson(dq, axes_{k}, KAPPA); end
     plm_gt = H.mixture_plm(fod, dq, LMAX_GT, CS);
@@ -96,7 +93,7 @@ S_clean = S_cond(cond_id, :);
 % S0 = 1 by construction, so sigma = 1/SNR. Complex Gaussian noise on a real
 % signal, magnitude taken: exactly Rician.
 sigma = 1/SNR;
-rand('seed', 31415); randn('seed', 31415);
+rand('seed', C.SEED_MC); randn('seed', C.SEED_MC);
 S_noisy = sqrt((S_clean + sigma*randn(size(S_clean))).^2 + ...
                (         sigma*randn(size(S_clean))).^2);
 dwi = reshape(S_noisy, [GRID Ndwi]);
@@ -155,47 +152,6 @@ fprintf('wrote sh_smi_%s [%d x %d] and mrtrix/smifod_%s.mih\n', ...
         tag, NVOX, size(sh,2), tag);
 end
 
-% =====================================================================
-function G = pick_grid(N)
-% A 3D grid holding exactly N voxels with every dimension > 1: SMI.vectorize
-% takes a different branch if any spatial dimension is a singleton
-% (README for Claude, section 4).
-d = divisors_of(N);
-d = d(d > 1 & d < N);
-best = [];
-for a = d
-    m = N/a;
-    e = divisors_of(m);
-    e = e(e > 1 & e < m);
-    for b = e
-        c = m/b;
-        if c > 1
-            cand = sort([a b c]);
-            if isempty(best) || (max(cand)-min(cand)) < (max(best)-min(best))
-                best = cand;
-            end
-        end
-    end
-end
-if isempty(best)
-    error('pick_grid: cannot factor %d into three factors > 1', N);
-end
-G = best;
-end
-
-% =====================================================================
-function d = divisors_of(n)
-d = 1:floor(sqrt(n));
-d = d(mod(n,d) == 0);
-d = unique([d n./d]);
-end
-
-% =====================================================================
-function m = rotate_about(n, deg)
-% A unit vector at `deg` degrees from n, in an arbitrary but fixed plane.
-n = n(:)'/norm(n);
-t = [0 0 1]; if abs(n*t') > 0.9, t = [1 0 0]; end
-e = t - (t*n')*n; e = e/norm(e);
-m = cosd(deg)*n + sind(deg)*e;
-m = m/norm(m);
-end
+% pick_grid, divisors_of and rotate_about used to live here as local functions.
+% They are mc_config.m's now -- keeping a second copy is how the walkthrough and
+% the pipeline would have drifted apart.
