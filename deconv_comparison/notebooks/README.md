@@ -72,10 +72,16 @@ in place because it looks alarming otherwise:
   Truncating a Watson mixture at `Lmax` rings, and the rings cross zero. The
   non-negativity constraint is therefore a regularizer, not a statement of
   fact — the truth does not satisfy it either.
-- **The 15 degree crossing is resolved 0% of the time, and that is correct.**
-  The ceiling shows the noise-free truth also comes back as a single peak. Two
-  Watson populations with `kappa = 16` merge well before any deconvolution is
-  involved.
+- **The 30 degree crossing is resolved 0% of the time, and that is correct.**
+  The ceiling shows the noise-free truth also comes back as a single peak: two
+  Watson populations at `kappa = 16` merge into one lobe well before any
+  deconvolution is involved. This is a property of the *ground truth*, not of
+  any method, and it is worth knowing where the boundary sits — measured on the
+  truth at Lmax 8, a 30 degree crossing needs `kappa >= 48` (about 8 degrees of
+  dispersion) before it separates at all, while 45 and 60 degrees separate at
+  every `kappa` from 8 upward. `mc_config.m` keeps `kappa = 16` because real
+  white matter disperses; the cost is that the 30 degree condition currently
+  measures the band limit rather than the method.
 - **A loud `WARNING` about gradient directions on every run.** The supplied
   `.bvec` is unit only to `1.1e-6`, because it was written at seven significant
   figures. `mc_config.m` warns and normalises. It is deliberately noisy: left

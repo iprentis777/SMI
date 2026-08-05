@@ -7,7 +7,7 @@ function gen_montecarlo(SNR, NREP, tag)
 % noise so the magnitude is Rician, and deconvolve NREP independent
 % realisations of each condition.
 %
-% Conditions: a single fibre plus 15, 45 and 60 degree crossings of two equal
+% Conditions: a single fibre plus 30, 45 and 60 degree crossings of two equal
 % fibre populations. Each fibre population is a Watson distribution, kappa =
 % KAPPA, so the ground truth carries realistic dispersion rather than being a
 % delta -- which matters, because a response function estimated from real white

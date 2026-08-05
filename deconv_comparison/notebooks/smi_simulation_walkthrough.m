@@ -165,7 +165,7 @@ fprintf('\n');
 
 %% Step 2 -- the ground truth fibre geometry
 % Four conditions: a single fibre, and two equal fibre populations crossing at
-% 15, 45 and 60 degrees. Each population is a *Watson* distribution with
+% 30, 45 and 60 degrees. Each population is a *Watson* distribution with
 % concentration |kappa = 16|, not a delta.
 %
 % That choice is deliberate and is the one most likely to be questioned, so:
@@ -180,6 +180,11 @@ fprintf('\n');
 
 dq    = H.dirs(C.NDIR_Q);
 NCOND = numel(C.ANGLES);
+COLHDR = cell(1, NCOND);
+for ic = 1:NCOND
+    if C.ANGLES(ic) == 0, COLHDR{ic} = 'single';
+    else, COLHDR{ic} = sprintf('%d deg', C.ANGLES(ic)); end
+end
 L_gt  = repelem(0:2:LMAX_GT, 2*(0:2:LMAX_GT)+1)';
 
 fodf_gt = zeros(size(dq,1), NCOND);
@@ -335,7 +340,7 @@ end
 
 fprintf('Step 4: noise-free signal\n');
 fprintf('   mean signal per shell (shells as SMI assigned them in Step 1):\n');
-fprintf('        b   ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
+fprintf('        b   ');  fprintf('%10s', COLHDR{:}); fprintf('\n');
 for i = 1:numel(b_shell)
     fprintf('     %4.2f   ', b_shell(i));
     fprintf('%10.4f', mean(S_clean(:, shell_id == i), 2)); fprintf('\n');
@@ -658,7 +663,7 @@ fprintf('   Nothing in this walkthrough runs those commands -- that is the point
 
 fprintf('=== walkthrough complete ===\n');
 fprintf('correct fibre count, %% of %d realisations at SNR %g:\n', NREP, SNR);
-fprintf('        ');  fprintf('%10s', 'single', '15 deg', '45 deg', '60 deg'); fprintf('\n');
+fprintf('        ');  fprintf('%10s', COLHDR{:}); fprintf('\n');
 for iL = 1:numel(LMAX_LIST)
     fprintf('  Lmax %d', LMAX_LIST(iL)); fprintf('%10.1f', res_all(iL,:)); fprintf('\n');
 end
