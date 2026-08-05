@@ -20,13 +20,14 @@
 % read only the CHECK lines, you have audited the simulation.
 %
 %  Step 1  the acquisition protocol         -> a real HCP 3-shell scheme
-%  Step 2  the ground truth fibre geometry  -> Watson fODFs at 0/15/45/60 deg
+%  Step 2  the ground truth fibre geometry  -> Watson fODFs at 0/30/45/60 deg
 %  Step 3  the kernel, and it as a response -> K_l(b), zonal harmonics
 %  Step 4  forward convolution              -> noise-free signal
 %  Step 5  Rician noise                     -> the measured data
 %  Step 6  SMI.fit at Lmax 4, 6 and 8       -> kernel and fODF recovery
 %  Step 7  peaks and angular error          -> did it work, and at which Lmax?
 %  Step 8  export the fODFs for MRtrix      -> check them outside this file
+%  Figures the four things above, rendered   -> geometry, kernel, signal, fODFs
 %  Step 9  how to scale this up
 %
 % *Runtime is about six minutes*, almost all of it Step 6. |SMI.fit| is
@@ -634,6 +635,90 @@ fprintf('     mrconvert smifod_lmax6.mih smifod_lmax6.mif   # if you prefer a si
 fprintf('     mrview   smifod_lmax6.mih -odf.load_sh smifod_lmax6.mih\n');
 fprintf('   sh2peaks writes 3 components per peak; compare against voxel_key.txt.\n');
 fprintf('   Nothing in this walkthrough runs those commands -- that is the point.\n\n');
+
+%% Figures
+% Four renderings of what the steps above produced, in the order they happened.
+% Set |MAKE_FIGURES = false| at the top of this section to skip them.
+%
+% Glyphs use |SMI_response_helpers|, the same renderer MRtrix's |shview| logic
+% implies: *radius is |amplitude|, colour is the signed amplitude*, so negative
+% lobes show up as a colour change instead of being folded silently into the
+% surface. That matters here because the band-limited truth really is negative
+% over much of the sphere (Step 2).
+
+MAKE_FIGURES = true;
+if MAKE_FIGURES
+    fprintf('Figures: rendering 4 panels ...\n');
+
+    % ---- 1. ground truth fibre geometry
+    figure('Name', 'Ground truth fibre geometry');
+    for ic = 1:NCOND
+        subplot(1, NCOND, ic);
+        [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, 81, 81, 1);
+        surf(X, Y, Z, Cc); shading interp; axis equal off; view(30, 18);
+        title(sprintf('%s\nkappa = %g', COLHDR{ic}, C.KAPPA));
+    end
+
+    % ---- 2. the kernel, as a response function
+    figure('Name', 'Estimated kernel as a response function');
+    th_p = linspace(0, pi, 181);
+    subplot(1, 3, 1);          % angular profile per shell
+    hold on;
+    for i = 1:numel(b_shell)
+        plot(th_p*180/pi, RH.profile(RH.zh(K, b_shell(i), LMAX_GT, C.D_FW), th_p), ...
+             'LineWidth', 1.6);
+    end
+    xlabel('angle from the fibre (deg)'); ylabel('R(\theta)');
+    title('response profile per shell'); grid on;
+    legend(arrayfun(@(b) sprintf('b = %.0f', b), b_shell, 'UniformOutput', false));
+    subplot(1, 3, 2);          % zonal coefficients = an MRtrix response file
+    bar(RH.zh(K, b_shell, LMAX_GT, C.D_FW)');
+    set(gca, 'XTickLabel', arrayfun(@(l) sprintf('r_%d', l), 0:2:LMAX_GT, ...
+             'UniformOutput', false));
+    ylabel('coefficient'); title('zonal harmonics'); grid on;
+    subplot(1, 3, 3);          % the response glyph at the highest shell
+    [X, Y, Z, Cc] = RH.zh_glyph(RH.zh(K, b_shell(end), LMAX_GT, C.D_FW), 81, 81, 1);
+    surf(X, Y, Z, Cc); shading interp; axis equal off; view(30, 18);
+    title(sprintf('response glyph, b = %.0f', b_shell(end)));
+
+    % ---- 3. forward convolution, and what the noise does to it
+    figure('Name', 'Forward convolution and noise');
+    ic_show = NCOND;                                  % the widest crossing
+    v_show  = find(cond_id == ic_show, 1);
+    for i = 2:numel(b_shell)
+        subplot(1, numel(b_shell)-1, i-1);
+        m  = (shell_id(:)' == i);
+        ct = abs(bvecs(m,:) * axes_gt{ic_show}{1}');  % angle to the first fibre
+        sc = S_clean(ic_show, m);
+        sn = S_noisy(v_show, m);
+        hold on;
+        plot(acosd(min(ct,1)), sn, '.', 'MarkerSize', 9);
+        plot(acosd(min(ct,1)), sc, 'o', 'MarkerSize', 4, 'LineWidth', 1.2);
+        xlabel('angle to fibre 1 (deg)'); ylabel('S / S_0');
+        title(sprintf('b = %.0f, SNR %g', b_shell(i), SNR)); grid on;
+        if i == 2, legend({'noisy', 'noise free'}); end
+    end
+
+    % ---- 4. the reconstructed fODFs, one column per Lmax
+    figure('Name', 'Reconstructed fODFs');
+    for iL = 1:numel(LMAX_LIST)
+        Lf  = LMAX_LIST(iL);
+        nc  = (Lf/2+1)*(Lf+1);
+        for ic = 1:NCOND
+            subplot(numel(LMAX_LIST), NCOND, (iL-1)*NCOND + ic);
+            v   = find(cond_id == ic, 1);
+            % back to the p_00 = 1 convention the glyph renderer expects
+            Lv  = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
+            plm_v = fits{iL}.sh(v, 2:nc) ./ sqrt((2*Lv(2:end)'+1)/(4*pi));
+            [X, Y, Z, Cc] = RH.sh_glyph(plm_v, Lf, C.CS_PHASE, 61, 61, 1);
+            surf(X, Y, Z, Cc); shading interp; axis equal off; view(30, 18);
+            title(sprintf('Lmax %d, %s', Lf, COLHDR{ic}));
+        end
+    end
+    fprintf('   4 figures drawn. In MATLAB they appear inline in the Live Script.\n');
+    fprintf('   Under Octave, graphics may be unavailable -- the numbers above are\n');
+    fprintf('   the deliverable either way.\n\n');
+end
 
 %% Step 9 -- from here to a full campaign
 % Everything above is one SNR at |NREP| realisations. The published campaign is

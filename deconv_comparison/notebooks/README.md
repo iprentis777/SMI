@@ -7,6 +7,13 @@ running in bulk. They are the answer to "how do I check this myself?".
 |---|---|
 | `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export |
 
+It also draws four figures — the ground truth fibre geometry, the kernel as a
+response function, the forward convolution with and without noise, and the
+reconstructed fODFs at each Lmax. Set `MAKE_FIGURES = false` in that section to
+skip them. In MATLAB they appear inline in the Live Script; under Octave
+graphics are often unavailable, and the printed numbers are the deliverable
+either way.
+
 The CSD and MSMT-CSD arms are not covered yet.
 
 ## Running it
