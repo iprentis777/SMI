@@ -43,7 +43,7 @@ view so all subfigures are readable without touching the camera:
 
 | figure | layout |
 |---|---|
-| 1 | the ground truth fODF, then **each kernel's response glyph per shell** — what is convolved, beside what it is convolved with |
+| 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
 | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
 | 3 | the same for **edema**, on the same radial scale so the two compare by eye |
 | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
@@ -61,6 +61,28 @@ extra arms. Uncommenting it makes them scored by the **same peak finder** as
 SMI, so they appear automatically as extra columns in Figures 4–5 and extra
 curves in Figure 6 with no figure code changes. Figure 1 is the panel built to
 take their estimated responses.
+
+### Why the edema arm looks noisier, when the noise is identical
+
+`sigma = 1/SNR` against `S0 = 1` in both runs, so the noise added is exactly the
+same. What shrinks is the **anisotropic signal**. All three edema parameters push
+the same way: `f` 0.60 → 0.10 removes most of the stick compartment, which is the
+anisotropic one; `Deperp` 0.50 → 1.15 makes the extra-axonal tensor nearly
+isotropic; and `fw` 0.02 → 0.35 adds purely isotropic signal. `K_2`, `K_4`, `K_6`
+all shrink while `K_0` stays comparable — and the orientation information lives
+entirely in those `l >= 2` invariants.
+
+Deconvolution then amplifies rather than rescues, because recovering `p_lm` means
+**dividing by `K_l`**: the gain is `1/K_l`, so smaller invariants amplify the same
+noise more. Same mechanism as the CSF blow-ups documented elsewhere in this repo
+(`g_2 = 1/||K_2||`, 3.6 in CSF against 0.6 in white matter).
+
+Figure 1's shared scale is what makes this visible, and the table it prints gives
+the numbers: on that scale the healthy response peaks at 0.83 / 0.74 / 0.68 for
+b = 1 / 2 / 3, the edema response at 0.29 / 0.16 / 0.12, and both are 1.000 at
+b = 0 by construction. So the framing is not
+"edema is noisier" but **"edema has less anisotropic signal, and the
+deconvolution amplifies noise in inverse proportion to it."**
 
 ## Running it
 

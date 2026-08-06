@@ -155,6 +155,26 @@ CS_PHASE  = 0;                    % 0 == MRtrix's SH basis exactly. At SMI's
                                   % default of 1 the two differ by (-1)^m, a 180
                                   % degree rotation about z of every fODF.
 PROTOCOL  = 'hcp_real_3shell.txt';
+B0_SNAP   = 0.05;                 % ms/um^2. Any shell below this is treated as
+                                  % exactly b = 0.
+                                  %
+                                  % The acquired .bval carries EFFECTIVE b, so
+                                  % its "b = 0" volumes are b = 5 s/mm^2 rather
+                                  % than 0 -- imaging gradients contribute a
+                                  % little diffusion weighting of their own.
+                                  % Left as acquired, that makes S(0)/S0 differ
+                                  % slightly between kernels and puts a small
+                                  % non-zero residual in Figure 1's lowest
+                                  % shell, which is a distraction rather than a
+                                  % result. Snapping it to 0 restores the exact
+                                  % identity S(0)/S0 = 1 for every kernel.
+                                  %
+                                  % Only the b ~ 0 shell is snapped. The
+                                  % diffusion-weighted shells keep their
+                                  % acquired jitter (990-1005, 1985-2010,
+                                  % 2980-3010 s/mm^2), so Step 1 still exercises
+                                  % SMI's shell binning on real values.
+                                  % Set to 0 to disable and use b as acquired.
 NDIR_Q    = 3000;                 % quadrature directions for projecting a
                                   % sampled fODF onto plm
 SEED      = 31415;                % RNG seed
@@ -264,9 +284,12 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
 % tidied away, because both are things code that only ever saw synthetic
 % protocols would get wrong:
 %
-% * *The b = 0 volumes are not b = 0.* They are b = 5 s/mm^2, and they carry
-%   unit direction vectors like every other volume even though the direction is
-%   meaningless there.
+% * *The b = 0 volumes are not b = 0 as acquired* -- they are b = 5 s/mm^2,
+%   because a .bval records EFFECTIVE b and the imaging gradients contribute a
+%   little weighting of their own. |B0_SNAP| in the Configuration block sets
+%   them to exactly 0, which restores the exact identity S(0)/S0 = 1 for every
+%   kernel. They also carry unit direction vectors like every other volume,
+%   even though the direction is meaningless there.
 % * *The b values jitter within each shell* -- 18 distinct values across the
 %   scheme. The forward model below uses the exact per-volume b; SMI bins them
 %   into shells for the kernel fit, and Step 1 checks that it bins them the way
@@ -278,6 +301,17 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
 % note under Step 3 for why it matters.
 [bvals, bvecs] = C.load_protocol();
 Ndwi = numel(bvals);
+
+% Treat the near-zero shell as exactly b = 0 (see B0_SNAP above).
+n_snap = sum(bvals > 0 & bvals < B0_SNAP);
+if n_snap > 0
+    fprintf(['   note: %d volumes with 0 < b < %g snapped to exactly b = 0\n' ...
+             '         (acquired as b = %g ms/um^2 = %.0f s/mm^2, effective b\n' ...
+             '          from the imaging gradients)\n'], ...
+            n_snap, B0_SNAP, max(bvals(bvals < B0_SNAP)), ...
+            1000*max(bvals(bvals < B0_SNAP)));
+    bvals(bvals < B0_SNAP) = 0;
+end
 
 fprintf('Step 1: %d volumes, %d distinct b values\n', Ndwi, numel(unique(bvals)));
 
@@ -527,8 +561,13 @@ end
 % per thousand. That is a property of the scan, so it is measured, not assumed.
 S_b0 = mean(S_clean(:, ~dw), 2);
 e_s0 = max(abs(S_b0 - 1));
-fprintf('   CHECK S(b~0) is within 1%% of 1   max|S-1| = %.2e   %s\n', ...
-        e_s0, VERDICT{1+(e_s0 < 0.01)});
+if B0_SNAP > 0
+    fprintf('   CHECK S(b=0) == 1 exactly        max|S-1| = %.2e   %s\n', ...
+            e_s0, VERDICT{1+(e_s0 < 1e-12)});
+else
+    fprintf('   CHECK S(b~0) is within 1%% of 1   max|S-1| = %.2e   %s\n', ...
+            e_s0, VERDICT{1+(e_s0 < 0.01)});
+end
 
 % CHECK 2. Harmonics against direct convolution. These do NOT agree to machine
 % precision, and should not: the harmonic route is band limited at LMAX_GT and
@@ -1159,20 +1198,58 @@ if MAKE_FIGURES
     ic   = 1;                                  % the only condition: 60 degrees
 
     % ================================================================
-    % FIGURE 1 -- the ground truth, and each kernel's response per shell
+    % FIGURE 1 -- the ground truth, each kernel's response, and the difference
     % ================================================================
     % The left column is the fODF being convolved. It is the same for both
     % kernels: the ground truth geometry does not depend on the tissue.
     %
-    % To its right, one row per kernel, one glyph per shell. Each response is
-    % normalised to its OWN maximum, so the montage compares SHAPE. Amplitude
-    % falls steeply with b, and that is the r_0 column of Step 3's table.
+    % To its right, one row per kernel and one glyph per shell, then a third
+    % row holding the difference between them.
     %
-    % This is the panel built to take CSD and MSMT-CSD: dwi2response writes
-    % zonal coefficients in exactly the form RH.zh_glyph draws, so an estimated
-    % response becomes another row here with no conversion.
-    figure('Name', 'Fig 1  ground truth fODF and the kernel responses');
-    subplot(NKERN, 1+nsh, [1, 1+nsh+1]);
+    % *Every glyph on this figure shares ONE radial scale*, so size carries
+    % meaning: a smaller glyph is a genuinely smaller signal. That is the whole
+    % point of the panel. The edema kernel attenuates faster and is far less
+    % anisotropic, and both show up as shrinkage rather than only as a change
+    % of shape.
+    %
+    % Two things follow from the shared scale and are worth expecting:
+    %
+    % * *The b = 0 glyphs are identical unit spheres in both rows*, and their
+    %   difference glyph collapses to a point. r_0(0) = sqrt(4*pi) for ANY
+    %   kernel, because S(0)/S0 = 1 exactly. That identity holds here because
+    %   |B0_SNAP| set the acquired b = 5 s/mm^2 volumes to exactly 0; with
+    %   |B0_SNAP = 0| they would differ slightly instead. Either way it is
+    %   correct, not a bug.
+    % * The scale is set by that b = 0 sphere, the largest thing on the figure.
+    %
+    % The difference row is the residual R_healthy(theta) - R_edema(theta),
+    % which is exact rather than sampled: the responses are zonal, so the
+    % difference is just the difference of their zonal coefficients. Radius is
+    % |difference| and colour is the SIGNED difference, so where edema exceeds
+    % healthy is visible as a colour change rather than being lost in a
+    % magnitude. Each title carries the peak |difference| on the shared scale.
+    %
+    % This is also the panel built to take CSD and MSMT-CSD: dwi2response
+    % writes zonal coefficients in exactly the form RH.zh_glyph draws, so an
+    % estimated response becomes another row here with no conversion.
+    th_prof = linspace(0, pi, 361);
+    show_diff = (NKERN == 2);          % a residual row only makes sense for a pair
+    nrow1     = NKERN + double(show_diff);
+
+    % one radial scale for the whole figure, over every glyph it will draw
+    r_sh = cell(NKERN, nsh);
+    rmax = 0;
+    for ikk = 1:NKERN
+        for i = 1:nsh
+            r_sh{ikk,i} = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
+            rmax = max(rmax, max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
+        end
+    end
+    if rmax <= 0, rmax = 1; end
+
+    figure('Name', 'Fig 1  ground truth fODF, kernel responses, and their difference');
+    col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
+    subplot(nrow1, 1+nsh, col1);
     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
                                 GLYPH_N, GLYPH_N, 1);
     surf(X, Y, Z, Cc); shading interp;
@@ -1181,17 +1258,49 @@ if MAKE_FIGURES
 
     for ikk = 1:NKERN
         for i = 1:nsh
-            subplot(NKERN, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
-            r  = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
-            pk = max(abs(RH.profile(r, linspace(0, pi, 361))));
-            if pk <= 0, pk = 1; end
-            [X, Y, Z, Cc] = RH.zh_glyph(r, GLYPH_N, GLYPH_N, 1/pk);
+            subplot(nrow1, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
+            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
             title(sprintf('%s, b = %.0f', KERNELS{ikk}.name, b_shell(i)));
         end
     end
+
+    if show_diff
+        for i = 1:nsh
+            subplot(nrow1, 1+nsh, NKERN*(1+nsh) + 1 + i);
+            r_d  = r_sh{1,i} - r_sh{2,i};
+            pk_d = max(abs(RH.profile(r_d, th_prof)));
+            [X, Y, Z, Cc] = RH.zh_glyph(r_d, GLYPH_N, GLYPH_N, 1/rmax);
+            surf(X, Y, Z, Cc); shading interp;
+            axis equal off vis3d; view(ISO_VIEW);
+            camlight headlight; lighting gouraud;
+            title(sprintf('%s - %s, b = %.0f\npeak |diff| %.3f', ...
+                          KERNELS{1}.name, KERNELS{2}.name, b_shell(i), pk_d));
+        end
+    end
+
+    % The same difference as numbers, since a glyph is hard to read off a page.
+    fprintf('   Fig 1: response peak amplitude on the shared scale (max = %.3f)\n', rmax);
+    fprintf('        b   ');
+    for ikk = 1:NKERN, fprintf('%12s', KERNELS{ikk}.name); end
+    if show_diff, fprintf('%12s', 'difference'); end
+    fprintf('\n');
+    for i = 1:nsh
+        fprintf('     %4.2f   ', b_shell(i));
+        for ikk = 1:NKERN
+            fprintf('%12.4f', max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
+        end
+        if show_diff
+            fprintf('%12.4f', max(abs(RH.profile(r_sh{1,i} - r_sh{2,i}, th_prof))));
+        end
+        fprintf('\n');
+    end
+    fprintf(['   Every kernel gives the same response at b = 0, since S(0)/S0 = 1, so\n' ...
+             '   that row of the difference column is zero to machine precision. It is\n' ...
+             '   non-zero only if B0_SNAP is disabled and the acquired b = 5 s/mm^2 is\n' ...
+             '   used as-is.\n\n']);
 
     % ================================================================
     % FIGURES 2 and 3 -- the spherical signal, one figure per kernel
