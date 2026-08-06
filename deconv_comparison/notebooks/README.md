@@ -79,7 +79,8 @@ noise more. Same mechanism as the CSF blow-ups documented elsewhere in this repo
 
 Figure 1's shared scale is what makes this visible, and the table it prints gives
 the numbers: on that scale the healthy response peaks at 0.83 / 0.74 / 0.68 for
-b = 1 / 2 / 3, the edema response at 0.29 / 0.16 / 0.12. So the framing is not
+b = 1 / 2 / 3, the edema response at 0.29 / 0.16 / 0.12, and both are 1.000 at
+b = 0 by construction. So the framing is not
 "edema is noisier" but **"edema has less anisotropic signal, and the
 deconvolution amplifies noise in inverse proportion to it."**
 
