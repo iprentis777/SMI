@@ -1159,20 +1159,58 @@ if MAKE_FIGURES
     ic   = 1;                                  % the only condition: 60 degrees
 
     % ================================================================
-    % FIGURE 1 -- the ground truth, and each kernel's response per shell
+    % FIGURE 1 -- the ground truth, each kernel's response, and the difference
     % ================================================================
     % The left column is the fODF being convolved. It is the same for both
     % kernels: the ground truth geometry does not depend on the tissue.
     %
-    % To its right, one row per kernel, one glyph per shell. Each response is
-    % normalised to its OWN maximum, so the montage compares SHAPE. Amplitude
-    % falls steeply with b, and that is the r_0 column of Step 3's table.
+    % To its right, one row per kernel and one glyph per shell, then a third
+    % row holding the difference between them.
     %
-    % This is the panel built to take CSD and MSMT-CSD: dwi2response writes
-    % zonal coefficients in exactly the form RH.zh_glyph draws, so an estimated
-    % response becomes another row here with no conversion.
-    figure('Name', 'Fig 1  ground truth fODF and the kernel responses');
-    subplot(NKERN, 1+nsh, [1, 1+nsh+1]);
+    % *Every glyph on this figure shares ONE radial scale*, so size carries
+    % meaning: a smaller glyph is a genuinely smaller signal. That is the whole
+    % point of the panel. The edema kernel attenuates faster and is far less
+    % anisotropic, and both show up as shrinkage rather than only as a change
+    % of shape.
+    %
+    % Two things follow from the shared scale and are worth expecting:
+    %
+    % * *The lowest shell is very nearly a unit sphere in both rows, and very
+    %   nearly identical between them.* At exactly b = 0 it would be exactly
+    %   both: r_0(0) = sqrt(4*pi) for ANY kernel, because S(0)/S0 = 1 by
+    %   construction. But this is a REAL protocol whose b = 0 is b = 5 s/mm^2,
+    %   not 0, so the kernels do attenuate it slightly and differently. The
+    %   printed table below gives the residual there -- small, and not zero.
+    % * The scale is set by that lowest shell, the largest thing on the figure.
+    %
+    % The difference row is the residual R_healthy(theta) - R_edema(theta),
+    % which is exact rather than sampled: the responses are zonal, so the
+    % difference is just the difference of their zonal coefficients. Radius is
+    % |difference| and colour is the SIGNED difference, so where edema exceeds
+    % healthy is visible as a colour change rather than being lost in a
+    % magnitude. Each title carries the peak |difference| on the shared scale.
+    %
+    % This is also the panel built to take CSD and MSMT-CSD: dwi2response
+    % writes zonal coefficients in exactly the form RH.zh_glyph draws, so an
+    % estimated response becomes another row here with no conversion.
+    th_prof = linspace(0, pi, 361);
+    show_diff = (NKERN == 2);          % a residual row only makes sense for a pair
+    nrow1     = NKERN + double(show_diff);
+
+    % one radial scale for the whole figure, over every glyph it will draw
+    r_sh = cell(NKERN, nsh);
+    rmax = 0;
+    for ikk = 1:NKERN
+        for i = 1:nsh
+            r_sh{ikk,i} = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
+            rmax = max(rmax, max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
+        end
+    end
+    if rmax <= 0, rmax = 1; end
+
+    figure('Name', 'Fig 1  ground truth fODF, kernel responses, and their difference');
+    col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
+    subplot(nrow1, 1+nsh, col1);
     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
                                 GLYPH_N, GLYPH_N, 1);
     surf(X, Y, Z, Cc); shading interp;
@@ -1181,17 +1219,49 @@ if MAKE_FIGURES
 
     for ikk = 1:NKERN
         for i = 1:nsh
-            subplot(NKERN, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
-            r  = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
-            pk = max(abs(RH.profile(r, linspace(0, pi, 361))));
-            if pk <= 0, pk = 1; end
-            [X, Y, Z, Cc] = RH.zh_glyph(r, GLYPH_N, GLYPH_N, 1/pk);
+            subplot(nrow1, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
+            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
             title(sprintf('%s, b = %.0f', KERNELS{ikk}.name, b_shell(i)));
         end
     end
+
+    if show_diff
+        for i = 1:nsh
+            subplot(nrow1, 1+nsh, NKERN*(1+nsh) + 1 + i);
+            r_d  = r_sh{1,i} - r_sh{2,i};
+            pk_d = max(abs(RH.profile(r_d, th_prof)));
+            [X, Y, Z, Cc] = RH.zh_glyph(r_d, GLYPH_N, GLYPH_N, 1/rmax);
+            surf(X, Y, Z, Cc); shading interp;
+            axis equal off vis3d; view(ISO_VIEW);
+            camlight headlight; lighting gouraud;
+            title(sprintf('%s - %s, b = %.0f\npeak |diff| %.3f', ...
+                          KERNELS{1}.name, KERNELS{2}.name, b_shell(i), pk_d));
+        end
+    end
+
+    % The same difference as numbers, since a glyph is hard to read off a page.
+    fprintf('   Fig 1: response peak amplitude on the shared scale (max = %.3f)\n', rmax);
+    fprintf('        b   ');
+    for ikk = 1:NKERN, fprintf('%12s', KERNELS{ikk}.name); end
+    if show_diff, fprintf('%12s', 'difference'); end
+    fprintf('\n');
+    for i = 1:nsh
+        fprintf('     %4.2f   ', b_shell(i));
+        for ikk = 1:NKERN
+            fprintf('%12.4f', max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
+        end
+        if show_diff
+            fprintf('%12.4f', max(abs(RH.profile(r_sh{1,i} - r_sh{2,i}, th_prof))));
+        end
+        fprintf('\n');
+    end
+    fprintf(['   At exactly b = 0 every kernel gives the same response, since S(0)/S0 = 1\n' ...
+             '   by construction. The lowest shell here is a real b = 5 s/mm^2, so its\n' ...
+             '   residual is small but genuinely non-zero -- read it off the table, not\n' ...
+             '   off the glyph.\n\n']);
 
     % ================================================================
     % FIGURES 2 and 3 -- the spherical signal, one figure per kernel
