@@ -1,8 +1,8 @@
 From 7cacf90765391c2bad5e4c1e8a2d08c90ce1a558 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 6 Aug 2026 23:41:01 +0000
-Subject: [PATCH] Put Figure 1 on one shared radial scale, and add a difference
- row
+Subject: [PATCH 1/2] Put Figure 1 on one shared radial scale, and add a
+ difference row
 
 Figure 1 normalised every response glyph to its own maximum, so all glyphs
 came out the same size and only shape differed. For a healthy-vs-edema
@@ -222,6 +222,182 @@ index a3489c5..71ccec2 100644
      % ================================================================
      % FIGURES 2 and 3 -- the spherical signal, one figure per kernel
      % ================================================================
+-- 
+2.43.0
+
+
+From d393dbb488f5b9aa9c76ffb8e73f22710b19dd42 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 6 Aug 2026 23:44:45 +0000
+Subject: [PATCH 2/2] Treat the b = 0 shell as exactly zero
+
+The acquired .bval records EFFECTIVE b, so its 18 "b = 0" volumes are
+b = 5 s/mm^2 -- the imaging gradients contribute a little diffusion
+weighting of their own. Left as acquired that breaks the exact identity
+S(0)/S0 = 1, makes the two kernels attenuate the lowest shell slightly
+differently, and puts a small non-zero residual in Figure 1's b = 0 column,
+which is a distraction rather than a result.
+
+B0_SNAP in the Configuration block now sets any shell below 0.05 ms/um^2 to
+exactly 0. Measured after the change:
+
+  shells      b = [0 1 2 3], counts [18 90 90 90]  (binning check still passes)
+  b = 0       healthy 1.0000, edema 1.0000, residual 0.000e+00
+
+Only the b ~ 0 shell is snapped. The diffusion-weighted shells keep their
+acquired jitter -- 990-1005, 1985-2010, 2980-3010 s/mm^2, 17 distinct values
+-- so Step 1 still exercises SMI's shell binning on real numbers rather than
+on a tidied protocol. Set B0_SNAP = 0 to use b exactly as acquired.
+
+The tracked protocol file is unchanged and still holds the acquisition as
+supplied; the snap is a visible, documented transformation in the notebook's
+own configuration rather than an edit to the record of what was scanned.
+
+Three dependent places updated to match: the Step 1 prose, the Step 4 check
+(now S(b=0) == 1 to 1e-12 rather than within 1%, and it falls back to the
+loose form if B0_SNAP is disabled), and Figure 1's note, where the b = 0
+difference glyph is once again a point.
+
+No simulation was run.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/notebooks/README.md         |  3 +-
+ .../notebooks/smi_manuscript_60deg.m          | 71 ++++++++++++++-----
+ 2 files changed, 57 insertions(+), 17 deletions(-)
+
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index 8856e68..546e078 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -79,7 +79,8 @@ noise more. Same mechanism as the CSF blow-ups documented elsewhere in this repo
+ 
+ Figure 1's shared scale is what makes this visible, and the table it prints gives
+ the numbers: on that scale the healthy response peaks at 0.83 / 0.74 / 0.68 for
+-b = 1 / 2 / 3, the edema response at 0.29 / 0.16 / 0.12. So the framing is not
++b = 1 / 2 / 3, the edema response at 0.29 / 0.16 / 0.12, and both are 1.000 at
++b = 0 by construction. So the framing is not
+ "edema is noisier" but **"edema has less anisotropic signal, and the
+ deconvolution amplifies noise in inverse proportion to it."**
+ 
+diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+index 71ccec2..cb1c3f7 100644
+--- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
++++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+@@ -155,6 +155,26 @@ CS_PHASE  = 0;                    % 0 == MRtrix's SH basis exactly. At SMI's
+                                   % default of 1 the two differ by (-1)^m, a 180
+                                   % degree rotation about z of every fODF.
+ PROTOCOL  = 'hcp_real_3shell.txt';
++B0_SNAP   = 0.05;                 % ms/um^2. Any shell below this is treated as
++                                  % exactly b = 0.
++                                  %
++                                  % The acquired .bval carries EFFECTIVE b, so
++                                  % its "b = 0" volumes are b = 5 s/mm^2 rather
++                                  % than 0 -- imaging gradients contribute a
++                                  % little diffusion weighting of their own.
++                                  % Left as acquired, that makes S(0)/S0 differ
++                                  % slightly between kernels and puts a small
++                                  % non-zero residual in Figure 1's lowest
++                                  % shell, which is a distraction rather than a
++                                  % result. Snapping it to 0 restores the exact
++                                  % identity S(0)/S0 = 1 for every kernel.
++                                  %
++                                  % Only the b ~ 0 shell is snapped. The
++                                  % diffusion-weighted shells keep their
++                                  % acquired jitter (990-1005, 1985-2010,
++                                  % 2980-3010 s/mm^2), so Step 1 still exercises
++                                  % SMI's shell binning on real values.
++                                  % Set to 0 to disable and use b as acquired.
+ NDIR_Q    = 3000;                 % quadrature directions for projecting a
+                                   % sampled fODF onto plm
+ SEED      = 31415;                % RNG seed
+@@ -264,9 +284,12 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
+ % tidied away, because both are things code that only ever saw synthetic
+ % protocols would get wrong:
+ %
+-% * *The b = 0 volumes are not b = 0.* They are b = 5 s/mm^2, and they carry
+-%   unit direction vectors like every other volume even though the direction is
+-%   meaningless there.
++% * *The b = 0 volumes are not b = 0 as acquired* -- they are b = 5 s/mm^2,
++%   because a .bval records EFFECTIVE b and the imaging gradients contribute a
++%   little weighting of their own. |B0_SNAP| in the Configuration block sets
++%   them to exactly 0, which restores the exact identity S(0)/S0 = 1 for every
++%   kernel. They also carry unit direction vectors like every other volume,
++%   even though the direction is meaningless there.
+ % * *The b values jitter within each shell* -- 18 distinct values across the
+ %   scheme. The forward model below uses the exact per-volume b; SMI bins them
+ %   into shells for the kernel fit, and Step 1 checks that it bins them the way
+@@ -279,6 +302,17 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
+ [bvals, bvecs] = C.load_protocol();
+ Ndwi = numel(bvals);
+ 
++% Treat the near-zero shell as exactly b = 0 (see B0_SNAP above).
++n_snap = sum(bvals > 0 & bvals < B0_SNAP);
++if n_snap > 0
++    fprintf(['   note: %d volumes with 0 < b < %g snapped to exactly b = 0\n' ...
++             '         (acquired as b = %g ms/um^2 = %.0f s/mm^2, effective b\n' ...
++             '          from the imaging gradients)\n'], ...
++            n_snap, B0_SNAP, max(bvals(bvals < B0_SNAP)), ...
++            1000*max(bvals(bvals < B0_SNAP)));
++    bvals(bvals < B0_SNAP) = 0;
++end
++
+ fprintf('Step 1: %d volumes, %d distinct b values\n', Ndwi, numel(unique(bvals)));
+ 
+ % Let SMI group the shells, and report what it decided. This is the function the
+@@ -527,8 +561,13 @@ end
+ % per thousand. That is a property of the scan, so it is measured, not assumed.
+ S_b0 = mean(S_clean(:, ~dw), 2);
+ e_s0 = max(abs(S_b0 - 1));
+-fprintf('   CHECK S(b~0) is within 1%% of 1   max|S-1| = %.2e   %s\n', ...
+-        e_s0, VERDICT{1+(e_s0 < 0.01)});
++if B0_SNAP > 0
++    fprintf('   CHECK S(b=0) == 1 exactly        max|S-1| = %.2e   %s\n', ...
++            e_s0, VERDICT{1+(e_s0 < 1e-12)});
++else
++    fprintf('   CHECK S(b~0) is within 1%% of 1   max|S-1| = %.2e   %s\n', ...
++            e_s0, VERDICT{1+(e_s0 < 0.01)});
++end
+ 
+ % CHECK 2. Harmonics against direct convolution. These do NOT agree to machine
+ % precision, and should not: the harmonic route is band limited at LMAX_GT and
+@@ -1175,13 +1214,13 @@ if MAKE_FIGURES
+     %
+     % Two things follow from the shared scale and are worth expecting:
+     %
+-    % * *The lowest shell is very nearly a unit sphere in both rows, and very
+-    %   nearly identical between them.* At exactly b = 0 it would be exactly
+-    %   both: r_0(0) = sqrt(4*pi) for ANY kernel, because S(0)/S0 = 1 by
+-    %   construction. But this is a REAL protocol whose b = 0 is b = 5 s/mm^2,
+-    %   not 0, so the kernels do attenuate it slightly and differently. The
+-    %   printed table below gives the residual there -- small, and not zero.
+-    % * The scale is set by that lowest shell, the largest thing on the figure.
++    % * *The b = 0 glyphs are identical unit spheres in both rows*, and their
++    %   difference glyph collapses to a point. r_0(0) = sqrt(4*pi) for ANY
++    %   kernel, because S(0)/S0 = 1 exactly. That identity holds here because
++    %   |B0_SNAP| set the acquired b = 5 s/mm^2 volumes to exactly 0; with
++    %   |B0_SNAP = 0| they would differ slightly instead. Either way it is
++    %   correct, not a bug.
++    % * The scale is set by that b = 0 sphere, the largest thing on the figure.
+     %
+     % The difference row is the residual R_healthy(theta) - R_edema(theta),
+     % which is exact rather than sampled: the responses are zonal, so the
+@@ -1258,10 +1297,10 @@ if MAKE_FIGURES
+         end
+         fprintf('\n');
+     end
+-    fprintf(['   At exactly b = 0 every kernel gives the same response, since S(0)/S0 = 1\n' ...
+-             '   by construction. The lowest shell here is a real b = 5 s/mm^2, so its\n' ...
+-             '   residual is small but genuinely non-zero -- read it off the table, not\n' ...
+-             '   off the glyph.\n\n']);
++    fprintf(['   Every kernel gives the same response at b = 0, since S(0)/S0 = 1, so\n' ...
++             '   that row of the difference column is zero to machine precision. It is\n' ...
++             '   non-zero only if B0_SNAP is disabled and the acquired b = 5 s/mm^2 is\n' ...
++             '   used as-is.\n\n']);
+ 
+     % ================================================================
+     % FIGURES 2 and 3 -- the spherical signal, one figure per kernel
 -- 
 2.43.0
 
