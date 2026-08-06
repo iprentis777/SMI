@@ -1,4 +1,4 @@
-%% Manuscript figures: SMI on single fibres and 60 degree crossings
+%% Manuscript figures: SMI on 60 degree crossings, healthy and edema
 % The manuscript version of |smi_simulation_walkthrough.m|, cut down to the two
 % configurations the manuscript uses -- *a single fibre and a 60 degree
 % crossing* -- and swept across *a list of SNRs* rather than run at one.
@@ -19,7 +19,8 @@
 % ground truth, and 45 separates only from Lmax 6 upward, so neither is a clean
 % figure. 60 separates at every Lmax and every kappa tested, which makes it the
 % configuration where a difference between methods is attributable to the
-% method.
+% method. The single fibre condition is not simulated here either -- it is in
+% the general walkthrough.
 %
 % *This file is meant to be read while it runs.* It is a plain |.m| script, so
 % it runs as-is in MATLAB and in GNU Octave; MATLAB can also open it and save
@@ -87,12 +88,9 @@ RH   = SMI_response_helpers();
 VERDICT = {'** FAILED **', 'ok'};            % VERDICT{1+condition}
 
 % ---------------------------------------------------------------- the tissue
-% Which kernel to simulate. Everything downstream -- figure titles, printed
-% tables, exported filenames -- picks up this name, so two runs cannot be
-% confused for each other.
-%
-%   'healthy_wm'  the kernel the published Monte Carlo used
-%   'edema'       a low axonal fraction, high extra-axonal diffusivity kernel
+% BOTH kernels are simulated, back to back, in one run. Everything downstream
+% carries the kernel name, so a healthy result and an edema result can never be
+% mistaken for one another.
 %
 % SMI's compartment vector is [f Da Depar Deperp fw]:
 %
@@ -103,40 +101,30 @@ VERDICT = {'** FAILED **', 'ok'};            % VERDICT{1+condition}
 %   fw       free water fraction, D fixed at D_FW below
 %
 % The extra-axonal fraction is whatever is left: 1 - f - fw.
-KERNEL_PRESET = 'healthy_wm';
-
-switch KERNEL_PRESET
-case 'healthy_wm'
-    K_SIM  = [0.60 2.0 2.0 0.50 0.02];
-    K_NOTE = 'the kernel the published Monte Carlo used';
-
-case 'edema'
-    % Shaped from a FITTED kernel rather than invented, which is why the
-    % diffusivities are not round numbers and why Depar exceeds Da -- a fit is
-    % free to land there and a synthetic kernel usually would not be written
-    % that way.
-    %
-    % Two deliberate departures from the numbers as supplied, both worth
-    % knowing because they change what the result means:
-    %
-    % * *f is 0.10, not 0.05.* SMI's default training prior has its lower bound
-    %   for f at exactly 0.05 (SMI.m, MLTraining.bounds). A truth sitting ON the
-    %   boundary of the prior is estimated with a one-sided bias toward the
-    %   prior mean, which is indistinguishable from a real effect. Moving it to
-    %   0.10 puts the truth inside the prior so the result is about the data.
-    % * *fw is 0.35*, which the fitted kernel did not specify. Edema modelled
-    %   as added free water. The default prior caps fw at 0.5, so 0.35 is
-    %   comfortably inside it.
-    %
-    % Deperp = 1.15 is still close to its own prior cap of 1.2. That one is left
-    % alone -- it is the number from the fit -- but if the extra-axonal
-    % diffusivities come back biased low, this is the first place to look.
-    K_SIM  = [0.10 2.4 2.7 1.15 0.35];
-    K_NOTE = 'low axonal fraction, high extra-axonal diffusivity, added free water';
-
-otherwise
-    error('smi_manuscript:preset', 'unknown KERNEL_PRESET "%s"', KERNEL_PRESET);
-end
+%
+% The edema kernel is shaped from a FITTED kernel rather than invented, which is
+% why the diffusivities are not round numbers and why Depar exceeds Da -- a fit
+% is free to land there and a synthetic kernel usually would not be written that
+% way. Two deliberate departures from the numbers as fitted, both of which
+% change what the result means:
+%
+% * *f is 0.10, not 0.05.* SMI's default training prior has its lower bound for
+%   f at exactly 0.05 (SMI.m, MLTraining.bounds). A truth sitting ON the
+%   boundary of the prior is estimated with a one-sided bias toward the prior
+%   mean, which is indistinguishable from a real effect. 0.10 puts the truth
+%   inside the prior so the result is about the data.
+% * *fw is 0.35*, which the fitted kernel did not specify. Edema modelled as
+%   added free water. The default prior caps fw at 0.5, so 0.35 is inside it.
+%
+% Deperp = 1.15 is still close to its own prior cap of 1.2. That one is left
+% alone -- it is the number from the fit -- but if the extra-axonal
+% diffusivities come back biased low, this is the first place to look.
+KERNELS = { ...
+    struct('name', 'healthy', 'K', [0.60 2.0 2.0 0.50 0.02], ...
+           'note', 'the kernel the published Monte Carlo used'), ...
+    struct('name', 'edema',   'K', [0.10 2.4 2.7 1.15 0.35], ...
+           'note', 'low axonal fraction, high extra-axonal diffusivity, added free water') };
+NKERN = numel(KERNELS);
 
 D_FW  = 3;          % free water diffusivity, um^2/ms
 KAPPA = 16;         % Watson concentration of each fibre population. Finite, not
@@ -145,12 +133,14 @@ KAPPA = 16;         % Watson concentration of each fibre population. Finite, not
                     % create a mismatch that does not exist in practice.
 
 % ------------------------------------------------------------- the geometry
-ANGLES = [0 60];    % crossing angles in degrees; 0 means a single fibre.
-                    % 60 is the manuscript configuration: measured on the
-                    % noise-free truth it separates at every Lmax and every
-                    % KAPPA tested, where 30 never separates at KAPPA = 16 and
-                    % 45 only from Lmax 6 up. That is what makes a difference
-                    % between methods attributable to the method.
+ANGLES = 60;        % crossing angles in degrees. The manuscript uses the 60
+                    % degree crossing only. Measured on the noise-free truth it
+                    % separates at every Lmax and every KAPPA tested, where 30
+                    % never separates at KAPPA = 16 and 45 only from Lmax 6 up.
+                    % That is what makes a difference between methods
+                    % attributable to the method rather than to the band limit.
+                    % The single fibre condition is deliberately NOT simulated
+                    % here; smi_simulation_walkthrough.m still covers it.
 AXIS1  = [0.30 -0.50 0.81];       % first fibre axis, off every coordinate plane
 AXIS1  = AXIS1/norm(AXIS1);
 
@@ -178,10 +168,10 @@ REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
 % Collected into one struct so the rest of the file reads C.<knob> and there is
 % exactly one place to change any of them.
 C = struct();
-C.K_WM     = K_SIM;      C.D_FW     = D_FW;     C.KAPPA    = KAPPA;
+C.D_FW     = D_FW;       C.KAPPA    = KAPPA;    % C.K_WM and C.PRESET are set
 C.ANGLES   = ANGLES;     C.AXIS1    = AXIS1;    C.LMAX_GT  = LMAX_GT;
 C.CS_PHASE = CS_PHASE;   C.PROTOCOL = PROTOCOL; C.NDIR_Q   = NDIR_Q;
-C.SEED_MC  = SEED;       C.PRESET   = KERNEL_PRESET;
+C.SEED_MC  = SEED;                              % per kernel, in the loop
 C.pick_grid      = MC.pick_grid;                 % shared utilities
 C.rotate_about   = MC.rotate_about;
 C.load_protocol  = @() MC.load_protocol_file(PROTOCOL);
@@ -199,13 +189,16 @@ end
 C.condition_axes = @(ic) AX{ic};
 
 fprintf('\n=== SMI manuscript simulation ===\n');
-fprintf('kernel preset : %s -- %s\n', KERNEL_PRESET, K_NOTE);
-fprintf('                [f Da Depar Deperp fw] = %s, extra-axonal = %.2f\n', ...
-        mat2str(K_SIM), 1 - K_SIM(1) - K_SIM(5));
-fprintf('conditions    : %s deg,  kappa = %g\n', mat2str(ANGLES), KAPPA);
-fprintf('sweep         : SNR %s  x  Lmax %s  = %d fits of %d voxels each\n', ...
-        mat2str(SNR_LIST), mat2str(LMAX_LIST), ...
-        numel(SNR_LIST)*numel(LMAX_LIST), numel(ANGLES)*NREP);
+for ik = 1:NKERN
+    fprintf('kernel %d/%d   : %-8s [f Da Depar Deperp fw] = %s, extra-axonal = %.2f\n', ...
+            ik, NKERN, KERNELS{ik}.name, mat2str(KERNELS{ik}.K), ...
+            1 - KERNELS{ik}.K(1) - KERNELS{ik}.K(5));
+    fprintf('                %s\n', KERNELS{ik}.note);
+end
+fprintf('condition     : %g deg crossing only,  kappa = %g\n', ANGLES, KAPPA);
+fprintf('sweep         : %d kernels x SNR %s x Lmax %s = %d fits of %d voxels each\n', ...
+        NKERN, mat2str(SNR_LIST), mat2str(LMAX_LIST), ...
+        NKERN*numel(SNR_LIST)*numel(LMAX_LIST), numel(ANGLES)*NREP);
 fprintf('truth at Lmax %d (SMI''s kernel ceiling), CS_phase %d\n\n', LMAX_GT, CS_PHASE);
 
 NSNR       = numel(SNR_LIST);
@@ -417,6 +410,24 @@ end
 fprintf('   isotropic floor 1/(4*pi) = %.4f  (MRtrix iFOD2 default cutoff is 0.05)\n\n', ...
         1/(4*pi));
 
+%% Steps 3 to 8 run once per kernel
+% Everything from here to the export is inside |for ik = 1:NKERN|, so the
+% healthy and edema simulations run back to back off the same ground truth,
+% the same protocol and the same noise seeds. Only the kernel differs.
+%
+% *These sections cannot be run as isolated Live Script cells* -- they are
+% inside a loop, so run Steps 3 to 8 as a block. Each iteration stashes its
+% results into |RUN{ik}| and the Figures section reads from there.
+
+RUN = cell(1, NKERN);
+for ik = 1:NKERN
+
+C.K_WM   = KERNELS{ik}.K;
+C.PRESET = KERNELS{ik}.name;
+K        = C.K_WM;
+fprintf('==================== kernel %d/%d: %s ====================\n', ...
+        ik, NKERN, C.PRESET);
+
 %% Step 3 -- the kernel, and the same kernel as a response function
 % SMI has no response function. It has a *kernel*: the Standard Model
 % compartment description |[f Da Depar Deperp fw]|, from which the rotational
@@ -432,7 +443,6 @@ fprintf('   isotropic floor 1/(4*pi) = %.4f  (MRtrix iFOD2 default cutoff is 0.0
 % is what lets an SMI kernel be handed to MRtrix at all, so it is checked here
 % rather than assumed.
 
-K  = C.K_WM;
 fprintf('Step 3: kernel [f Da Depar Deperp fw] = %s\n', mat2str(K));
 fprintf('   zonal response r_l at the nominal shells -- this IS an MRtrix response file:\n');
 fprintf('        b   ');
@@ -796,6 +806,54 @@ end
 fprintf('   CHECK p_00 == 1 convention held   max|err| = %.2e   %s\n\n', ...
         e_l0, VERDICT{1+(e_l0 < 1e-12)});
 
+%% Importing CSD and MSMT-CSD results (not wired up yet)
+% *This is the hook, deliberately left commented.* Uncommenting it makes CSD and
+% MSMT-CSD extra arms that are scored by the SAME peak finder as SMI in Step 7,
+% so they appear automatically as extra columns in Figures 4 and 5 and extra
+% curves in Figure 6. Nothing in the figure code needs changing.
+%
+% The files come from the MRtrix side of the package. Step 8 below writes the
+% DWI and the fODFs in MRtrix format; run_mrtrix.sh is what turns the former
+% into CSD and MSMT-CSD fODFs:
+%
+%   cd ..              % deconv_comparison/
+%   ./run_mrtrix.sh responses          % dwi2response, once
+%   ./run_mrtrix.sh fit <tag>          % dwi2fod csd + msmt_csd for that tag
+%
+% The arms below must be in MRtrix's SH basis, which at CS_phase = 0 is SMI's
+% basis exactly -- so no conversion sits between them and the scoring, and the
+% comparison is not measuring a convention difference.
+%
+% Each entry needs the same three things the SMI arm has: a name, an
+% [NVOX x ncoef] SH matrix per Lmax, and the Lmax it was fitted at. Voxel order
+% must match this file's -- Step 8's voxel_key_<preset>.txt records it.
+%
+% ARMS = {};                                        % extra arms, scored with SMI
+% MR   = mrtrix_io();
+% for iL = 1:numel(LMAX_LIST)
+%     Lf = LMAX_LIST(iL);
+%     csd  = MR.read(fullfile(pkgdir,'mrtrix', ...
+%                    sprintf('csdfod_%s_lmax%d.mih',  C.PRESET, Lf)));
+%     msmt = MR.read(fullfile(pkgdir,'mrtrix', ...
+%                    sprintf('msmtfod_%s_lmax%d.mih', C.PRESET, Lf)));
+%     ARMS{end+1} = struct('name','SSST-CSD', 'Lmax',Lf, ...
+%                          'sh', reshape(csd,  [NVOX size(csd,4)]));
+%     ARMS{end+1} = struct('name','MSMT-CSD', 'Lmax',Lf, ...
+%                          'sh', reshape(msmt, [NVOX size(msmt,4)]));
+% end
+%
+% Two things to get right when wiring this up, both of which have bitten this
+% package before:
+%
+% * *Lmax.* dwi2fod must be given -lmax matching LMAX_LIST, or the arms are not
+%   comparable and the ceiling in Step 7 is the wrong bound for them.
+% * *Scale.* an MRtrix FOD is not normalised -- its amplitude carries apparent
+%   fibre density -- whereas an SMI fODF has p_00 = 1 and integrates to 1. The
+%   peak finder in Step 7 thresholds on amplitude ABOVE the isotropic floor, so
+%   it is scale-free per voxel, but any figure putting the two on one radial
+%   scale has to normalise first or the SMI glyphs will vanish next to the CSD
+%   ones.
+
 %% Step 7 -- peaks, angular error and spurious peaks, per Lmax and per SNR
 % The only questions a tractography algorithm asks of an fODF are "how many
 % fibres, and pointing where", so those are what get scored.
@@ -1048,31 +1106,46 @@ fprintf('     mrview   smifod_%s_lmax6.mih -odf.load_sh smifod_%s_lmax6.mih\n', 
 fprintf('   sh2peaks writes 3 components per peak; compare against voxel_key.txt.\n');
 fprintf('   Nothing in this walkthrough runs those commands -- that is the point.\n\n');
 
+%% End of the per-kernel loop
+% Stash everything the figures need. Kernel-independent quantities (the ground
+% truth, the protocol, the shell assignment) are computed once above and are not
+% duplicated here.
+
+RUN{ik} = struct( ...
+    'name',    C.PRESET, ...
+    'K',       C.K_WM, ...
+    'S_clean', S_clean, ...
+    'S_noisy', S_noisy, ...
+    'fits',    {fits}, ...
+    'res',     res_all, ...
+    'bias',    bias_all, ...
+    'sd',      sd_all, ...
+    'spur',    spur_all, ...
+    'ceil_n',  ceil_n);
+
+end   % ik, the kernel loop
+fprintf('==================== both kernels done ====================\n\n');
+
 %% Figures
-% The six manuscript figures. Set |MAKE_FIGURES = false| to skip them.
+% Six figures. Set |MAKE_FIGURES = false| to skip them.
 %
 % All glyphs use |SMI_response_helpers|, the renderer MRtrix's |shview| logic
 % implies: *radius is |amplitude|, colour is the signed amplitude*, so negative
 % lobes show as a colour change instead of being folded silently into the
-% surface. That matters here because the band-limited truth really is negative
-% over much of the sphere (Step 2).
+% surface. The band-limited truth really is negative over much of the sphere
+% (Step 2), and a renderer that hid that would hide the most surprising result
+% in the file.
 %
-% Every 3D panel opens in an *isometric* view, so all subfigures are readable
-% without touching the camera:
+% Every 3D panel opens *isometric*, so all subfigures are readable without
+% touching the camera.
 %
-%  Fig 1  the two ground truth fibre configurations
-%  Fig 2  a montage of zonal harmonic response glyphs, b = 0 to 3
-%  Fig 3  the spherical signal: *b down the rows*, SNR across the columns,
-%         increasing left to right and ending at the ground truth
-%  Fig 4  reconstructed fODFs, *single fibre*: Lmax down the rows, the ground
-%         truth in the first column and then one column per SNR
-%  Fig 5  reconstructed fODFs, *60 degree crossing*: the same layout
-%  Fig 6  bias, spread and spurious peaks against SNR -- the summary plots
-%
-% Figures 3 to 5 all run SNR left to right in *increasing* order and put the
-% noiseless reference in the *last* column of Figure 3 and the *first* column of
-% Figures 4 and 5, next to the axis it belongs against in each case: the signal
-% degrades away from the truth, and the reconstructions are read against it.
+%  Fig 1  the ground truth fODF, then the response glyph of each kernel per
+%         shell -- what is being convolved, next to what it is convolved with
+%  Fig 2  the spherical signal, HEALTHY: b down the rows, SNR across
+%  Fig 3  the spherical signal, EDEMA: same layout, same radial scale
+%  Fig 4  reconstructed fODFs, HEALTHY: Lmax down, truth then one column per SNR
+%  Fig 5  reconstructed fODFs, EDEMA: same layout
+%  Fig 6  bias, spread and spurious peaks against SNR -- one ROW PER KERNEL
 
 MAKE_FIGURES = true;
 ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
@@ -1081,159 +1154,130 @@ GLYPH_N      = 121;          % mesh resolution for every glyph
 if MAKE_FIGURES
     fprintf('Figures: rendering ...\n');
     [THg, PHg, dirs_g] = RH.grid(GLYPH_N, GLYPH_N);
+    Yg   = SMI.get_even_SH(dirs_g, LMAX_GT, C.CS_PHASE);
+    nsh  = numel(b_shell);
+    ic   = 1;                                  % the only condition: 60 degrees
 
     % ================================================================
-    % FIGURE 1 -- the two ground truth fibre configurations, isometric
+    % FIGURE 1 -- the ground truth, and each kernel's response per shell
     % ================================================================
-    % Both panels open already rotated to an isometric view, so the 60 degree
-    % crossing reads as a crossing without anyone having to drag the camera.
-    figure('Name', sprintf('Fig 1  ground truth fibre geometry  [%s]', C.PRESET));
-    for ic = 1:NCOND
-        subplot(1, NCOND, ic);
-        [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
-                                    GLYPH_N, GLYPH_N, 1);
-        surf(X, Y, Z, Cc); shading interp;
-        axis equal off vis3d; view(ISO_VIEW);
-        camlight headlight; lighting gouraud;
-        title(sprintf('%s   (kappa = %g, Lmax %d)', COLHDR{ic}, C.KAPPA, LMAX_GT));
-    end
-
-    % ================================================================
-    % FIGURE 2 -- montage of zonal harmonic response glyphs, b = 0 to 3
-    % ================================================================
-    % One glyph per shell, drawn by the same renderer as Figure 1 so a response
-    % and an fODF can be compared without a convention change in between. This
-    % is the panel the CSD and MSMT-CSD responses will be added to: their
-    % dwi2response output is zonal coefficients in exactly this form, so each
-    % becomes another row here.
+    % The left column is the fODF being convolved. It is the same for both
+    % kernels: the ground truth geometry does not depend on the tissue.
     %
-    % Each glyph is normalised to its OWN maximum, so the montage compares
-    % SHAPE across shells. The amplitude falls steeply with b -- that is the
-    % r_0 column of the table in Step 3, not something to read off the glyphs.
-    figure('Name', sprintf('Fig 2  response glyph per shell  [%s]', C.PRESET));
-    nsh = numel(b_shell);
-    for i = 1:nsh
-        subplot(1, nsh, i);
-        r  = RH.zh(K, b_shell(i), LMAX_GT, C.D_FW);
-        pk = max(abs(RH.profile(r, linspace(0, pi, 361))));
-        if pk <= 0, pk = 1; end
-        [X, Y, Z, Cc] = RH.zh_glyph(r, GLYPH_N, GLYPH_N, 1/pk);
-        surf(X, Y, Z, Cc); shading interp;
-        axis equal off vis3d; view(ISO_VIEW);
-        camlight headlight; lighting gouraud;
-        title(sprintf('b = %.0f', b_shell(i)));
-    end
-
-    % ================================================================
-    % FIGURE 3 -- the spherical signal: b down the rows, SNR across
-    % ================================================================
-    % What the forward convolution actually produces, as a surface on the
-    % sphere rather than as numbers: radius is S(u)/S0.
+    % To its right, one row per kernel, one glyph per shell. Each response is
+    % normalised to its OWN maximum, so the montage compares SHAPE. Amplitude
+    % falls steeply with b, and that is the r_0 column of Step 3's table.
     %
-    % *b is the vertical axis*, increasing downwards, so a column is one noise
-    % level read down the shells and a row is one shell read across the noise
-    % levels. SNR increases left to right and the last column is the ground
-    % truth: the model evaluated directly on a dense grid, with no noise and no
-    % projection.
-    %
-    % The SNR columns cannot be drawn that way -- only 90 directions were
-    % measured -- so each is the spherical harmonic fit of ONE representative
-    % realisation at that SNR, at the same Lmax the ground truth uses. That is
-    % the same projection SMI does internally, so those surfaces are what the
-    % fit actually sees. The |inf| column and the ground truth column are
-    % therefore *different computations of the same object*, and they should be
-    % indistinguishable; that they are is a check you can make by eye.
-    %
-    % Every panel shares one radial scale, so the fall in signal with b is
-    % visible rather than normalised away.
-    figure('Name', 'Fig 3  spherical signal: b down the rows, SNR across the columns');
-    ic_show = NCOND;                                  % the 60 degree crossing
-    dwsh    = 2:nsh;                                  % skip the b~0 shell
-    nrow3   = numel(dwsh);
-    ncol3   = NSNR + 1;                               % every SNR, then the truth
-    Yg      = SMI.get_even_SH(dirs_g, LMAX_GT, C.CS_PHASE);
+    % This is the panel built to take CSD and MSMT-CSD: dwi2response writes
+    % zonal coefficients in exactly the form RH.zh_glyph draws, so an estimated
+    % response becomes another row here with no conversion.
+    figure('Name', 'Fig 1  ground truth fODF and the kernel responses');
+    subplot(NKERN, 1+nsh, [1, 1+nsh+1]);
+    [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
+                                GLYPH_N, GLYPH_N, 1);
+    surf(X, Y, Z, Cc); shading interp;
+    axis equal off vis3d; view(ISO_VIEW); camlight headlight; lighting gouraud;
+    title(sprintf('ground truth\n%g deg, kappa %g', ANGLES(ic), C.KAPPA));
 
-    amps = cell(nrow3, ncol3);
-    for j = 1:nrow3
-        i = dwsh(j);
-        m = (shell_id(:)' == i);
-        Ym = SMI.get_even_SH(bvecs(m,:), LMAX_GT, C.CS_PHASE);
-        for k = 1:NSNR
-            is = SNR_ORD(k);
-            v  = find(cond_id == ic_show & snr_id == is, 1);
-            cm = Ym \ S_noisy(v, m)';                 % least squares SH fit
-            amps{j,k} = reshape(Yg*cm, size(THg));
-        end
-        bq = b_shell(i)*ones(1, size(dirs_g,1));
-        s_clean_g = H.signal(plm_gt(ic_show,:), [K 1 1], bq, ones(size(bq)), ...
-                             zeros(size(bq)), dirs_g, LMAX_GT, C.CS_PHASE, C.D_FW);
-        amps{j,ncol3} = reshape(s_clean_g, size(THg));
-    end
-    smax = 0;
-    for k = 1:numel(amps), smax = max(smax, max(abs(amps{k}(:)))); end
-
-    for j = 1:nrow3
-        for k = 1:ncol3
-            subplot(nrow3, ncol3, (j-1)*ncol3 + k);
-            [X, Y, Z, Cc] = RH.glyph(amps{j,k}, THg, PHg, 1/smax);
+    for ikk = 1:NKERN
+        for i = 1:nsh
+            subplot(NKERN, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
+            r  = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
+            pk = max(abs(RH.profile(r, linspace(0, pi, 361))));
+            if pk <= 0, pk = 1; end
+            [X, Y, Z, Cc] = RH.zh_glyph(r, GLYPH_N, GLYPH_N, 1/pk);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
-            if k <= NSNR
-                title(sprintf('b = %.0f, SNR %s', b_shell(dwsh(j)), ...
-                              SNR_LABEL{SNR_ORD(k)}));
-            else
-                title(sprintf('b = %.0f, ground truth', b_shell(dwsh(j))));
+            title(sprintf('%s, b = %.0f', KERNELS{ikk}.name, b_shell(i)));
+        end
+    end
+
+    % ================================================================
+    % FIGURES 2 and 3 -- the spherical signal, one figure per kernel
+    % ================================================================
+    % Radius is S(u)/S0. The noise-free column is the model evaluated on a dense
+    % grid; every other column is the spherical harmonic fit of ONE
+    % representative realisation at that SNR, which is the same projection SMI
+    % does internally, so what is drawn is what the fit actually sees.
+    %
+    % Both figures share ONE radial scale, computed across both kernels, so the
+    % edema signal can be compared against the healthy one by eye rather than
+    % only by number.
+    sig = cell(NKERN, nsh-1, NSNR);
+    smax = 0;
+    for ikk = 1:NKERN
+        for j = 2:nsh
+            for kk = 1:NSNR
+                is = SNR_ORD(kk);
+                if isinf(SNR_LIST(is))
+                    bq = b_shell(j)*ones(1, size(dirs_g,1));
+                    sg = H.signal(plm_gt(ic,:), [KERNELS{ikk}.K 1 1], bq, ...
+                                  ones(size(bq)), zeros(size(bq)), dirs_g, ...
+                                  LMAX_GT, C.CS_PHASE, C.D_FW);
+                    A = reshape(sg, size(THg));
+                else
+                    v  = find(snr_id(:) == is, 1);
+                    m  = (shell_id(:)' == j);
+                    Ym = SMI.get_even_SH(bvecs(m,:), LMAX_GT, C.CS_PHASE);
+                    cm = Ym \ RUN{ikk}.S_noisy(v, m)';
+                    A  = reshape(Yg*cm, size(THg));
+                end
+                sig{ikk, j-1, kk} = A;
+                smax = max(smax, max(abs(A(:))));
+            end
+        end
+    end
+    for ikk = 1:NKERN
+        figure('Name', sprintf('Fig %d  spherical signal, %s', ...
+                               1+ikk, RUN{ikk}.name));
+        for j = 2:nsh
+            for kk = 1:NSNR
+                subplot(nsh-1, NSNR, (j-2)*NSNR + kk);
+                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
+                surf(X, Y, Z, Cc); shading interp;
+                axis equal off vis3d; view(ISO_VIEW);
+                camlight headlight; lighting gouraud;
+                title(sprintf('b %.0f, SNR %s', b_shell(j), ...
+                              SNR_LABEL{SNR_ORD(kk)}));
             end
         end
     end
 
     % ================================================================
-    % FIGURES 4 and 5 -- reconstructed fODFs, one figure per condition
+    % FIGURES 4 and 5 -- reconstructed fODFs, one figure per kernel
     % ================================================================
-    % Same renderer and same camera as Figure 1, so a reconstruction can be put
-    % next to the truth and compared directly -- which is now literal: the first
-    % column of each figure IS the Figure 1 glyph for that condition, truncated
-    % to the row's Lmax.
-    %
-    % Truncating it per row rather than always drawing it at |LMAX_GT| is the
-    % honest comparison, and it is the same object Step 7 scores the ceiling on:
-    % at Lmax 4 and 6 the truth carries detail the fit cannot represent, and the
-    % first column shows exactly how much. At Lmax 8, where |LMAX_GT| is also 8,
-    % it is Figure 1's panel unchanged.
-    %
-    % Columns after the first are one realisation per SNR, increasing left to
-    % right, so a row reads as "the truth, then what came back out of the noise".
-    for ic = 1:NCOND
-        figure('Name', sprintf('Fig %d  reconstructed fODFs, %s', 3+ic, COLHDR{ic}));
+    % Lmax down the rows. The first column is the band-limited ground truth at
+    % that Lmax -- the bound nothing below it can beat -- then one column per
+    % SNR, worst first. Same renderer and camera as Figure 1, so truth and
+    % reconstruction can be compared directly.
+    for ikk = 1:NKERN
+        figure('Name', sprintf('Fig %d  reconstructed fODFs, %s', ...
+                               3+ikk, RUN{ikk}.name));
         for iL = 1:numel(LMAX_LIST)
             Lf = LMAX_LIST(iL);
             nc = (Lf/2+1)*(Lf+1);
             Lv = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
-            scl = sqrt((2*Lv(2:end)'+1)/(4*pi));
+            sc = sqrt((2*Lv(2:end)'+1)/(4*pi));
 
-            % column 1: the ground truth, truncated to this Lmax
             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
-            [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic, 1:nc-1), Lf, C.CS_PHASE, ...
+            [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
                                         GLYPH_N, GLYPH_N, 1);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
-            title(sprintf('truth, Lmax %d', Lf));
+            title(sprintf('Lmax %d\ntruth', Lf));
 
-            % then one column per SNR, increasing left to right
-            for k = 1:NSNR
-                is = SNR_ORD(k);
-                subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + k);
-                v = find(cond_id == ic & snr_id == is, 1);
-                % back to the p_00 = 1 convention the glyph renderer expects
-                plm_v = fits{iL}.sh(v, 2:nc) ./ scl;
-                [X, Y, Z, Cc] = RH.sh_glyph(plm_v, Lf, C.CS_PHASE, ...
-                                            GLYPH_N, GLYPH_N, 1);
+            for kk = 1:NSNR
+                is = SNR_ORD(kk);
+                subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
+                v  = find(snr_id(:) == is, 1);
+                [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
+                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;
-                title(sprintf('Lmax %d, SNR %s', Lf, SNR_LABEL{is}));
+                title(sprintf('SNR %s', SNR_LABEL{is}));
             end
         end
     end
@@ -1241,56 +1285,50 @@ if MAKE_FIGURES
     % ================================================================
     % FIGURE 6 -- bias, spread and spurious peaks against SNR
     % ================================================================
-    % *Preliminary.* These are the summary plots the sweep exists to produce,
-    % and they are drawn from the same arrays Step 7 printed, so the figure and
-    % the table cannot disagree.
+    % ONE ROW PER KERNEL, three columns: mean angular error, its standard
+    % deviation, and the mean spurious peak count. One curve per Lmax. Both rows
+    % share y limits per column, so healthy and edema are read off the same
+    % axis rather than each being autoscaled to look similar.
     %
-    % Three things worth knowing before reading them:
-    %
-    % * *"Bias" here is the mean angular error*, which is the mean of a
-    %   non-negative quantity and so does not vanish for a perfect estimator.
-    %   The floor is set by the direction grid (about 1.5 degrees at 1500
-    %   directions) and by the band limit. The right way to read it is against
-    %   the noise-free point of the same curve, not against zero.
-    % * *The x axis is the SNR list in increasing order, evenly spaced*, not to
-    %   scale. |inf| cannot go on a numeric axis, and equal spacing keeps the
-    %   low-SNR end -- where everything happens -- from being squeezed.
-    % * *Spurious peak counts and angular error fail differently.* A method can
-    %   hold its angular error and start inventing peaks, or lose the peak
-    %   entirely and report a confident wrong direction. Both panels are needed.
-    figure('Name', 'Fig 6  bias, spread and spurious peaks vs SNR');
-    mks    = {'-o', '-s', '-^', '-d'};
-    mets   = {bias_all, sd_all, spur_all};
-    mnames = {'bias: mean angular error (deg)', ...
-              'std of angular error (deg)', ...
-              'spurious peaks per voxel'};
-    lgd = cell(1, numel(LMAX_LIST));
-    for iL = 1:numel(LMAX_LIST)
-        lgd{iL} = sprintf('Lmax %d', LMAX_LIST(iL));
+    % Drawn from exactly the arrays Step 7 printed, so the tables and the plots
+    % cannot disagree. When the CSD arms are wired up above they become further
+    % curves here with no change to this code.
+    figure('Name', 'Fig 6  bias, spread and spurious peaks against SNR');
+    xs   = 1:NSNR;                       % SNR_ORD order: worst first, Inf last
+    mets = {'bias', 'sd', 'spur'};
+    labs = {'mean angular error (deg)', 'std of angular error (deg)', ...
+            'spurious peaks per voxel'};
+    ylim_all = cell(1,3);
+    for im = 1:3
+        hi = 0;
+        for ikk = 1:NKERN
+            M = RUN{ikk}.(mets{im});
+            hi = max(hi, max(max(M(:,SNR_ORD,ic))));
+        end
+        if ~isfinite(hi) || hi <= 0, hi = 1; end
+        ylim_all{im} = [0 1.05*hi];
     end
-    for ic = 1:NCOND
-        for im = 1:numel(mets)
-            subplot(NCOND, numel(mets), (ic-1)*numel(mets) + im);
+    for ikk = 1:NKERN
+        for im = 1:3
+            subplot(NKERN, 3, (ikk-1)*3 + im);
             hold on;
-            M = mets{im};
+            M = RUN{ikk}.(mets{im});
             for iL = 1:numel(LMAX_LIST)
-                y = M(iL, SNR_ORD, ic);
-                plot(1:NSNR, y(:)', mks{mod(iL-1, numel(mks))+1});
+                plot(xs, squeeze(M(iL, SNR_ORD, ic)), '-o', 'LineWidth', 1.5);
             end
-            set(gca, 'XTick', 1:NSNR, 'XTickLabel', SNR_LABEL(SNR_ORD));
-            xlim([0.5 NSNR+0.5]);
-            xlabel('SNR'); ylabel(mnames{im});
-            title(sprintf('%s -- %s', COLHDR{ic}, mnames{im}));
-            grid on;
-            if ic == 1 && im == 1, legend(lgd); end
-            hold off;
+            set(gca, 'XTick', xs, 'XTickLabel', SNR_LABEL(SNR_ORD));
+            xlim([0.5 NSNR+0.5]); ylim(ylim_all{im});
+            xlabel('SNR'); ylabel(labs{im}); grid on;
+            title(sprintf('%s -- %s', RUN{ikk}.name, labs{im}));
+            if ikk == 1 && im == 1
+                legend(arrayfun(@(L) sprintf('Lmax %d', L), LMAX_LIST, ...
+                                'UniformOutput', false), 'Location', 'best');
+            end
         end
     end
 
-    fprintf('   6 figures drawn; every 3D panel opens in an isometric view.\n');
-    fprintf('   Radius is |amplitude| and colour is the SIGNED amplitude, so the\n');
-    fprintf('   negative lobes of a band-limited fODF show as a colour change\n');
-    fprintf('   rather than being folded into the surface.\n\n');
+    fprintf('   6 figures drawn, all 3D panels opening isometric.\n');
+    fprintf('   Radius is |amplitude|, colour is the SIGNED amplitude.\n\n');
 end
 
 %% Step 9 -- from here to a full campaign
@@ -1321,8 +1359,8 @@ end
 % *What to change first if you want to probe it.* Everything is in the
 % Configuration block at the top of this file, and nothing outside it needs
 % editing: |NREP| sets the runtime, |SNR_LIST| and |LMAX_LIST| the sweep,
-% |KERNEL_PRESET| the tissue, |KAPPA| the fibre dispersion, |ANGLES| the
-% crossings, |REG| the regularizer, |PROTOCOL| the acquisition.
+% |KERNELS| the tissues simulated, |KAPPA| the fibre dispersion, |ANGLES| the
+% crossing, |REG| the regularizer, |PROTOCOL| the acquisition.
 %
 % Those settings are *local to this notebook*. Changing them here does not
 % change |gen_montecarlo.m| or |sweep_nonneg.m|, which keep their own values in
