@@ -1,0 +1,227 @@
+From 7cacf90765391c2bad5e4c1e8a2d08c90ce1a558 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 6 Aug 2026 23:41:01 +0000
+Subject: [PATCH] Put Figure 1 on one shared radial scale, and add a difference
+ row
+
+Figure 1 normalised every response glyph to its own maximum, so all glyphs
+came out the same size and only shape differed. For a healthy-vs-edema
+comparison that hid the main effect. Now every glyph on the figure shares
+ONE radial scale, so size carries meaning: a smaller glyph is a genuinely
+smaller signal.
+
+A third row holds the residual R_healthy(theta) - R_edema(theta). It is
+exact rather than sampled -- the responses are zonal, so the difference is
+the difference of their zonal coefficients. Radius is |difference| and
+colour is the SIGNED difference, so where edema exceeds healthy reads as a
+colour change instead of vanishing into a magnitude. Each title carries the
+peak |difference| on the shared scale. The row is drawn only when there are
+exactly two kernels, since a residual of three is not a thing.
+
+A glyph is hard to read off a page, so the same numbers are printed:
+
+      b      healthy      edema   difference
+   0.005      0.9975     0.9834       0.0141
+   1.000      0.8314     0.2915       0.5398
+   2.000      0.7383     0.1555       0.5828
+   3.000      0.6790     0.1159       0.5631
+
+That table is the answer to why the edema arm will look noisier when the
+noise is identical. It is not noisier: sigma = 1/SNR against S0 = 1 in both
+runs. The anisotropic SIGNAL is 3 to 6 times smaller, because f 0.60 -> 0.10
+removes most of the stick compartment, Deperp 0.50 -> 1.15 makes the
+extra-axonal tensor nearly isotropic, and fw 0.02 -> 0.35 adds purely
+isotropic signal. K_2, K_4 and K_6 all shrink while K_0 does not, and
+deconvolution divides by K_l -- so the gain 1/K_l amplifies the same noise
+more. Same mechanism as the CSF blow-ups already documented here. The
+notebooks README now says this in place of leaving it to be rediscovered.
+
+One claim written into the first draft of this change was wrong and the run
+caught it. "At b = 0 the kernels are identical, so the residual is exactly
+zero" is true only at exactly b = 0. This is a real protocol: its b = 0
+volumes are b = 5 s/mm^2, all 18 of them, so they do attenuate slightly and
+differently, and the measured residual there is 0.0141 rather than 0. The
+text and the printed note now say that.
+
+No simulation was run. The figure block was executed against the graphics
+stubs with fabricated RUN data.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/notebooks/README.md         | 23 ++++-
+ .../notebooks/smi_manuscript_60deg.m          | 98 ++++++++++++++++---
+ 2 files changed, 106 insertions(+), 15 deletions(-)
+
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index d879f02..8856e68 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -43,7 +43,7 @@ view so all subfigures are readable without touching the camera:
+ 
+ | figure | layout |
+ |---|---|
+-| 1 | the ground truth fODF, then **each kernel's response glyph per shell** — what is convolved, beside what it is convolved with |
++| 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
+ | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
+ | 3 | the same for **edema**, on the same radial scale so the two compare by eye |
+ | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
+@@ -62,6 +62,27 @@ SMI, so they appear automatically as extra columns in Figures 4–5 and extra
+ curves in Figure 6 with no figure code changes. Figure 1 is the panel built to
+ take their estimated responses.
+ 
++### Why the edema arm looks noisier, when the noise is identical
++
++`sigma = 1/SNR` against `S0 = 1` in both runs, so the noise added is exactly the
++same. What shrinks is the **anisotropic signal**. All three edema parameters push
++the same way: `f` 0.60 → 0.10 removes most of the stick compartment, which is the
++anisotropic one; `Deperp` 0.50 → 1.15 makes the extra-axonal tensor nearly
++isotropic; and `fw` 0.02 → 0.35 adds purely isotropic signal. `K_2`, `K_4`, `K_6`
++all shrink while `K_0` stays comparable — and the orientation information lives
++entirely in those `l >= 2` invariants.
++
++Deconvolution then amplifies rather than rescues, because recovering `p_lm` means
++**dividing by `K_l`**: the gain is `1/K_l`, so smaller invariants amplify the same
++noise more. Same mechanism as the CSF blow-ups documented elsewhere in this repo
++(`g_2 = 1/||K_2||`, 3.6 in CSF against 0.6 in white matter).
++
++Figure 1's shared scale is what makes this visible, and the table it prints gives
++the numbers: on that scale the healthy response peaks at 0.83 / 0.74 / 0.68 for
++b = 1 / 2 / 3, the edema response at 0.29 / 0.16 / 0.12. So the framing is not
++"edema is noisier" but **"edema has less anisotropic signal, and the
++deconvolution amplifies noise in inverse proportion to it."**
++
+ ## Running it
+ 
+ ```
+diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+index a3489c5..71ccec2 100644
+--- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
++++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+@@ -1159,20 +1159,58 @@ if MAKE_FIGURES
+     ic   = 1;                                  % the only condition: 60 degrees
+ 
+     % ================================================================
+-    % FIGURE 1 -- the ground truth, and each kernel's response per shell
++    % FIGURE 1 -- the ground truth, each kernel's response, and the difference
+     % ================================================================
+     % The left column is the fODF being convolved. It is the same for both
+     % kernels: the ground truth geometry does not depend on the tissue.
+     %
+-    % To its right, one row per kernel, one glyph per shell. Each response is
+-    % normalised to its OWN maximum, so the montage compares SHAPE. Amplitude
+-    % falls steeply with b, and that is the r_0 column of Step 3's table.
++    % To its right, one row per kernel and one glyph per shell, then a third
++    % row holding the difference between them.
+     %
+-    % This is the panel built to take CSD and MSMT-CSD: dwi2response writes
+-    % zonal coefficients in exactly the form RH.zh_glyph draws, so an estimated
+-    % response becomes another row here with no conversion.
+-    figure('Name', 'Fig 1  ground truth fODF and the kernel responses');
+-    subplot(NKERN, 1+nsh, [1, 1+nsh+1]);
++    % *Every glyph on this figure shares ONE radial scale*, so size carries
++    % meaning: a smaller glyph is a genuinely smaller signal. That is the whole
++    % point of the panel. The edema kernel attenuates faster and is far less
++    % anisotropic, and both show up as shrinkage rather than only as a change
++    % of shape.
++    %
++    % Two things follow from the shared scale and are worth expecting:
++    %
++    % * *The lowest shell is very nearly a unit sphere in both rows, and very
++    %   nearly identical between them.* At exactly b = 0 it would be exactly
++    %   both: r_0(0) = sqrt(4*pi) for ANY kernel, because S(0)/S0 = 1 by
++    %   construction. But this is a REAL protocol whose b = 0 is b = 5 s/mm^2,
++    %   not 0, so the kernels do attenuate it slightly and differently. The
++    %   printed table below gives the residual there -- small, and not zero.
++    % * The scale is set by that lowest shell, the largest thing on the figure.
++    %
++    % The difference row is the residual R_healthy(theta) - R_edema(theta),
++    % which is exact rather than sampled: the responses are zonal, so the
++    % difference is just the difference of their zonal coefficients. Radius is
++    % |difference| and colour is the SIGNED difference, so where edema exceeds
++    % healthy is visible as a colour change rather than being lost in a
++    % magnitude. Each title carries the peak |difference| on the shared scale.
++    %
++    % This is also the panel built to take CSD and MSMT-CSD: dwi2response
++    % writes zonal coefficients in exactly the form RH.zh_glyph draws, so an
++    % estimated response becomes another row here with no conversion.
++    th_prof = linspace(0, pi, 361);
++    show_diff = (NKERN == 2);          % a residual row only makes sense for a pair
++    nrow1     = NKERN + double(show_diff);
++
++    % one radial scale for the whole figure, over every glyph it will draw
++    r_sh = cell(NKERN, nsh);
++    rmax = 0;
++    for ikk = 1:NKERN
++        for i = 1:nsh
++            r_sh{ikk,i} = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
++            rmax = max(rmax, max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
++        end
++    end
++    if rmax <= 0, rmax = 1; end
++
++    figure('Name', 'Fig 1  ground truth fODF, kernel responses, and their difference');
++    col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
++    subplot(nrow1, 1+nsh, col1);
+     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
+                                 GLYPH_N, GLYPH_N, 1);
+     surf(X, Y, Z, Cc); shading interp;
+@@ -1181,11 +1219,8 @@ if MAKE_FIGURES
+ 
+     for ikk = 1:NKERN
+         for i = 1:nsh
+-            subplot(NKERN, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
+-            r  = RH.zh(KERNELS{ikk}.K, b_shell(i), LMAX_GT, C.D_FW);
+-            pk = max(abs(RH.profile(r, linspace(0, pi, 361))));
+-            if pk <= 0, pk = 1; end
+-            [X, Y, Z, Cc] = RH.zh_glyph(r, GLYPH_N, GLYPH_N, 1/pk);
++            subplot(nrow1, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
++            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
+             camlight headlight; lighting gouraud;
+@@ -1193,6 +1228,41 @@ if MAKE_FIGURES
+         end
+     end
+ 
++    if show_diff
++        for i = 1:nsh
++            subplot(nrow1, 1+nsh, NKERN*(1+nsh) + 1 + i);
++            r_d  = r_sh{1,i} - r_sh{2,i};
++            pk_d = max(abs(RH.profile(r_d, th_prof)));
++            [X, Y, Z, Cc] = RH.zh_glyph(r_d, GLYPH_N, GLYPH_N, 1/rmax);
++            surf(X, Y, Z, Cc); shading interp;
++            axis equal off vis3d; view(ISO_VIEW);
++            camlight headlight; lighting gouraud;
++            title(sprintf('%s - %s, b = %.0f\npeak |diff| %.3f', ...
++                          KERNELS{1}.name, KERNELS{2}.name, b_shell(i), pk_d));
++        end
++    end
++
++    % The same difference as numbers, since a glyph is hard to read off a page.
++    fprintf('   Fig 1: response peak amplitude on the shared scale (max = %.3f)\n', rmax);
++    fprintf('        b   ');
++    for ikk = 1:NKERN, fprintf('%12s', KERNELS{ikk}.name); end
++    if show_diff, fprintf('%12s', 'difference'); end
++    fprintf('\n');
++    for i = 1:nsh
++        fprintf('     %4.2f   ', b_shell(i));
++        for ikk = 1:NKERN
++            fprintf('%12.4f', max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
++        end
++        if show_diff
++            fprintf('%12.4f', max(abs(RH.profile(r_sh{1,i} - r_sh{2,i}, th_prof))));
++        end
++        fprintf('\n');
++    end
++    fprintf(['   At exactly b = 0 every kernel gives the same response, since S(0)/S0 = 1\n' ...
++             '   by construction. The lowest shell here is a real b = 5 s/mm^2, so its\n' ...
++             '   residual is small but genuinely non-zero -- read it off the table, not\n' ...
++             '   off the glyph.\n\n']);
++
+     % ================================================================
+     % FIGURES 2 and 3 -- the spherical signal, one figure per kernel
+     % ================================================================
+-- 
+2.43.0
+
