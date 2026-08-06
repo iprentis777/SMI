@@ -6,15 +6,16 @@ running in bulk. They are the answer to "how do I check this myself?".
 | notebook | what it walks through |
 |---|---|
 | `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export. Conditions: single fibre, 30, 45, 60 degrees. **One SNR** |
-| `smi_manuscript_60deg.m` | the manuscript cut — **single fibre and 60 degrees only**, **swept across SNR**, **kernel selectable** — with six isometric figures |
+| `smi_manuscript_60deg.m` | the manuscript cut — **60 degree crossing only**, **two kernels back to back**, **swept across SNR** — six isometric figures |
 
 `smi_manuscript_60deg.m` keeps **every knob in one Configuration block at the
-top**, including the kernel, so retuning it never means opening another file.
-`KERNEL_PRESET` switches the tissue:
+top**, including the kernels, so retuning it never means opening another file.
+It simulates **both tissues in one run**, back to back off the same ground
+truth, protocol and noise seeds — only the kernel differs:
 
 | preset | `[f Da Depar Deperp fw]` | extra-axonal |
 |---|---|---|
-| `healthy_wm` | `[0.60 2.0 2.0 0.50 0.02]` | 0.38 |
+| `healthy` | `[0.60 2.0 2.0 0.50 0.02]` | 0.38 |
 | `edema` | `[0.10 2.4 2.7 1.15 0.35]` | 0.55 |
 
 The `edema` kernel is shaped from a *fitted* kernel, which is why the
@@ -42,20 +43,24 @@ view so all subfigures are readable without touching the camera:
 
 | figure | layout |
 |---|---|
-| 1 | the two ground truth fibre configurations |
-| 2 | a montage of response glyphs, b = 0 to 3 |
-| 3 | the signal as surfaces on the sphere: **b down the rows**, SNR across the columns, increasing left to right and ending at the ground truth |
-| 4 | reconstructed fODFs, **single fibre**: Lmax down the rows, the ground truth in the first column and then one column per SNR |
-| 5 | reconstructed fODFs, **60 degree crossing**, same layout |
-| 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, one row per condition |
+| 1 | the ground truth fODF, then **each kernel's response glyph per shell** — what is convolved, beside what it is convolved with |
+| 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
+| 3 | the same for **edema**, on the same radial scale so the two compare by eye |
+| 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
+| 5 | the same for **edema** |
+| 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, **one row per kernel**, y limits shared per column |
 
 Set `MAKE_FIGURES = false` in that section to skip them. In MATLAB they appear
 inline in the Live Script; under Octave graphics are often unavailable, and the
 printed numbers are the deliverable either way — every figure is drawn from the
 same arrays Step 7 prints, so the tables and the plots cannot disagree.
 
-The CSD and MSMT-CSD arms are not covered yet. Figure 2 is the panel built to
-take their responses and Figures 4–6 the panels built to take their fODFs.
+The CSD and MSMT-CSD arms are not wired up, but the hook is in place: a
+commented block just before Step 7 reads MRtrix fODF images and appends them as
+extra arms. Uncommenting it makes them scored by the **same peak finder** as
+SMI, so they appear automatically as extra columns in Figures 4–5 and extra
+curves in Figure 6 with no figure code changes. Figure 1 is the panel built to
+take their estimated responses.
 
 ## Running it
 
@@ -81,8 +86,9 @@ whether there are 100 voxels or 10,000.
 
 **`smi_manuscript_60deg.m` is a different order of magnitude**, and at its
 defaults it runs in hours rather than minutes. It fits
-`numel(SNR_LIST) × numel(LMAX_LIST)` times — 18 at `SNR_LIST = [5 10 20 30 50
-Inf]` and `LMAX_LIST = [4 6 8]` — each on `2 × NREP` voxels, and at
+`NKERN × numel(SNR_LIST) × numel(LMAX_LIST)` times — **36** at two kernels,
+`SNR_LIST = [5 10 20 30 50 Inf]` and `LMAX_LIST = [4 6 8]` — each on `NREP`
+voxels, and at
 `NREP = 1000` the per-voxel constrained deconvolution is no longer negligible
 next to the training. **`NREP` is the knob**: drop it to 25 for a version that
 runs while you read it. The file prints the elapsed time of every fit as it
