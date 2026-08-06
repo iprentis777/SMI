@@ -54,6 +54,11 @@ C.pick_grid     = @pick_grid;
 C.rotate_about  = @rotate_about;
 C.condition_axes = @(ic) condition_axes(C.AXIS1, C.ANGLES, ic);
 C.load_protocol  = @() load_protocol(C.PROTOCOL);
+% Same loader, but naming the file explicitly. Notebooks that keep their own
+% configuration block use this so the protocol is a knob in the notebook rather
+% than something they have to come here to change. Same normalisation, same
+% warning -- there is still only one reader.
+C.load_protocol_file = @(fname) load_protocol(fname);
 end
 
 % =====================================================================

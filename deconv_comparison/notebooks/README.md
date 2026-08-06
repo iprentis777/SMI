@@ -6,7 +6,32 @@ running in bulk. They are the answer to "how do I check this myself?".
 | notebook | what it walks through |
 |---|---|
 | `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export. Conditions: single fibre, 30, 45, 60 degrees. **One SNR** |
-| `smi_manuscript_60deg.m` | the manuscript cut — **single fibre and 60 degrees only**, **swept across SNR** — with six isometric figures |
+| `smi_manuscript_60deg.m` | the manuscript cut — **single fibre and 60 degrees only**, **swept across SNR**, **kernel selectable** — with six isometric figures |
+
+`smi_manuscript_60deg.m` keeps **every knob in one Configuration block at the
+top**, including the kernel, so retuning it never means opening another file.
+`KERNEL_PRESET` switches the tissue:
+
+| preset | `[f Da Depar Deperp fw]` | extra-axonal |
+|---|---|---|
+| `healthy_wm` | `[0.60 2.0 2.0 0.50 0.02]` | 0.38 |
+| `edema` | `[0.10 2.4 2.7 1.15 0.35]` | 0.55 |
+
+The `edema` kernel is shaped from a *fitted* kernel, which is why the
+diffusivities are not round and why `Depar` exceeds `Da`. Two values depart from
+the fit as supplied, both deliberately: **`f` is 0.10 rather than 0.05**, because
+0.05 is exactly the lower bound of SMI's default training prior and a truth
+sitting on the prior boundary is estimated with a one-sided bias that is
+indistinguishable from a real effect; and **`fw = 0.35`**, which the fit did not
+specify, modelling edema as added free water. `Deperp = 1.15` remains close to
+its own prior cap of 1.2 — left as fitted, but the first place to look if the
+extra-axonal diffusivities come back biased low.
+
+Only three stateless utilities still come from `mc_config.m` — `pick_grid`,
+`rotate_about`, `load_protocol_file`. They are shared rather than copied so the
+fibre-axis convention and the protocol reader cannot drift from
+`gen_montecarlo.m`. Changing a knob in the notebook does **not** change the
+pipeline, which keeps its own values in `mc_config.m`.
 
 `smi_simulation_walkthrough.m` draws four figures: the ground truth fibre
 geometry, the kernel as a response function, the forward convolution with and

@@ -2,8 +2,10 @@
 % The manuscript version of |smi_simulation_walkthrough.m|, cut down to the two
 % configurations the manuscript uses -- *a single fibre and a 60 degree
 % crossing* -- and swept across *a list of SNRs* rather than run at one.
-% Everything else -- forward model, checks, fit, export -- is the same code and
-% the same |mc_config.m| constants.
+% Everything else -- forward model, checks, fit, export -- is the same code.
+% *Its configuration is local:* every knob lives in the Configuration block
+% below, including the kernel, so retuning the experiment or switching to the
+% edema kernel never means opening another file.
 %
 % *Why a sweep.* One SNR answers "does it work here". A sweep answers "where
 % does it stop working", which is what a manuscript figure is for. It is also
@@ -25,10 +27,11 @@
 % below are publish-style.
 %
 % *Nothing here is a reimplementation.* The forward model comes from
-% |helpers/fODF_modulation_helpers.m|, the fit is the real |SMI.fit|, and the
-% experiment's constants come from |mc_config.m| -- the same file
-% |gen_montecarlo.m| reads. If a number here disagrees with the pipeline, the
-% pipeline is what is wrong.
+% |helpers/fODF_modulation_helpers.m| and the fit is the real |SMI.fit|. The
+% experiment's settings are in the Configuration block below rather than in
+% |mc_config.m|, so this file can be retuned on its own; the geometry and
+% protocol *utilities* are still shared with |gen_montecarlo.m| so those
+% conventions cannot drift.
 %
 % *What you should end up believing.* Not "the code ran". Each step ends with
 % one or more *CHECK* lines that compare its output against something computed
@@ -61,10 +64,13 @@
 % file prints the elapsed time of every fit as it goes, so the first two lines
 % of Step 6 tell you what the whole run will cost.
 
-%% Setup
-% |oct_path.m| puts the repository root, |helpers/| and this package on the
-% path, and under Octave also loads the compatibility shims. It is the only
-% path manipulation in this file.
+%% Configuration -- every knob in this simulation is here
+% *Nothing below this block needs editing to retune the experiment*, and nothing
+% in it has to be looked up elsewhere. The three things this file still takes
+% from |mc_config.m| are stateless utilities, not settings: |pick_grid|,
+% |rotate_about| and |load_protocol_file|. They are shared rather than copied so
+% the fibre-axis convention and the protocol reader cannot drift away from
+% |gen_montecarlo.m|.
 
 clear; close all;
 here = fileparts(mfilename('fullpath'));
@@ -75,27 +81,133 @@ if exist('OCTAVE_VERSION', 'builtin')        % quieten Octave's package-load noi
 end
 run(fullfile(pkgdir, 'oct_path.m'));
 
-NREP      = 1000;               % realisations per condition PER SNR. Report used 10000.
-SNR_LIST  = [5 10 20 30 50 Inf];% 1/sigma at each noise level, in any order
-LMAX_LIST = [4 6 8];            % angular orders to fit at -- see the next section
-                                % the protocol itself is named in mc_config.m
+MC   = mc_config();                          % utilities only, see above
+H    = fODF_modulation_helpers();
+RH   = SMI_response_helpers();
+VERDICT = {'** FAILED **', 'ok'};            % VERDICT{1+condition}
 
-% |Inf| is the noise-free arm and is carried as a genuine infinity rather than
-% as a large finite number: sigma = 1/Inf = 0, the noise draw below reduces to
-% the signal exactly, and SMI's Rician bias correction subtracts zero. The
-% pipeline's own noise-free arm instead uses SNR = 1e4
-% (|gen_montecarlo(1e4, 500, 'nf')|), which is the same thing to within the
-% band-limiting error. The only cost of a true zero is that anything dividing
-% by sigma has to be special-cased, and the checks below do that explicitly
-% rather than printing NaN.
+% ---------------------------------------------------------------- the tissue
+% Which kernel to simulate. Everything downstream -- figure titles, printed
+% tables, exported filenames -- picks up this name, so two runs cannot be
+% confused for each other.
 %
-% Two things follow from |Inf| being exactly noiseless, and they are worth
-% knowing before you wait for the run: every realisation in that block is the
-% same signal, so all |NREP| voxels come back identical, and the block therefore
-% costs a full fit to produce one distinct answer. It earns its place as the
-% reference column of Figures 3 to 5 and as the check that the fit reaches the
-% truth at all -- but if runtime is what is hurting, it is the cheapest entry to
-% drop, or to keep while lowering |NREP|.
+%   'healthy_wm'  the kernel the published Monte Carlo used
+%   'edema'       a low axonal fraction, high extra-axonal diffusivity kernel
+%
+% SMI's compartment vector is [f Da Depar Deperp fw]:
+%
+%   f        intra-axonal (stick) fraction
+%   Da       intra-axonal diffusivity along the stick        um^2/ms
+%   Depar    extra-axonal diffusivity parallel to the fibre  um^2/ms
+%   Deperp   extra-axonal diffusivity perpendicular          um^2/ms
+%   fw       free water fraction, D fixed at D_FW below
+%
+% The extra-axonal fraction is whatever is left: 1 - f - fw.
+KERNEL_PRESET = 'healthy_wm';
+
+switch KERNEL_PRESET
+case 'healthy_wm'
+    K_SIM  = [0.60 2.0 2.0 0.50 0.02];
+    K_NOTE = 'the kernel the published Monte Carlo used';
+
+case 'edema'
+    % Shaped from a FITTED kernel rather than invented, which is why the
+    % diffusivities are not round numbers and why Depar exceeds Da -- a fit is
+    % free to land there and a synthetic kernel usually would not be written
+    % that way.
+    %
+    % Two deliberate departures from the numbers as supplied, both worth
+    % knowing because they change what the result means:
+    %
+    % * *f is 0.10, not 0.05.* SMI's default training prior has its lower bound
+    %   for f at exactly 0.05 (SMI.m, MLTraining.bounds). A truth sitting ON the
+    %   boundary of the prior is estimated with a one-sided bias toward the
+    %   prior mean, which is indistinguishable from a real effect. Moving it to
+    %   0.10 puts the truth inside the prior so the result is about the data.
+    % * *fw is 0.35*, which the fitted kernel did not specify. Edema modelled
+    %   as added free water. The default prior caps fw at 0.5, so 0.35 is
+    %   comfortably inside it.
+    %
+    % Deperp = 1.15 is still close to its own prior cap of 1.2. That one is left
+    % alone -- it is the number from the fit -- but if the extra-axonal
+    % diffusivities come back biased low, this is the first place to look.
+    K_SIM  = [0.10 2.4 2.7 1.15 0.35];
+    K_NOTE = 'low axonal fraction, high extra-axonal diffusivity, added free water';
+
+otherwise
+    error('smi_manuscript:preset', 'unknown KERNEL_PRESET "%s"', KERNEL_PRESET);
+end
+
+D_FW  = 3;          % free water diffusivity, um^2/ms
+KAPPA = 16;         % Watson concentration of each fibre population. Finite, not
+                    % a delta: a response estimated from real white matter has
+                    % already absorbed fibre dispersion, and a delta truth would
+                    % create a mismatch that does not exist in practice.
+
+% ------------------------------------------------------------- the geometry
+ANGLES = [0 60];    % crossing angles in degrees; 0 means a single fibre.
+                    % 60 is the manuscript configuration: measured on the
+                    % noise-free truth it separates at every Lmax and every
+                    % KAPPA tested, where 30 never separates at KAPPA = 16 and
+                    % 45 only from Lmax 6 up. That is what makes a difference
+                    % between methods attributable to the method.
+AXIS1  = [0.30 -0.50 0.81];       % first fibre axis, off every coordinate plane
+AXIS1  = AXIS1/norm(AXIS1);
+
+% ------------------------------------------------------------ the experiment
+NREP      = 1000;                 % realisations per condition PER SNR
+SNR_LIST  = [5 10 20 30 50 Inf];  % 1/sigma at each noise level, in any order
+LMAX_LIST = [4 6 8];              % angular orders to fit at
+LMAX_GT   = 8;                    % ground truth angular order. A CEILING, not a
+                                  % choice: SMI's kernel invariants K_l are
+                                  % undefined above l = 8.
+CS_PHASE  = 0;                    % 0 == MRtrix's SH basis exactly. At SMI's
+                                  % default of 1 the two differ by (-1)^m, a 180
+                                  % degree rotation about z of every fODF.
+PROTOCOL  = 'hcp_real_3shell.txt';
+NDIR_Q    = 3000;                 % quadrature directions for projecting a
+                                  % sampled fODF onto plm
+SEED      = 31415;                % RNG seed
+
+% ---------------------------------------------- the constrained deconvolution
+% Passed straight through to options.fODF_regularization. flag_nonneg = 1 is the
+% arm being studied; it is OFF in the shipped toolbox defaults.
+REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
+
+% ------------------------------------------------------------------ assembled
+% Collected into one struct so the rest of the file reads C.<knob> and there is
+% exactly one place to change any of them.
+C = struct();
+C.K_WM     = K_SIM;      C.D_FW     = D_FW;     C.KAPPA    = KAPPA;
+C.ANGLES   = ANGLES;     C.AXIS1    = AXIS1;    C.LMAX_GT  = LMAX_GT;
+C.CS_PHASE = CS_PHASE;   C.PROTOCOL = PROTOCOL; C.NDIR_Q   = NDIR_Q;
+C.SEED_MC  = SEED;       C.PRESET   = KERNEL_PRESET;
+C.pick_grid      = MC.pick_grid;                 % shared utilities
+C.rotate_about   = MC.rotate_about;
+C.load_protocol  = @() MC.load_protocol_file(PROTOCOL);
+
+% The fibre axes of each condition, built once from AXIS1 and the shared
+% rotation so the geometry convention matches the pipeline exactly.
+AX = cell(1, numel(ANGLES));
+for ic = 1:numel(ANGLES)
+    if ANGLES(ic) == 0
+        AX{ic} = {AXIS1};
+    else
+        AX{ic} = {AXIS1, C.rotate_about(AXIS1, ANGLES(ic))};
+    end
+end
+C.condition_axes = @(ic) AX{ic};
+
+fprintf('\n=== SMI manuscript simulation ===\n');
+fprintf('kernel preset : %s -- %s\n', KERNEL_PRESET, K_NOTE);
+fprintf('                [f Da Depar Deperp fw] = %s, extra-axonal = %.2f\n', ...
+        mat2str(K_SIM), 1 - K_SIM(1) - K_SIM(5));
+fprintf('conditions    : %s deg,  kappa = %g\n', mat2str(ANGLES), KAPPA);
+fprintf('sweep         : SNR %s  x  Lmax %s  = %d fits of %d voxels each\n', ...
+        mat2str(SNR_LIST), mat2str(LMAX_LIST), ...
+        numel(SNR_LIST)*numel(LMAX_LIST), numel(ANGLES)*NREP);
+fprintf('truth at Lmax %d (SMI''s kernel ceiling), CS_phase %d\n\n', LMAX_GT, CS_PHASE);
+
 NSNR       = numel(SNR_LIST);
 SIGMA_LIST = 1./SNR_LIST;                     % Inf -> 0
 SNR_LABEL  = cell(1, NSNR);
@@ -109,26 +221,6 @@ end
 [~, SNR_ORD] = sort(SNR_LIST);  % ascending, Inf last: the order every figure
                                 % and every plot uses, whatever order SNR_LIST
                                 % was typed in
-
-C = mc_config();                % kernel, dispersion, seeds, protocol
-H = fODF_modulation_helpers();
-
-% The ONLY thing this file overrides in mc_config is the condition list: the
-% manuscript uses a single fibre and a 60 degree crossing. The fibre axes still
-% come from C.AXIS1 and C.rotate_about, so the geometry convention is shared
-% with the pipeline and cannot drift.
-ANG = [0 60];
-AX  = cell(1, numel(ANG));
-for ic = 1:numel(ANG)
-    if ANG(ic) == 0
-        AX{ic} = {C.AXIS1};
-    else
-        AX{ic} = {C.AXIS1, C.rotate_about(C.AXIS1, ANG(ic))};
-    end
-end
-C.ANGLES = ANG;
-C.condition_axes = @(ic) AX{ic};
-VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
 
 %% Which Lmax, and why the ground truth is stuck at 8
 % This is the first thing to be clear about, because every result below depends
@@ -158,7 +250,6 @@ VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
 % against the report. 4 is what the real-data driver |run_smi_batch_mod.m|
 % uses. 8 is the report's own upper control.
 
-LMAX_GT = C.LMAX_GT;
 fprintf('\n=== SMI manuscript simulation ===\n');
 fprintf('protocol %s, NREP %d per condition per SNR, CS_phase %d\n', ...
         C.PROTOCOL, NREP, C.CS_PHASE);
@@ -188,9 +279,10 @@ fprintf('ground truth at Lmax %d, which is SMI''s kernel ceiling\n\n', LMAX_GT);
 %   into shells for the kernel fit, and Step 1 checks that it bins them the way
 %   a human would.
 
-% Read through mc_config, which every other arm also uses, so there is one
-% definition of what was acquired. It prints a loud warning if the .bvec is not
-% unit -- expect one here, and see the note under Step 3 for why it matters.
+% Read through the shared loader, which every other arm also uses, so there is
+% one reader for the acquisition even though the filename is a knob above. It
+% prints a loud warning if the .bvec is not unit -- expect one here, and see the
+% note under Step 3 for why it matters.
 [bvals, bvecs] = C.load_protocol();
 Ndwi = numel(bvals);
 
@@ -211,7 +303,7 @@ end
 dw = shell_id(:)' > 1;                        % everything above the b~0 shell
 
 % CHECK 1. Every direction must be a unit vector. This passes trivially because
-% mc_config normalised them on load -- the number that matters is the one in the
+% the loader normalised them -- the number that matters is the one in the
 % warning it printed just above, which is the error as the .bvec was supplied.
 e_nrm = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
 fprintf('   CHECK all directions are unit    max| |g|-1 | = %.2e   %s\n', ...
@@ -341,7 +433,6 @@ fprintf('   isotropic floor 1/(4*pi) = %.4f  (MRtrix iFOD2 default cutoff is 0.0
 % rather than assumed.
 
 K  = C.K_WM;
-RH = SMI_response_helpers();
 fprintf('Step 3: kernel [f Da Depar Deperp fw] = %s\n', mat2str(K));
 fprintf('   zonal response r_l at the nominal shells -- this IS an MRtrix response file:\n');
 fprintf('        b   ');
@@ -451,7 +542,7 @@ fprintf('         (band limiting, not an error -- it falls as LMAX_GT rises)\n\n
 % so every fit sees exactly one noise level -- which is what the pipeline does,
 % and it keeps each fit's memory to one block rather than the whole sweep.
 %
-% *Each SNR is seeded separately*, from |mc_config.m|'s seed offset by the SNR
+% *Each SNR is seeded separately*, from |SEED| in the Configuration block offset by the SNR
 % index. Two reasons: each noise level is reproducible on its own, and adding or
 % removing an entry from |SNR_LIST| does not silently change the realisations of
 % every other entry. The cost is that the blocks are independent rather than
@@ -613,7 +704,7 @@ for iL = 1:numel(LMAX_LIST)
         options.CS_phase      = C.CS_PHASE;
         options.D_FW          = C.D_FW;
         options.flag_fit_fODF = 1;
-        options.fODF_regularization = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
+        options.fODF_regularization = REG;   % from the Configuration block
 
         t0  = tic;
         out = SMI.fit(dwi_b, options);
@@ -919,9 +1010,9 @@ MR = mrtrix_io();
 fprintf('Step 8: writing MRtrix SH images to %s\n', edir);
 for iL = 1:numel(LMAX_LIST)
     Lf = LMAX_LIST(iL);
-    fn = fullfile(edir, sprintf('smifod_lmax%d', Lf));
+    fn = fullfile(edir, sprintf('smifod_%s_lmax%d', C.PRESET, Lf));
     MR.write(fn, reshape(fits{iL}.sh, [GRID_ALL size(fits{iL}.sh,2)]));
-    fprintf('   smifod_lmax%d.mih  [%s x %d]\n', Lf, mat2str(GRID_ALL), ...
+    fprintf('   smifod_%s_lmax%d.mih  [%s x %d]\n', C.PRESET, Lf, mat2str(GRID_ALL), ...
             size(fits{iL}.sh,2));
 end
 
@@ -938,7 +1029,7 @@ for v = 1:NVOX
     key(v,4:6) = axes_gt{ic}{1};
     if numel(axes_gt{ic}) == 2, key(v,7:9) = axes_gt{ic}{2}; end
 end
-fid = fopen(fullfile(edir,'voxel_key.txt'), 'w');
+fid = fopen(fullfile(edir, sprintf('voxel_key_%s.txt', C.PRESET)), 'w');
 fprintf(fid, '%% voxel  SNR  crossing_deg  axis1_x axis1_y axis1_z  axis2_x axis2_y axis2_z\n');
 fprintf(fid, '%% axis2 is 0 0 0 for the single fibre condition. SNR Inf is the noise-free arm.\n');
 fprintf(fid, '%% Voxel order is column-major over the %s grid, matching the .mih images:\n', ...
@@ -947,13 +1038,13 @@ fprintf(fid, '%% %d contiguous blocks of %d voxels, one per SNR, in the order %s
         NSNR, NVOX_SNR, strjoin(SNR_LABEL, ', '));
 fprintf(fid, '%d %g %d %.9f %.9f %.9f %.9f %.9f %.9f\n', key');
 fclose(fid);
-fprintf('   voxel_key.txt     SNR and true fibre axes per voxel, for matching peaks back\n\n');
+fprintf('   voxel_key_%s.txt  SNR and true fibre axes per voxel, for matching peaks back\n\n', C.PRESET);
 
 fprintf('   To check these against MRtrix3, from %s:\n', edir);
-fprintf('     sh2peaks smifod_lmax6.mih peaks_lmax6.mih -num 4\n');
-fprintf('     mrinfo   smifod_lmax6.mih\n');
-fprintf('     mrconvert smifod_lmax6.mih smifod_lmax6.mif   # if you prefer a single file\n');
-fprintf('     mrview   smifod_lmax6.mih -odf.load_sh smifod_lmax6.mih\n');
+fprintf('     sh2peaks smifod_%s_lmax6.mih peaks_lmax6.mih -num 4\n', C.PRESET);
+fprintf('     mrinfo   smifod_%s_lmax6.mih\n', C.PRESET);
+fprintf('     mrconvert smifod_%s_lmax6.mih out.mif   # if you prefer a single file\n', C.PRESET);
+fprintf('     mrview   smifod_%s_lmax6.mih -odf.load_sh smifod_%s_lmax6.mih\n', C.PRESET, C.PRESET);
 fprintf('   sh2peaks writes 3 components per peak; compare against voxel_key.txt.\n');
 fprintf('   Nothing in this walkthrough runs those commands -- that is the point.\n\n');
 
@@ -996,7 +1087,7 @@ if MAKE_FIGURES
     % ================================================================
     % Both panels open already rotated to an isometric view, so the 60 degree
     % crossing reads as a crossing without anyone having to drag the camera.
-    figure('Name', 'Fig 1  ground truth fibre geometry');
+    figure('Name', sprintf('Fig 1  ground truth fibre geometry  [%s]', C.PRESET));
     for ic = 1:NCOND
         subplot(1, NCOND, ic);
         [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
@@ -1019,7 +1110,7 @@ if MAKE_FIGURES
     % Each glyph is normalised to its OWN maximum, so the montage compares
     % SHAPE across shells. The amplitude falls steeply with b -- that is the
     % r_0 column of the table in Step 3, not something to read off the glyphs.
-    figure('Name', 'Fig 2  response glyph per shell');
+    figure('Name', sprintf('Fig 2  response glyph per shell  [%s]', C.PRESET));
     nsh = numel(b_shell);
     for i = 1:nsh
         subplot(1, nsh, i);
@@ -1227,12 +1318,18 @@ end
 % basis, which at |CS_phase = 0| is SMI's basis, so they drop into Figures 4 and
 % 5 as further columns, and into Figure 6 as further curves.
 %
-% *What to change first if you want to probe it.* |NREP|, |SNR_LIST| and
-% |LMAX_LIST| at the top of this file -- |NREP| is the one that sets the
-% runtime. Then |mc_config.m|: |PROTOCOL| names the acquisition, |KAPPA| sets
-% fibre dispersion, |K_WM| the tissue, |ANGLES| the crossings. Changing them
-% there changes them for the pipeline too, which is the point of that file
-% existing.
+% *What to change first if you want to probe it.* Everything is in the
+% Configuration block at the top of this file, and nothing outside it needs
+% editing: |NREP| sets the runtime, |SNR_LIST| and |LMAX_LIST| the sweep,
+% |KERNEL_PRESET| the tissue, |KAPPA| the fibre dispersion, |ANGLES| the
+% crossings, |REG| the regularizer, |PROTOCOL| the acquisition.
+%
+% Those settings are *local to this notebook*. Changing them here does not
+% change |gen_montecarlo.m| or |sweep_nonneg.m|, which keep their own values in
+% |mc_config.m| -- so a manuscript figure and the published pipeline can be
+% retuned independently. What the two still share is the geometry and protocol
+% *utilities*, which is what stops the fibre-axis convention and the acquisition
+% reader from drifting apart.
 
 fprintf('=== walkthrough complete ===\n');
 fprintf('%d realisations per condition per SNR, %d SNR levels, Lmax %s\n\n', ...
