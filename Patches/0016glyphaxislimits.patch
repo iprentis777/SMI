@@ -1,0 +1,210 @@
+From a3959bf4701f06bd8f835e5b9fad2cf92549feda Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 7 Aug 2026 00:09:12 +0000
+Subject: [PATCH] Actually apply the shared radial scale, and add SNR 100
+
+The shared scale in the previous commit had no visible effect: every glyph
+was still drawn the same size. Scaling the radius was correct but got thrown
+away at draw time.
+
+axis equal fixes a panel's ASPECT RATIO, not its LIMITS. Left alone, MATLAB
+autoscales each subplot to its own data, so a glyph half the size of its
+neighbour gets an axis range half as wide and lands on the page at exactly
+the same size. The edema response really was being drawn at 1/3 the radius
+and then magnified back to fill its panel.
+
+Fixed by pinning every 3D panel to GLYPH_LIM = [-1.02 1.02] after scaling
+each glyph so its maximum radius is at most 1. Both halves are needed;
+either alone does nothing. All six glyph draw sites are pinned.
+
+Two scales were wrong in the same way and are fixed too:
+
+  * Figures 4 and 5 drew fODFs at scale 1 with autoscaled limits, so a
+    flatter reconstruction looked identical to a sharp one. They now share
+    one scale computed across the truth and every fODF both figures draw,
+    so healthy and edema are comparable and a flatter fit looks flatter.
+  * Figure 1's ground truth is an fODF, not a signal. It is deliberately NOT
+    on the response scale -- the two are different quantities and sharing a
+    scale between them would mean nothing -- so it is normalised to its own
+    peak and the file says why.
+
+SNR_LIST gains 100, matching the local run: [5 10 20 30 50 100 Inf]. That
+takes the sweep to 42 fits, 7 SNR x 3 Lmax x 2 kernels.
+
+No simulation was run. The figure block was re-executed against the
+graphics stubs. Note that the stubs make set(gca,...) a no-op, so what is
+verified is that the code runs, not that the pinning renders -- that is the
+part that needs eyes on a real MATLAB figure, and it is exactly what the
+previous commit got wrong.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/notebooks/README.md         | 15 ++++--
+ .../notebooks/smi_manuscript_60deg.m          | 49 +++++++++++++++++--
+ 2 files changed, 56 insertions(+), 8 deletions(-)
+
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index 546e078..d1c393e 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -43,13 +43,22 @@ view so all subfigures are readable without touching the camera:
+ 
+ | figure | layout |
+ |---|---|
+-| 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
++| 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All response glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
+ | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
+ | 3 | the same for **edema**, on the same radial scale so the two compare by eye |
+ | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
+ | 5 | the same for **edema** |
+ | 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, **one row per kernel**, y limits shared per column |
+ 
++**A shared scale needs two things, and only one of them is obvious.** Scaling a
++glyph's radius does nothing on its own, because `axis equal` fixes a panel's
++aspect ratio but *not* its limits — MATLAB autoscales each subplot to its own
++data, so a glyph half the size gets an axis range half as wide and is drawn
++exactly the same size. Every glyph here is scaled so its maximum radius is at
++most 1 **and** every panel is pinned to `GLYPH_LIM`. Figures 1, 2/3 and 4/5 each
++carry their own shared scale; the ground-truth fODF in Figure 1 is deliberately
++*not* on the response scale, since an fODF and a signal are different quantities.
++
+ Set `MAKE_FIGURES = false` in that section to skip them. In MATLAB they appear
+ inline in the Live Script; under Octave graphics are often unavailable, and the
+ printed numbers are the deliverable either way — every figure is drawn from the
+@@ -108,8 +117,8 @@ whether there are 100 voxels or 10,000.
+ 
+ **`smi_manuscript_60deg.m` is a different order of magnitude**, and at its
+ defaults it runs in hours rather than minutes. It fits
+-`NKERN × numel(SNR_LIST) × numel(LMAX_LIST)` times — **36** at two kernels,
+-`SNR_LIST = [5 10 20 30 50 Inf]` and `LMAX_LIST = [4 6 8]` — each on `NREP`
++`NKERN × numel(SNR_LIST) × numel(LMAX_LIST)` times — **42** at two kernels,
++`SNR_LIST = [5 10 20 30 50 100 Inf]` and `LMAX_LIST = [4 6 8]` — each on `NREP`
+ voxels, and at
+ `NREP = 1000` the per-voxel constrained deconvolution is no longer negligible
+ next to the training. **`NREP` is the knob**: drop it to 25 for a version that
+diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+index cb1c3f7..dc240e8 100644
+--- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
++++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+@@ -146,7 +146,7 @@ AXIS1  = AXIS1/norm(AXIS1);
+ 
+ % ------------------------------------------------------------ the experiment
+ NREP      = 1000;                 % realisations per condition PER SNR
+-SNR_LIST  = [5 10 20 30 50 Inf];  % 1/sigma at each noise level, in any order
++SNR_LIST  = [5 10 20 30 50 100 Inf];  % 1/sigma at each level, in any order
+ LMAX_LIST = [4 6 8];              % angular orders to fit at
+ LMAX_GT   = 8;                    % ground truth angular order. A CEILING, not a
+                                   % choice: SMI's kernel invariants K_l are
+@@ -1189,6 +1189,16 @@ fprintf('==================== both kernels done ====================\n\n');
+ MAKE_FIGURES = true;
+ ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
+ GLYPH_N      = 121;          % mesh resolution for every glyph
++GLYPH_LIM    = [-1.02 1.02]; % axis limits every 3D panel is pinned to
++
++% *Why GLYPH_LIM exists, and why it is not optional.* |axis equal| fixes the
++% ASPECT RATIO of a panel; it does not fix the axis LIMITS. Left to itself
++% MATLAB autoscales each subplot to its own data, so a glyph half the size of
++% its neighbour gets an axis range half as wide and ends up drawn exactly the
++% same size on the page. Scaling the radius then has no visible effect at all.
++%
++% Every glyph below is scaled so its maximum radius is at most 1, and every
++% panel is then pinned to GLYPH_LIM. Only with both does size mean something.
+ 
+ if MAKE_FIGURES
+     fprintf('Figures: rendering ...\n');
+@@ -1250,10 +1260,17 @@ if MAKE_FIGURES
+     figure('Name', 'Fig 1  ground truth fODF, kernel responses, and their difference');
+     col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
+     subplot(nrow1, 1+nsh, col1);
++    % The ground truth is an fODF, not a signal, so it is NOT on the response
++    % scale -- the two are different quantities and a shared scale between them
++    % would mean nothing. It is normalised to its own peak instead.
++    gt_pk = max(abs(sh_gt(ic,:) * Yg'));
++    if gt_pk <= 0, gt_pk = 1; end
+     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
+-                                GLYPH_N, GLYPH_N, 1);
++                                GLYPH_N, GLYPH_N, 1/gt_pk);
+     surf(X, Y, Z, Cc); shading interp;
+-    axis equal off vis3d; view(ISO_VIEW); camlight headlight; lighting gouraud;
++    axis equal off vis3d; view(ISO_VIEW);
++    set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
++    camlight headlight; lighting gouraud;
+     title(sprintf('ground truth\n%g deg, kappa %g', ANGLES(ic), C.KAPPA));
+ 
+     for ikk = 1:NKERN
+@@ -1262,6 +1279,7 @@ if MAKE_FIGURES
+             [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
++            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+             camlight headlight; lighting gouraud;
+             title(sprintf('%s, b = %.0f', KERNELS{ikk}.name, b_shell(i)));
+         end
+@@ -1275,6 +1293,7 @@ if MAKE_FIGURES
+             [X, Y, Z, Cc] = RH.zh_glyph(r_d, GLYPH_N, GLYPH_N, 1/rmax);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
++            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+             camlight headlight; lighting gouraud;
+             title(sprintf('%s - %s, b = %.0f\npeak |diff| %.3f', ...
+                           KERNELS{1}.name, KERNELS{2}.name, b_shell(i), pk_d));
+@@ -1346,6 +1365,7 @@ if MAKE_FIGURES
+                 [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
++                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+                 camlight headlight; lighting gouraud;
+                 title(sprintf('b %.0f, SNR %s', b_shell(j), ...
+                               SNR_LABEL{SNR_ORD(kk)}));
+@@ -1360,6 +1380,23 @@ if MAKE_FIGURES
+     % that Lmax -- the bound nothing below it can beat -- then one column per
+     % SNR, worst first. Same renderer and camera as Figure 1, so truth and
+     % reconstruction can be compared directly.
++    % One scale for Figures 4 and 5 together, over the truth and every fODF
++    % they draw, so a flatter reconstruction looks flatter instead of being
++    % autoscaled back up to fill its panel.
++    fmax = 0;
++    for iL = 1:numel(LMAX_LIST)
++        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
++        Ye = SMI.get_even_SH(dirs_g, Lf, C.CS_PHASE);
++        fmax = max(fmax, max(abs(sh_gt(ic,1:nc) * Ye')));
++        for ikk = 1:NKERN
++            for kk = 1:NSNR
++                v = find(snr_id(:) == SNR_ORD(kk), 1);
++                fmax = max(fmax, max(abs(RUN{ikk}.fits{iL}.sh(v,1:nc) * Ye')));
++            end
++        end
++    end
++    if fmax <= 0, fmax = 1; end
++
+     for ikk = 1:NKERN
+         figure('Name', sprintf('Fig %d  reconstructed fODFs, %s', ...
+                                3+ikk, RUN{ikk}.name));
+@@ -1371,9 +1408,10 @@ if MAKE_FIGURES
+ 
+             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
+             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
+-                                        GLYPH_N, GLYPH_N, 1);
++                                        GLYPH_N, GLYPH_N, 1/fmax);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
++            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+             camlight headlight; lighting gouraud;
+             title(sprintf('Lmax %d\ntruth', Lf));
+ 
+@@ -1382,9 +1420,10 @@ if MAKE_FIGURES
+                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
+                 v  = find(snr_id(:) == is, 1);
+                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
+-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
++                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1/fmax);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
++                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+                 camlight headlight; lighting gouraud;
+                 title(sprintf('SNR %s', SNR_LABEL{is}));
+             end
+-- 
+2.43.0
+
