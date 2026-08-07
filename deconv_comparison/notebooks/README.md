@@ -43,12 +43,21 @@ view so all subfigures are readable without touching the camera:
 
 | figure | layout |
 |---|---|
-| 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
+| 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All response glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
 | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
 | 3 | the same for **edema**, on the same radial scale so the two compare by eye |
 | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
 | 5 | the same for **edema** |
 | 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, **one row per kernel**, y limits shared per column |
+
+**A shared scale needs two things, and only one of them is obvious.** Scaling a
+glyph's radius does nothing on its own, because `axis equal` fixes a panel's
+aspect ratio but *not* its limits — MATLAB autoscales each subplot to its own
+data, so a glyph half the size gets an axis range half as wide and is drawn
+exactly the same size. Every glyph here is scaled so its maximum radius is at
+most 1 **and** every panel is pinned to `GLYPH_LIM`. Figures 1, 2/3 and 4/5 each
+carry their own shared scale; the ground-truth fODF in Figure 1 is deliberately
+*not* on the response scale, since an fODF and a signal are different quantities.
 
 Set `MAKE_FIGURES = false` in that section to skip them. In MATLAB they appear
 inline in the Live Script; under Octave graphics are often unavailable, and the
@@ -108,8 +117,8 @@ whether there are 100 voxels or 10,000.
 
 **`smi_manuscript_60deg.m` is a different order of magnitude**, and at its
 defaults it runs in hours rather than minutes. It fits
-`NKERN × numel(SNR_LIST) × numel(LMAX_LIST)` times — **36** at two kernels,
-`SNR_LIST = [5 10 20 30 50 Inf]` and `LMAX_LIST = [4 6 8]` — each on `NREP`
+`NKERN × numel(SNR_LIST) × numel(LMAX_LIST)` times — **42** at two kernels,
+`SNR_LIST = [5 10 20 30 50 100 Inf]` and `LMAX_LIST = [4 6 8]` — each on `NREP`
 voxels, and at
 `NREP = 1000` the per-voxel constrained deconvolution is no longer negligible
 next to the training. **`NREP` is the knob**: drop it to 25 for a version that
