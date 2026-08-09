@@ -1,7 +1,7 @@
 From a3959bf4701f06bd8f835e5b9fad2cf92549feda Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 7 Aug 2026 00:09:12 +0000
-Subject: [PATCH] Actually apply the shared radial scale, and add SNR 100
+Subject: [PATCH 1/2] Actually apply the shared radial scale, and add SNR 100
 
 The shared scale in the previous commit had no visible effect: every glyph
 was still drawn the same size. Scaling the radius was correct but got thrown
@@ -202,6 +202,174 @@ index cb1c3f7..dc240e8 100644
                  surf(X, Y, Z, Cc); shading interp;
                  axis equal off vis3d; view(ISO_VIEW);
 +                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+                 camlight headlight; lighting gouraud;
+                 title(sprintf('SNR %s', SNR_LABEL{is}));
+             end
+-- 
+2.43.0
+
+
+From 8ec412e2b7a809078366766db57b0f665e1bd1a6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 9 Aug 2026 03:14:19 +0000
+Subject: [PATCH 2/2] Scope the shared radial scale to Figure 1
+
+The previous commit pinned axis limits on every 3D panel, which shrank the
+edema signal in Figure 3 relative to the healthy signal in Figure 2 and made
+a flat reconstruction small in Figures 4 and 5. Only Figure 1 wants that.
+
+Figure 1 keeps it: that panel exists to show the edema response is genuinely
+smaller than the healthy one, so size has to carry meaning there.
+
+Figures 2 and 3 are back to how they were and are again on the same footing
+as each other -- they are about the SHAPE of the signal at each shell and
+SNR, and one of them rendered small buys nothing. Figures 4 and 5 likewise
+revert to unscaled glyphs with autoscaled panels; the fmax computed across
+both of them is removed rather than left unused.
+
+GLYPH_LIM's comment now says it is Figure 1 only, and why, so the scoping is
+not mistaken later for an oversight.
+
+No simulation was run. The figure block was re-executed against the graphics
+stubs.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/notebooks/README.md         | 25 ++++++----
+ .../notebooks/smi_manuscript_60deg.m          | 49 +++++++------------
+ 2 files changed, 34 insertions(+), 40 deletions(-)
+
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index d1c393e..d87e86d 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -45,19 +45,26 @@ view so all subfigures are readable without touching the camera:
+ |---|---|
+ | 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All response glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
+ | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
+-| 3 | the same for **edema**, on the same radial scale so the two compare by eye |
++| 3 | the same for **edema**, on the same scale as Figure 2 |
+ | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
+ | 5 | the same for **edema** |
+ | 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, **one row per kernel**, y limits shared per column |
+ 
+-**A shared scale needs two things, and only one of them is obvious.** Scaling a
+-glyph's radius does nothing on its own, because `axis equal` fixes a panel's
+-aspect ratio but *not* its limits — MATLAB autoscales each subplot to its own
+-data, so a glyph half the size gets an axis range half as wide and is drawn
+-exactly the same size. Every glyph here is scaled so its maximum radius is at
+-most 1 **and** every panel is pinned to `GLYPH_LIM`. Figures 1, 2/3 and 4/5 each
+-carry their own shared scale; the ground-truth fODF in Figure 1 is deliberately
+-*not* on the response scale, since an fODF and a signal are different quantities.
++**Only Figure 1 uses a shared radial scale**, because it is the one panel whose
++point is that the edema response is genuinely smaller than the healthy one.
++Everywhere else each panel autoscales and fills its box: Figures 2 and 3 are
++about the *shape* of the signal at each shell and SNR, Figures 4 and 5 about the
++shape of the reconstruction, and shrinking one of them into illegibility would
++buy nothing.
++
++Getting that shared scale to work takes two things and only one is obvious.
++Scaling a glyph's radius does nothing on its own, because `axis equal` fixes a
++panel's aspect ratio but *not* its limits — MATLAB autoscales each subplot to
++its own data, so a glyph half the size gets an axis range half as wide and is
++drawn at exactly the same size. Figure 1 therefore scales every glyph to a
++maximum radius of 1 **and** pins each panel to `GLYPH_LIM`. Its ground-truth
++fODF is deliberately *not* on the response scale, since an fODF and a signal are
++different quantities.
+ 
+ Set `MAKE_FIGURES = false` in that section to skip them. In MATLAB they appear
+ inline in the Live Script; under Octave graphics are often unavailable, and the
+diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+index dc240e8..a96e4a5 100644
+--- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
++++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+@@ -1189,16 +1189,23 @@ fprintf('==================== both kernels done ====================\n\n');
+ MAKE_FIGURES = true;
+ ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
+ GLYPH_N      = 121;          % mesh resolution for every glyph
+-GLYPH_LIM    = [-1.02 1.02]; % axis limits every 3D panel is pinned to
+-
+-% *Why GLYPH_LIM exists, and why it is not optional.* |axis equal| fixes the
+-% ASPECT RATIO of a panel; it does not fix the axis LIMITS. Left to itself
+-% MATLAB autoscales each subplot to its own data, so a glyph half the size of
+-% its neighbour gets an axis range half as wide and ends up drawn exactly the
+-% same size on the page. Scaling the radius then has no visible effect at all.
++GLYPH_LIM    = [-1.02 1.02]; % axis limits, applied to FIGURE 1 ONLY
++
++% *Why GLYPH_LIM exists, and why it is not optional where it is used.*
++% |axis equal| fixes the ASPECT RATIO of a panel; it does not fix the axis
++% LIMITS. Left to itself MATLAB autoscales each subplot to its own data, so a
++% glyph half the size of its neighbour gets an axis range half as wide and ends
++% up drawn exactly the same size on the page. Scaling the radius then has no
++% visible effect at all. Both halves are needed: scale the radius AND pin the
++% limits.
+ %
+-% Every glyph below is scaled so its maximum radius is at most 1, and every
+-% panel is then pinned to GLYPH_LIM. Only with both does size mean something.
++% *This is deliberately applied to Figure 1 alone.* Figure 1 is the one panel
++% whose point is that the edema response is genuinely smaller than the healthy
++% one, so there size must carry meaning. Everywhere else a shared scale would
++% just shrink one figure into illegibility for no gain: Figures 2 and 3 are
++% about the SHAPE of the signal at each shell and SNR, and Figures 4 and 5
++% about the shape of the reconstruction, so every panel there is left to
++% autoscale and fill its box as it did before.
+ 
+ if MAKE_FIGURES
+     fprintf('Figures: rendering ...\n');
+@@ -1365,7 +1372,6 @@ if MAKE_FIGURES
+                 [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+-                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+                 camlight headlight; lighting gouraud;
+                 title(sprintf('b %.0f, SNR %s', b_shell(j), ...
+                               SNR_LABEL{SNR_ORD(kk)}));
+@@ -1380,23 +1386,6 @@ if MAKE_FIGURES
+     % that Lmax -- the bound nothing below it can beat -- then one column per
+     % SNR, worst first. Same renderer and camera as Figure 1, so truth and
+     % reconstruction can be compared directly.
+-    % One scale for Figures 4 and 5 together, over the truth and every fODF
+-    % they draw, so a flatter reconstruction looks flatter instead of being
+-    % autoscaled back up to fill its panel.
+-    fmax = 0;
+-    for iL = 1:numel(LMAX_LIST)
+-        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+-        Ye = SMI.get_even_SH(dirs_g, Lf, C.CS_PHASE);
+-        fmax = max(fmax, max(abs(sh_gt(ic,1:nc) * Ye')));
+-        for ikk = 1:NKERN
+-            for kk = 1:NSNR
+-                v = find(snr_id(:) == SNR_ORD(kk), 1);
+-                fmax = max(fmax, max(abs(RUN{ikk}.fits{iL}.sh(v,1:nc) * Ye')));
+-            end
+-        end
+-    end
+-    if fmax <= 0, fmax = 1; end
+-
+     for ikk = 1:NKERN
+         figure('Name', sprintf('Fig %d  reconstructed fODFs, %s', ...
+                                3+ikk, RUN{ikk}.name));
+@@ -1408,10 +1397,9 @@ if MAKE_FIGURES
+ 
+             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
+             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
+-                                        GLYPH_N, GLYPH_N, 1/fmax);
++                                        GLYPH_N, GLYPH_N, 1);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
+-            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+             camlight headlight; lighting gouraud;
+             title(sprintf('Lmax %d\ntruth', Lf));
+ 
+@@ -1420,10 +1408,9 @@ if MAKE_FIGURES
+                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
+                 v  = find(snr_id(:) == is, 1);
+                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
+-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1/fmax);
++                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+-                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
                  camlight headlight; lighting gouraud;
                  title(sprintf('SNR %s', SNR_LABEL{is}));
              end
