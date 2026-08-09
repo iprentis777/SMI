@@ -27,7 +27,7 @@ reimplementations and onto MRtrix3 itself, and changed one shipped default.
 
 All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
 whether any of them is on or off. That invariant is tested, not asserted — keep
-it. Patches `Patches/0001`-`Patches/0010` record each change and apply with
+it. Patches `Patches/0001`-`Patches/0016` record each change and apply with
 `git am --3way`.
 
 The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
@@ -40,6 +40,24 @@ default change.
 reproducibility, but do not present it as an active pipeline recommendation.
 The zonal-harmonics response viewer is likewise a learning and convention-check
 exercise. Both are indexed in `Archive/README.md`.
+
+### The manuscript simulation, `deconv_comparison/notebooks/`
+
+The active work. Two narrated notebooks, both plain `.m` with publish-style
+markup so they run in MATLAB and Octave and convert to a Live Script unedited:
+
+| notebook | what it is |
+|---|---|
+| `smi_simulation_walkthrough.m` | the general SMI arm. Single fibre plus 30/45/60 degrees, one SNR, Lmax 4/6/8, four figures |
+| `smi_manuscript_60deg.m` | **the manuscript figure source.** 60 degrees only, two kernels back to back, SNR swept, six figures |
+
+Both put every knob in one Configuration block at the top and end every step
+with a `CHECK` that compares its output against something computed a different
+way. `notebooks/README.md` lists what each check establishes and why it is not
+circular; read that before changing either file.
+
+`smi_manuscript_60deg.m` at its defaults is **42 `SMI.fit` calls** (2 kernels x
+7 SNR x 3 Lmax) and runs in hours. `NREP` is the knob; 25 makes it minutes.
 
 ### Still on a branch, not merged
 
@@ -184,6 +202,18 @@ checks it against SMI's own forward model on every run, aborting above 1e-10
 hands SMI coefficients to an MRtrix tool — `sh2peaks`, `tckgen`, `shview` —
 must fit at `CS_phase = 0` or apply the sign flip. See section 2.2.
 
+**A shared radial scale on a glyph figure needs TWO things.** This cost a whole
+review cycle. `axis equal` fixes a panel's aspect *ratio*, not its *limits* —
+MATLAB autoscales each subplot to its own data, so a glyph drawn at half the
+radius gets an axis range half as wide and lands on the page at exactly the same
+size. Scaling the radius alone is invisible. Scale the glyph **and** pin the
+panel (`set(gca,'XLim',...,'YLim',...,'ZLim',...)`).
+
+Corollary worth keeping: only use a shared scale where size is the point. In
+`smi_manuscript_60deg.m` that is Figure 1 alone, where the whole claim is that
+the edema response is genuinely smaller. Everywhere else a shared scale just
+shrinks one panel into illegibility, and the figures deliberately autoscale.
+
 **Two different p2 exist and they are not the same quantity.** Same for p4.
 
 - `out.kernel(:,:,:,ip2)` — fitted jointly with the kernel by polynomial
@@ -241,6 +271,18 @@ Other traps, all hit at least once:
 - Python needs only **`numpy matplotlib`**, except `setup_protocol.py`, which
   needs `dipy` for its gradient-direction repulsion. **cvxpy is no longer
   needed** — it was only there for the removed dipy MSMT-CSD path.
+- **A real `.bvec` is not unit to machine precision.** The supplied HCP file is
+  unit only to `1.1e-6`, being written at seven significant figures. Anything
+  that reads `g(3)` as `cos(theta)` without normalising inherits that: measured
+  at Lmax 8 it degrades the zonal-response identity from `1e-15` to `5e-7`.
+  `mc_config.m`'s `load_protocol` warns loudly and normalises, and it is the one
+  reader so nothing can bypass it.
+- **A real `.bval` records EFFECTIVE b.** The "b = 0" volumes are `b = 5 s/mm^2`
+  and carry meaningless unit direction vectors; the shells jitter (18 distinct
+  values across 4 shells). `SMI.Group_dwi_in_shells_b_beta_TE` bins them
+  correctly — the notebooks check it recovers `[18 90 90 90]` — and
+  `B0_SNAP` in `smi_manuscript_60deg.m` sets the near-zero shell to exactly 0 so
+  `S(0)/S0 = 1` holds exactly.
 - **`pkill -f <pattern>` matches the invoking shell** and will kill your own
   Bash tool call (exit 144). Use `pkill -x`. Same failure mode makes
   `until ! pgrep -f script.py` an infinite loop; poll for output files instead.
@@ -286,6 +328,8 @@ The response/deconvolution work now on master:
 | `examples/example_SMI_response_shview.m` | archived learning exercise for response conventions and visualization |
 | `tests/test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
 | `deconv_comparison/` | the Monte Carlo package. Has its own `README.md` — read that one for the run order |
+| `deconv_comparison/notebooks/` | the two narrated notebooks, and a `README.md` listing every `CHECK` and what it establishes |
+| `deconv_comparison/protocol/` | `hcp_real_3shell.txt` is the acquisition in use; `hcp_like_3shell.txt` is the synthetic scheme the published tables were measured on, marked superseded |
 | `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
 | `Reports/deconv_tables.md` | every result table, generated by `deconv_comparison/tables.py` |
 | `Figures/fodf_response_shview.png`, `Figures/fodf_deconv_montecarlo.png` | the two figures |
@@ -397,6 +441,57 @@ constrained setting, so nothing above 1 buys anything.
 
 ---
 
+### 6.5 What the manuscript simulation is set up to measure
+
+Not yet run at full size. What is already established, all measured on the
+*noise-free ground truth* with no fitting and no noise, so these are properties
+of the truth rather than of any method:
+
+**Which crossings are resolvable at all** (peaks found in the truth truncated to
+each Lmax, `kappa = 16`):
+
+| angle | Lmax 4 | Lmax 6 | Lmax 8 | true |
+|---|---|---|---|---|
+| 30 deg | 1 | 1 | 1 | 2 |
+| 45 deg | 1 | 2 | 2 | 2 |
+| 60 deg | 2 | 2 | 2 | 2 |
+
+**A 30 degree crossing never separates at `kappa = 16`** — it needs
+`kappa >= 48`, about 8 degrees of dispersion. 45 separates only from Lmax 6 up.
+**60 separates everywhere**, which is why the manuscript uses it: a difference
+between methods there is attributable to the method and not to the band limit.
+Note the consequence for `run_smi_batch_mod.m`, which runs `max(Lmax) = 4` on
+real subjects: at that order a 45 degree crossing cannot be resolved at any SNR.
+
+**The two kernels**, and why the edema one is what it is:
+
+| kernel | `[f Da Depar Deperp fw]` | extra-axonal |
+|---|---|---|
+| healthy | `[0.60 2.0 2.0 0.50 0.02]` | 0.38 |
+| edema | `[0.10 2.4 2.7 1.15 0.35]` | 0.55 |
+
+The edema kernel is shaped from a **fitted** kernel, which is why the
+diffusivities are not round and why `Depar` exceeds `Da`. Two values depart from
+the fit deliberately: `f` is **0.10 rather than 0.05**, because 0.05 is exactly
+the lower bound of SMI's default training prior and a truth sitting on the prior
+boundary is estimated with a one-sided bias indistinguishable from a real
+effect; and `fw = 0.35`, which the fit did not specify. `Deperp = 1.15` is still
+close to its own prior cap of 1.2 — left as fitted, and the first place to look
+if the extra-axonal diffusivities come back biased low.
+
+**Why the edema arm will look noisier when the noise is identical.** It is not
+noisier: `sigma = 1/SNR` against `S0 = 1` in both. The *anisotropic signal* is
+3-6x smaller, measured on Figure 1's shared scale — healthy peaks at
+0.83 / 0.74 / 0.68 for b = 1 / 2 / 3, edema at 0.29 / 0.16 / 0.12, both 1.000 at
+b = 0 by construction. `f` 0.60 -> 0.10 removes most of the stick compartment,
+`Deperp` 0.50 -> 1.15 makes the extra-axonal tensor nearly isotropic, and
+`fw` 0.02 -> 0.35 adds pure isotropy. `K_2`, `K_4`, `K_6` all shrink while `K_0`
+does not, and deconvolution **divides by `K_l`** — the same `g_2 = 1/||K_2||`
+mechanism as the CSF blow-ups in section 6.3. Say "less anisotropic signal,
+amplified in inverse proportion", never "noisier".
+
+---
+
 ## 7. Dead ends, with evidence
 
 Do not re-walk these.
@@ -437,16 +532,35 @@ it has never touched real data.
 
 ## 8. Next steps, roughly in order of value per hour
 
-1. **Finish the user-friendliness pass on `deconv_comparison/` — this is a
-   paused task, not a new idea.** The user asked for it verbatim: *"make the
-   simulation package as user friendly as possible... I want it to be clear and
-   obvious what is happening at each step (you can do a .m and a notebook for
-   SMI and CSD packages) but I want an outsider to be able to come in and verify
-   the simulations."* Then, mid-turn, they paused it to get this handoff written.
-   **Pick it up first.** The shape asked for is a `.m` walkthrough plus a
-   notebook for each of the SMI side and the CSD/MRtrix side, narrating each
-   step rather than just running it. The package currently works but reads like
-   infrastructure.
+1. **Run `smi_manuscript_60deg.m` at full size and read Figure 6.** Everything
+   about it is built and checked; nothing has been run at `NREP = 1000`. The
+   user runs it on their own hardware, which is faster than the container — do
+   not burn hours running it here unless asked. **No figure in any notebook has
+   ever been verified to RENDER**: Octave's `print` is broken in this container,
+   so the figure blocks are only ever checked to execute against the stubs in
+   `deconv_comparison/octave_test_stubs/`. That gap has already shipped one real
+   bug (section 3, the shared-scale trap).
+2. **Wire up the CSD and MSMT-CSD arms.** The hook is already there: a commented
+   block just before Step 7 of `smi_manuscript_60deg.m`, at the *scoring* stage,
+   so uncommenting it makes them scored by the same peak finder as SMI and they
+   appear automatically as extra columns in Figures 4-5 and extra curves in
+   Figure 6. Figure 1 is the panel built to take their estimated responses. Two
+   traps recorded in the stub: `dwi2fod` needs `-lmax` matching `LMAX_LIST` or
+   the ceiling is the wrong bound, and an MRtrix FOD is not normalised while an
+   SMI fODF integrates to 1.
+3. **Revisit `examples/example_fODF_regularization_sweep.m`.** The user asked
+   for this explicitly and it was deferred to its own patch: audit it for hidden
+   bugs, and add 3D isometric panels of the reconstructed fODFs as
+   `lambda_nonneg`, `lambda_tikhonov` and `tau` vary, in the style of the 2007
+   CSD paper. Two things to settle with the user first: whether those panels
+   sweep at one SNR or several, and whether they use the manuscript's 60 degree
+   crossing or that script's existing 40/60/90 set.
+4. **Regenerate the `Reports/` tables on the real HCP protocol.** Every number
+   in `Reports/deconv_tables.md` and
+   `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` was measured on the older
+   synthetic scheme, still on disk at `protocol/hcp_like_3shell.txt` and marked
+   superseded. The pipeline now reads the real one, so this is a re-run rather
+   than a code change.
 2. **Run the drivers on real data and read the peak histogram.** Everything in
    every report is simulation. The single most informative number is
    `out.fODF_outlier.Ncap`: simulation says it should be **0** on a regularized
@@ -467,9 +581,6 @@ it has never touched real data.
    crossings.** Everything measured so far is two equal fibres. Unequal
    fractions are where spurious-peak counts usually separate methods, and the
    three-way case is where the modulation work already knows SMI has trouble.
-6. **Add an edematous-kernel condition to the existing
-   `deconv_comparison/` simulation package.** This is only a scope marker for
-   now; the edema model, parameters, and evaluation should be designed later.
 7. **Land `claude/freewater-simulations`**, or the measured numbers quoted in
    `Reports/REPORT_fODF_outlier_cap.md` have no reproducible source.
 8. Spatial context beyond the cap — a neighbour-agreement *weight* rather than
