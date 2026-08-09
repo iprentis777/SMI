@@ -1189,16 +1189,23 @@ fprintf('==================== both kernels done ====================\n\n');
 MAKE_FIGURES = true;
 ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
 GLYPH_N      = 121;          % mesh resolution for every glyph
-GLYPH_LIM    = [-1.02 1.02]; % axis limits every 3D panel is pinned to
+GLYPH_LIM    = [-1.02 1.02]; % axis limits, applied to FIGURE 1 ONLY
 
-% *Why GLYPH_LIM exists, and why it is not optional.* |axis equal| fixes the
-% ASPECT RATIO of a panel; it does not fix the axis LIMITS. Left to itself
-% MATLAB autoscales each subplot to its own data, so a glyph half the size of
-% its neighbour gets an axis range half as wide and ends up drawn exactly the
-% same size on the page. Scaling the radius then has no visible effect at all.
+% *Why GLYPH_LIM exists, and why it is not optional where it is used.*
+% |axis equal| fixes the ASPECT RATIO of a panel; it does not fix the axis
+% LIMITS. Left to itself MATLAB autoscales each subplot to its own data, so a
+% glyph half the size of its neighbour gets an axis range half as wide and ends
+% up drawn exactly the same size on the page. Scaling the radius then has no
+% visible effect at all. Both halves are needed: scale the radius AND pin the
+% limits.
 %
-% Every glyph below is scaled so its maximum radius is at most 1, and every
-% panel is then pinned to GLYPH_LIM. Only with both does size mean something.
+% *This is deliberately applied to Figure 1 alone.* Figure 1 is the one panel
+% whose point is that the edema response is genuinely smaller than the healthy
+% one, so there size must carry meaning. Everywhere else a shared scale would
+% just shrink one figure into illegibility for no gain: Figures 2 and 3 are
+% about the SHAPE of the signal at each shell and SNR, and Figures 4 and 5
+% about the shape of the reconstruction, so every panel there is left to
+% autoscale and fill its box as it did before.
 
 if MAKE_FIGURES
     fprintf('Figures: rendering ...\n');
@@ -1365,7 +1372,6 @@ if MAKE_FIGURES
                 [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
-                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
                 camlight headlight; lighting gouraud;
                 title(sprintf('b %.0f, SNR %s', b_shell(j), ...
                               SNR_LABEL{SNR_ORD(kk)}));
@@ -1380,23 +1386,6 @@ if MAKE_FIGURES
     % that Lmax -- the bound nothing below it can beat -- then one column per
     % SNR, worst first. Same renderer and camera as Figure 1, so truth and
     % reconstruction can be compared directly.
-    % One scale for Figures 4 and 5 together, over the truth and every fODF
-    % they draw, so a flatter reconstruction looks flatter instead of being
-    % autoscaled back up to fill its panel.
-    fmax = 0;
-    for iL = 1:numel(LMAX_LIST)
-        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
-        Ye = SMI.get_even_SH(dirs_g, Lf, C.CS_PHASE);
-        fmax = max(fmax, max(abs(sh_gt(ic,1:nc) * Ye')));
-        for ikk = 1:NKERN
-            for kk = 1:NSNR
-                v = find(snr_id(:) == SNR_ORD(kk), 1);
-                fmax = max(fmax, max(abs(RUN{ikk}.fits{iL}.sh(v,1:nc) * Ye')));
-            end
-        end
-    end
-    if fmax <= 0, fmax = 1; end
-
     for ikk = 1:NKERN
         figure('Name', sprintf('Fig %d  reconstructed fODFs, %s', ...
                                3+ikk, RUN{ikk}.name));
@@ -1408,10 +1397,9 @@ if MAKE_FIGURES
 
             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
-                                        GLYPH_N, GLYPH_N, 1/fmax);
+                                        GLYPH_N, GLYPH_N, 1);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
-            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
             camlight headlight; lighting gouraud;
             title(sprintf('Lmax %d\ntruth', Lf));
 
@@ -1420,10 +1408,9 @@ if MAKE_FIGURES
                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
                 v  = find(snr_id(:) == is, 1);
                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1/fmax);
+                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
-                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
                 camlight headlight; lighting gouraud;
                 title(sprintf('SNR %s', SNR_LABEL{is}));
             end

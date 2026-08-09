@@ -45,19 +45,26 @@ view so all subfigures are readable without touching the camera:
 |---|---|
 | 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All response glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
 | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
-| 3 | the same for **edema**, on the same radial scale so the two compare by eye |
+| 3 | the same for **edema**, on the same scale as Figure 2 |
 | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
 | 5 | the same for **edema** |
 | 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, **one row per kernel**, y limits shared per column |
 
-**A shared scale needs two things, and only one of them is obvious.** Scaling a
-glyph's radius does nothing on its own, because `axis equal` fixes a panel's
-aspect ratio but *not* its limits — MATLAB autoscales each subplot to its own
-data, so a glyph half the size gets an axis range half as wide and is drawn
-exactly the same size. Every glyph here is scaled so its maximum radius is at
-most 1 **and** every panel is pinned to `GLYPH_LIM`. Figures 1, 2/3 and 4/5 each
-carry their own shared scale; the ground-truth fODF in Figure 1 is deliberately
-*not* on the response scale, since an fODF and a signal are different quantities.
+**Only Figure 1 uses a shared radial scale**, because it is the one panel whose
+point is that the edema response is genuinely smaller than the healthy one.
+Everywhere else each panel autoscales and fills its box: Figures 2 and 3 are
+about the *shape* of the signal at each shell and SNR, Figures 4 and 5 about the
+shape of the reconstruction, and shrinking one of them into illegibility would
+buy nothing.
+
+Getting that shared scale to work takes two things and only one is obvious.
+Scaling a glyph's radius does nothing on its own, because `axis equal` fixes a
+panel's aspect ratio but *not* its limits — MATLAB autoscales each subplot to
+its own data, so a glyph half the size gets an axis range half as wide and is
+drawn at exactly the same size. Figure 1 therefore scales every glyph to a
+maximum radius of 1 **and** pins each panel to `GLYPH_LIM`. Its ground-truth
+fODF is deliberately *not* on the response scale, since an fODF and a signal are
+different quantities.
 
 Set `MAKE_FIGURES = false` in that section to skip them. In MATLAB they appear
 inline in the Live Script; under Octave graphics are often unavailable, and the
