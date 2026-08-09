@@ -1,0 +1,419 @@
+From 5ce6d729c2841194e2babf9ee230c943c701e0a4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 9 Aug 2026 03:14:19 +0000
+Subject: [PATCH 1/2] Scope the shared radial scale to Figure 1
+
+The previous commit pinned axis limits on every 3D panel, which shrank the
+edema signal in Figure 3 relative to the healthy signal in Figure 2 and made
+a flat reconstruction small in Figures 4 and 5. Only Figure 1 wants that.
+
+Figure 1 keeps it: that panel exists to show the edema response is genuinely
+smaller than the healthy one, so size has to carry meaning there.
+
+Figures 2 and 3 are back to how they were and are again on the same footing
+as each other -- they are about the SHAPE of the signal at each shell and
+SNR, and one of them rendered small buys nothing. Figures 4 and 5 likewise
+revert to unscaled glyphs with autoscaled panels; the fmax computed across
+both of them is removed rather than left unused.
+
+GLYPH_LIM's comment now says it is Figure 1 only, and why, so the scoping is
+not mistaken later for an oversight.
+
+No simulation was run. The figure block was re-executed against the graphics
+stubs.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ deconv_comparison/notebooks/README.md         | 25 ++++++----
+ .../notebooks/smi_manuscript_60deg.m          | 49 +++++++------------
+ 2 files changed, 34 insertions(+), 40 deletions(-)
+
+diff --git a/deconv_comparison/notebooks/README.md b/deconv_comparison/notebooks/README.md
+index d1c393e..d87e86d 100644
+--- a/deconv_comparison/notebooks/README.md
++++ b/deconv_comparison/notebooks/README.md
+@@ -45,19 +45,26 @@ view so all subfigures are readable without touching the camera:
+ |---|---|
+ | 1 | the ground truth fODF, then **each kernel's response glyph per shell**, then a **third row holding the difference between them**. All response glyphs share **one radial scale**, so size carries meaning: a smaller glyph is a genuinely smaller signal |
+ | 2 | the signal as surfaces on the sphere, **healthy**: b down the rows, SNR across |
+-| 3 | the same for **edema**, on the same radial scale so the two compare by eye |
++| 3 | the same for **edema**, on the same scale as Figure 2 |
+ | 4 | reconstructed fODFs, **healthy**: Lmax down the rows, truth in column 1 then one column per SNR |
+ | 5 | the same for **edema** |
+ | 6 | **bias, spread and spurious peak count against SNR** — one curve per Lmax, **one row per kernel**, y limits shared per column |
+ 
+-**A shared scale needs two things, and only one of them is obvious.** Scaling a
+-glyph's radius does nothing on its own, because `axis equal` fixes a panel's
+-aspect ratio but *not* its limits — MATLAB autoscales each subplot to its own
+-data, so a glyph half the size gets an axis range half as wide and is drawn
+-exactly the same size. Every glyph here is scaled so its maximum radius is at
+-most 1 **and** every panel is pinned to `GLYPH_LIM`. Figures 1, 2/3 and 4/5 each
+-carry their own shared scale; the ground-truth fODF in Figure 1 is deliberately
+-*not* on the response scale, since an fODF and a signal are different quantities.
++**Only Figure 1 uses a shared radial scale**, because it is the one panel whose
++point is that the edema response is genuinely smaller than the healthy one.
++Everywhere else each panel autoscales and fills its box: Figures 2 and 3 are
++about the *shape* of the signal at each shell and SNR, Figures 4 and 5 about the
++shape of the reconstruction, and shrinking one of them into illegibility would
++buy nothing.
++
++Getting that shared scale to work takes two things and only one is obvious.
++Scaling a glyph's radius does nothing on its own, because `axis equal` fixes a
++panel's aspect ratio but *not* its limits — MATLAB autoscales each subplot to
++its own data, so a glyph half the size gets an axis range half as wide and is
++drawn at exactly the same size. Figure 1 therefore scales every glyph to a
++maximum radius of 1 **and** pins each panel to `GLYPH_LIM`. Its ground-truth
++fODF is deliberately *not* on the response scale, since an fODF and a signal are
++different quantities.
+ 
+ Set `MAKE_FIGURES = false` in that section to skip them. In MATLAB they appear
+ inline in the Live Script; under Octave graphics are often unavailable, and the
+diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+index dc240e8..a96e4a5 100644
+--- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
++++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
+@@ -1189,16 +1189,23 @@ fprintf('==================== both kernels done ====================\n\n');
+ MAKE_FIGURES = true;
+ ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
+ GLYPH_N      = 121;          % mesh resolution for every glyph
+-GLYPH_LIM    = [-1.02 1.02]; % axis limits every 3D panel is pinned to
+-
+-% *Why GLYPH_LIM exists, and why it is not optional.* |axis equal| fixes the
+-% ASPECT RATIO of a panel; it does not fix the axis LIMITS. Left to itself
+-% MATLAB autoscales each subplot to its own data, so a glyph half the size of
+-% its neighbour gets an axis range half as wide and ends up drawn exactly the
+-% same size on the page. Scaling the radius then has no visible effect at all.
++GLYPH_LIM    = [-1.02 1.02]; % axis limits, applied to FIGURE 1 ONLY
++
++% *Why GLYPH_LIM exists, and why it is not optional where it is used.*
++% |axis equal| fixes the ASPECT RATIO of a panel; it does not fix the axis
++% LIMITS. Left to itself MATLAB autoscales each subplot to its own data, so a
++% glyph half the size of its neighbour gets an axis range half as wide and ends
++% up drawn exactly the same size on the page. Scaling the radius then has no
++% visible effect at all. Both halves are needed: scale the radius AND pin the
++% limits.
+ %
+-% Every glyph below is scaled so its maximum radius is at most 1, and every
+-% panel is then pinned to GLYPH_LIM. Only with both does size mean something.
++% *This is deliberately applied to Figure 1 alone.* Figure 1 is the one panel
++% whose point is that the edema response is genuinely smaller than the healthy
++% one, so there size must carry meaning. Everywhere else a shared scale would
++% just shrink one figure into illegibility for no gain: Figures 2 and 3 are
++% about the SHAPE of the signal at each shell and SNR, and Figures 4 and 5
++% about the shape of the reconstruction, so every panel there is left to
++% autoscale and fill its box as it did before.
+ 
+ if MAKE_FIGURES
+     fprintf('Figures: rendering ...\n');
+@@ -1365,7 +1372,6 @@ if MAKE_FIGURES
+                 [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+-                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+                 camlight headlight; lighting gouraud;
+                 title(sprintf('b %.0f, SNR %s', b_shell(j), ...
+                               SNR_LABEL{SNR_ORD(kk)}));
+@@ -1380,23 +1386,6 @@ if MAKE_FIGURES
+     % that Lmax -- the bound nothing below it can beat -- then one column per
+     % SNR, worst first. Same renderer and camera as Figure 1, so truth and
+     % reconstruction can be compared directly.
+-    % One scale for Figures 4 and 5 together, over the truth and every fODF
+-    % they draw, so a flatter reconstruction looks flatter instead of being
+-    % autoscaled back up to fill its panel.
+-    fmax = 0;
+-    for iL = 1:numel(LMAX_LIST)
+-        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+-        Ye = SMI.get_even_SH(dirs_g, Lf, C.CS_PHASE);
+-        fmax = max(fmax, max(abs(sh_gt(ic,1:nc) * Ye')));
+-        for ikk = 1:NKERN
+-            for kk = 1:NSNR
+-                v = find(snr_id(:) == SNR_ORD(kk), 1);
+-                fmax = max(fmax, max(abs(RUN{ikk}.fits{iL}.sh(v,1:nc) * Ye')));
+-            end
+-        end
+-    end
+-    if fmax <= 0, fmax = 1; end
+-
+     for ikk = 1:NKERN
+         figure('Name', sprintf('Fig %d  reconstructed fODFs, %s', ...
+                                3+ikk, RUN{ikk}.name));
+@@ -1408,10 +1397,9 @@ if MAKE_FIGURES
+ 
+             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
+             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
+-                                        GLYPH_N, GLYPH_N, 1/fmax);
++                                        GLYPH_N, GLYPH_N, 1);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
+-            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+             camlight headlight; lighting gouraud;
+             title(sprintf('Lmax %d\ntruth', Lf));
+ 
+@@ -1420,10 +1408,9 @@ if MAKE_FIGURES
+                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
+                 v  = find(snr_id(:) == is, 1);
+                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
+-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1/fmax);
++                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+-                set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+                 camlight headlight; lighting gouraud;
+                 title(sprintf('SNR %s', SNR_LABEL{is}));
+             end
+-- 
+2.43.0
+
+
+From 878edbcc114604fd57057c16105a81ae30dd97dd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 9 Aug 2026 03:23:34 +0000
+Subject: [PATCH 2/2] Update the handoff for the manuscript simulation
+
+Records what the next agent needs and cannot reconstruct from the diff.
+
+Section 1 gains the notebooks: what each is for, that every knob is in one
+Configuration block, that notebooks/README.md lists what each CHECK
+establishes, and that the manuscript file is 42 SMI.fit calls at its
+defaults with NREP as the knob.
+
+Section 3 gains the shared-scale trap, which cost a review cycle: axis equal
+fixes a panel's aspect RATIO, not its LIMITS, so scaling a glyph's radius is
+invisible unless the panel is pinned too. With the corollary -- only use a
+shared scale where size is the point, which here is Figure 1 alone.
+
+Section 4 gains two real-data traps that synthetic protocols never show. A
+.bvec is unit only to ~1e-6 at seven significant figures, which degrades the
+Lmax 8 zonal identity from 1e-15 to 5e-7 for anything reading g(3) as
+cos(theta). A .bval records EFFECTIVE b, so "b = 0" is 5 s/mm^2 and the
+shells jitter across 18 distinct values.
+
+Section 6.5 is new: what the manuscript simulation is set up to measure, and
+the resolvability table that justifies using 60 degrees alone -- 30 never
+separates at kappa = 16 and needs kappa >= 48, 45 only from Lmax 6 up. Notes
+the consequence for run_smi_batch_mod.m, which runs max(Lmax) = 4 on real
+subjects and therefore cannot resolve 45 degrees at any SNR. Both kernels
+are tabulated with the reasoning behind the two deliberate departures in the
+edema one, and the section states the framing to use: edema has LESS
+ANISOTROPIC SIGNAL amplified in inverse proportion by dividing by K_l, not
+"more noise" -- the noise is identical.
+
+Section 8 is reordered around what is actually next: run the manuscript
+simulation at full size, wire up the CSD arms through the hook that is
+already in place, revisit the regularization sweep the user deferred to its
+own patch, and regenerate the Reports tables on the real protocol. It also
+records that NO figure in any notebook has ever been verified to render,
+since Octave's print is broken here, and that this gap already shipped one
+real bug.
+
+The edema scope marker in the old section 8 is removed: it is done.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GptEuETZEw1QVJAj7e9vag
+---
+ README for Claude.md | 139 ++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 125 insertions(+), 14 deletions(-)
+
+diff --git a/README for Claude.md b/README for Claude.md
+index 6597542..606cc54 100644
+--- a/README for Claude.md	
++++ b/README for Claude.md	
+@@ -27,7 +27,7 @@ reimplementations and onto MRtrix3 itself, and changed one shipped default.
+ 
+ All three are opt-in, and `out.plm`, `out.pl`, `out.kernel` are bit identical
+ whether any of them is on or off. That invariant is tested, not asserted — keep
+-it. Patches `Patches/0001`-`Patches/0010` record each change and apply with
++it. Patches `Patches/0001`-`Patches/0016` record each change and apply with
+ `git am --3way`.
+ 
+ The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
+@@ -41,6 +41,24 @@ reproducibility, but do not present it as an active pipeline recommendation.
+ The zonal-harmonics response viewer is likewise a learning and convention-check
+ exercise. Both are indexed in `Archive/README.md`.
+ 
++### The manuscript simulation, `deconv_comparison/notebooks/`
++
++The active work. Two narrated notebooks, both plain `.m` with publish-style
++markup so they run in MATLAB and Octave and convert to a Live Script unedited:
++
++| notebook | what it is |
++|---|---|
++| `smi_simulation_walkthrough.m` | the general SMI arm. Single fibre plus 30/45/60 degrees, one SNR, Lmax 4/6/8, four figures |
++| `smi_manuscript_60deg.m` | **the manuscript figure source.** 60 degrees only, two kernels back to back, SNR swept, six figures |
++
++Both put every knob in one Configuration block at the top and end every step
++with a `CHECK` that compares its output against something computed a different
++way. `notebooks/README.md` lists what each check establishes and why it is not
++circular; read that before changing either file.
++
++`smi_manuscript_60deg.m` at its defaults is **42 `SMI.fit` calls** (2 kernels x
++7 SNR x 3 Lmax) and runs in hours. `NREP` is the knob; 25 makes it minutes.
++
+ ### Still on a branch, not merged
+ 
+ **`claude/freewater-simulations` (`1be06ea`, 3 commits)** — the free-water
+@@ -184,6 +202,18 @@ checks it against SMI's own forward model on every run, aborting above 1e-10
+ hands SMI coefficients to an MRtrix tool — `sh2peaks`, `tckgen`, `shview` —
+ must fit at `CS_phase = 0` or apply the sign flip. See section 2.2.
+ 
++**A shared radial scale on a glyph figure needs TWO things.** This cost a whole
++review cycle. `axis equal` fixes a panel's aspect *ratio*, not its *limits* —
++MATLAB autoscales each subplot to its own data, so a glyph drawn at half the
++radius gets an axis range half as wide and lands on the page at exactly the same
++size. Scaling the radius alone is invisible. Scale the glyph **and** pin the
++panel (`set(gca,'XLim',...,'YLim',...,'ZLim',...)`).
++
++Corollary worth keeping: only use a shared scale where size is the point. In
++`smi_manuscript_60deg.m` that is Figure 1 alone, where the whole claim is that
++the edema response is genuinely smaller. Everywhere else a shared scale just
++shrinks one panel into illegibility, and the figures deliberately autoscale.
++
+ **Two different p2 exist and they are not the same quantity.** Same for p4.
+ 
+ - `out.kernel(:,:,:,ip2)` — fitted jointly with the kernel by polynomial
+@@ -241,6 +271,18 @@ Other traps, all hit at least once:
+ - Python needs only **`numpy matplotlib`**, except `setup_protocol.py`, which
+   needs `dipy` for its gradient-direction repulsion. **cvxpy is no longer
+   needed** — it was only there for the removed dipy MSMT-CSD path.
++- **A real `.bvec` is not unit to machine precision.** The supplied HCP file is
++  unit only to `1.1e-6`, being written at seven significant figures. Anything
++  that reads `g(3)` as `cos(theta)` without normalising inherits that: measured
++  at Lmax 8 it degrades the zonal-response identity from `1e-15` to `5e-7`.
++  `mc_config.m`'s `load_protocol` warns loudly and normalises, and it is the one
++  reader so nothing can bypass it.
++- **A real `.bval` records EFFECTIVE b.** The "b = 0" volumes are `b = 5 s/mm^2`
++  and carry meaningless unit direction vectors; the shells jitter (18 distinct
++  values across 4 shells). `SMI.Group_dwi_in_shells_b_beta_TE` bins them
++  correctly — the notebooks check it recovers `[18 90 90 90]` — and
++  `B0_SNAP` in `smi_manuscript_60deg.m` sets the near-zero shell to exactly 0 so
++  `S(0)/S0 = 1` holds exactly.
+ - **`pkill -f <pattern>` matches the invoking shell** and will kill your own
+   Bash tool call (exit 144). Use `pkill -x`. Same failure mode makes
+   `until ! pgrep -f script.py` an infinite loop; poll for output files instead.
+@@ -286,6 +328,8 @@ The response/deconvolution work now on master:
+ | `examples/example_SMI_response_shview.m` | archived learning exercise for response conventions and visualization |
+ | `tests/test_SMI_response_helpers.m` | 8 tests, all passing under Octave |
+ | `deconv_comparison/` | the Monte Carlo package. Has its own `README.md` — read that one for the run order |
++| `deconv_comparison/notebooks/` | the two narrated notebooks, and a `README.md` listing every `CHECK` and what it establishes |
++| `deconv_comparison/protocol/` | `hcp_real_3shell.txt` is the acquisition in use; `hcp_like_3shell.txt` is the synthetic scheme the published tables were measured on, marked superseded |
+ | `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` | ~580 lines, 10 sections, plus "Findings, shortest form" at the top |
+ | `Reports/deconv_tables.md` | every result table, generated by `deconv_comparison/tables.py` |
+ | `Figures/fodf_response_shview.png`, `Figures/fodf_deconv_montecarlo.png` | the two figures |
+@@ -397,6 +441,57 @@ constrained setting, so nothing above 1 buys anything.
+ 
+ ---
+ 
++### 6.5 What the manuscript simulation is set up to measure
++
++Not yet run at full size. What is already established, all measured on the
++*noise-free ground truth* with no fitting and no noise, so these are properties
++of the truth rather than of any method:
++
++**Which crossings are resolvable at all** (peaks found in the truth truncated to
++each Lmax, `kappa = 16`):
++
++| angle | Lmax 4 | Lmax 6 | Lmax 8 | true |
++|---|---|---|---|---|
++| 30 deg | 1 | 1 | 1 | 2 |
++| 45 deg | 1 | 2 | 2 | 2 |
++| 60 deg | 2 | 2 | 2 | 2 |
++
++**A 30 degree crossing never separates at `kappa = 16`** — it needs
++`kappa >= 48`, about 8 degrees of dispersion. 45 separates only from Lmax 6 up.
++**60 separates everywhere**, which is why the manuscript uses it: a difference
++between methods there is attributable to the method and not to the band limit.
++Note the consequence for `run_smi_batch_mod.m`, which runs `max(Lmax) = 4` on
++real subjects: at that order a 45 degree crossing cannot be resolved at any SNR.
++
++**The two kernels**, and why the edema one is what it is:
++
++| kernel | `[f Da Depar Deperp fw]` | extra-axonal |
++|---|---|---|
++| healthy | `[0.60 2.0 2.0 0.50 0.02]` | 0.38 |
++| edema | `[0.10 2.4 2.7 1.15 0.35]` | 0.55 |
++
++The edema kernel is shaped from a **fitted** kernel, which is why the
++diffusivities are not round and why `Depar` exceeds `Da`. Two values depart from
++the fit deliberately: `f` is **0.10 rather than 0.05**, because 0.05 is exactly
++the lower bound of SMI's default training prior and a truth sitting on the prior
++boundary is estimated with a one-sided bias indistinguishable from a real
++effect; and `fw = 0.35`, which the fit did not specify. `Deperp = 1.15` is still
++close to its own prior cap of 1.2 — left as fitted, and the first place to look
++if the extra-axonal diffusivities come back biased low.
++
++**Why the edema arm will look noisier when the noise is identical.** It is not
++noisier: `sigma = 1/SNR` against `S0 = 1` in both. The *anisotropic signal* is
++3-6x smaller, measured on Figure 1's shared scale — healthy peaks at
++0.83 / 0.74 / 0.68 for b = 1 / 2 / 3, edema at 0.29 / 0.16 / 0.12, both 1.000 at
++b = 0 by construction. `f` 0.60 -> 0.10 removes most of the stick compartment,
++`Deperp` 0.50 -> 1.15 makes the extra-axonal tensor nearly isotropic, and
++`fw` 0.02 -> 0.35 adds pure isotropy. `K_2`, `K_4`, `K_6` all shrink while `K_0`
++does not, and deconvolution **divides by `K_l`** — the same `g_2 = 1/||K_2||`
++mechanism as the CSF blow-ups in section 6.3. Say "less anisotropic signal,
++amplified in inverse proportion", never "noisier".
++
++---
++
+ ## 7. Dead ends, with evidence
+ 
+ Do not re-walk these.
+@@ -437,16 +532,35 @@ it has never touched real data.
+ 
+ ## 8. Next steps, roughly in order of value per hour
+ 
+-1. **Finish the user-friendliness pass on `deconv_comparison/` — this is a
+-   paused task, not a new idea.** The user asked for it verbatim: *"make the
+-   simulation package as user friendly as possible... I want it to be clear and
+-   obvious what is happening at each step (you can do a .m and a notebook for
+-   SMI and CSD packages) but I want an outsider to be able to come in and verify
+-   the simulations."* Then, mid-turn, they paused it to get this handoff written.
+-   **Pick it up first.** The shape asked for is a `.m` walkthrough plus a
+-   notebook for each of the SMI side and the CSD/MRtrix side, narrating each
+-   step rather than just running it. The package currently works but reads like
+-   infrastructure.
++1. **Run `smi_manuscript_60deg.m` at full size and read Figure 6.** Everything
++   about it is built and checked; nothing has been run at `NREP = 1000`. The
++   user runs it on their own hardware, which is faster than the container — do
++   not burn hours running it here unless asked. **No figure in any notebook has
++   ever been verified to RENDER**: Octave's `print` is broken in this container,
++   so the figure blocks are only ever checked to execute against the stubs in
++   `deconv_comparison/octave_test_stubs/`. That gap has already shipped one real
++   bug (section 3, the shared-scale trap).
++2. **Wire up the CSD and MSMT-CSD arms.** The hook is already there: a commented
++   block just before Step 7 of `smi_manuscript_60deg.m`, at the *scoring* stage,
++   so uncommenting it makes them scored by the same peak finder as SMI and they
++   appear automatically as extra columns in Figures 4-5 and extra curves in
++   Figure 6. Figure 1 is the panel built to take their estimated responses. Two
++   traps recorded in the stub: `dwi2fod` needs `-lmax` matching `LMAX_LIST` or
++   the ceiling is the wrong bound, and an MRtrix FOD is not normalised while an
++   SMI fODF integrates to 1.
++3. **Revisit `examples/example_fODF_regularization_sweep.m`.** The user asked
++   for this explicitly and it was deferred to its own patch: audit it for hidden
++   bugs, and add 3D isometric panels of the reconstructed fODFs as
++   `lambda_nonneg`, `lambda_tikhonov` and `tau` vary, in the style of the 2007
++   CSD paper. Two things to settle with the user first: whether those panels
++   sweep at one SNR or several, and whether they use the manuscript's 60 degree
++   crossing or that script's existing 40/60/90 set.
++4. **Regenerate the `Reports/` tables on the real HCP protocol.** Every number
++   in `Reports/deconv_tables.md` and
++   `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` was measured on the older
++   synthetic scheme, still on disk at `protocol/hcp_like_3shell.txt` and marked
++   superseded. The pipeline now reads the real one, so this is a re-run rather
++   than a code change.
+ 2. **Run the drivers on real data and read the peak histogram.** Everything in
+    every report is simulation. The single most informative number is
+    `out.fODF_outlier.Ncap`: simulation says it should be **0** on a regularized
+@@ -467,9 +581,6 @@ it has never touched real data.
+    crossings.** Everything measured so far is two equal fibres. Unequal
+    fractions are where spurious-peak counts usually separate methods, and the
+    three-way case is where the modulation work already knows SMI has trouble.
+-6. **Add an edematous-kernel condition to the existing
+-   `deconv_comparison/` simulation package.** This is only a scope marker for
+-   now; the edema model, parameters, and evaluation should be designed later.
+ 7. **Land `claude/freewater-simulations`**, or the measured numbers quoted in
+    `Reports/REPORT_fODF_outlier_cap.md` have no reproducible source.
+ 8. Spatial context beyond the cap — a neighbour-agreement *weight* rather than
+-- 
+2.43.0
+
