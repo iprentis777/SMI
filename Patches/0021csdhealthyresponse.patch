@@ -1,5 +1,242 @@
+diff --git a/Archive/deconv_pipeline/README.md b/Archive/deconv_pipeline/README.md
+new file mode 100644
+index 0000000..80d3ce4
+--- /dev/null
++++ b/Archive/deconv_pipeline/README.md
+@@ -0,0 +1,43 @@
++# The original Monte Carlo pipeline
++
++Everything here produced `Reports/deconv_tables.md` and
++`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`. It is **archived, not
++deleted**: those reports' numbers have no other provenance, and section 8 of
++`README for Claude.md` still lists "regenerate the tables on the real HCP
++protocol" as an open task, which would be a re-run of exactly these files.
++
++**It is not the active comparison.** `deconv_comparison/notebooks/smi_manuscript_60deg.m`
++replaced it and runs SMI, SSST-CSD and MSMT-CSD in one file on one noise draw.
++Prefer that for anything new. This pipeline reached 10,000 realisations and four
++crossing angles by splitting the work across Octave, MRtrix and Python, joining
++the arms by voxel index across three languages rather than by being the same
++array in one scope — which is the reason it was superseded.
++
++## What is here
++
++| file | what |
++|---|---|
++| `run_all.sh` | the whole campaign, from an empty `data/` |
++| `setup_protocol.py` | the evaluation sphere; the only thing that needed `dipy` |
++| `gen_phantom.m` | the synthetic voxel population the responses were estimated from |
++| `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |
++| `sweep_nonneg.m` | one kernel fit, six regularizer settings (report section 6) |
++| `run_mrtrix.sh` | every MRtrix call: responses, fits, peaks, controls |
++| `write_exact_response.py`, `kernel.py` | the exact kernel response in MRtrix format, and `K_l(b)` in Python |
++| `binio.{m,py}` | the flat float64 Octave/Python exchange |
++| `mrtrix_io.py` | the Python MRtrix image reader (the `.m` writer stayed in `deconv_comparison/`) |
++| `score_mrtrix.py`, `score_sweep.py`, `tables.py` | scoring and the report tables |
++| `figure_mc.py`, `figure_response.py` | `Figures/fodf_deconv_montecarlo.png` and `fodf_response_shview.png` |
++| `dump_bases.m`, `check_mrtrix_basis.sh` | SMI's SH basis against MRtrix's, both `CS_phase` values |
++| `mrtrix_responses/` | `dwi2response` outputs, estimated on the superseded synthetic protocol |
++| `hcp_like_3shell.txt` | that superseded synthetic acquisition |
++| `octave_test_stubs/` | graphics stubs from when Octave's `print` was thought unusable here. It is not — `figures_csd_arms`-style code writes real PNGs — so these are obsolete as well as archived |
++| `smi_manuscript_60deg.ipynb` | the PR #22 three-arm Jupyter notebook, superseded by the `.m` |
++
++## Running it again
++
++The paths assume this directory sits beside `SMI.m` and `helpers/`, which it no
++longer does. Anything here needs its `oct_path`/`addpath` lines pointed back at
++the repository root before it will run. Nothing in the active manuscript path
++imports any of it — that was checked before the move, and both test suites pass
++without it.
+diff --git a/deconv_comparison/binio.m b/Archive/deconv_pipeline/binio.m
+similarity index 100%
+rename from deconv_comparison/binio.m
+rename to Archive/deconv_pipeline/binio.m
+diff --git a/deconv_comparison/binio.py b/Archive/deconv_pipeline/binio.py
+similarity index 100%
+rename from deconv_comparison/binio.py
+rename to Archive/deconv_pipeline/binio.py
+diff --git a/deconv_comparison/check_mrtrix_basis.sh b/Archive/deconv_pipeline/check_mrtrix_basis.sh
+similarity index 100%
+rename from deconv_comparison/check_mrtrix_basis.sh
+rename to Archive/deconv_pipeline/check_mrtrix_basis.sh
+diff --git a/deconv_comparison/dump_bases.m b/Archive/deconv_pipeline/dump_bases.m
+similarity index 100%
+rename from deconv_comparison/dump_bases.m
+rename to Archive/deconv_pipeline/dump_bases.m
+diff --git a/deconv_comparison/figure_mc.py b/Archive/deconv_pipeline/figure_mc.py
+similarity index 100%
+rename from deconv_comparison/figure_mc.py
+rename to Archive/deconv_pipeline/figure_mc.py
+diff --git a/deconv_comparison/figure_response.py b/Archive/deconv_pipeline/figure_response.py
+similarity index 100%
+rename from deconv_comparison/figure_response.py
+rename to Archive/deconv_pipeline/figure_response.py
+diff --git a/deconv_comparison/gen_montecarlo.m b/Archive/deconv_pipeline/gen_montecarlo.m
+similarity index 100%
+rename from deconv_comparison/gen_montecarlo.m
+rename to Archive/deconv_pipeline/gen_montecarlo.m
+diff --git a/deconv_comparison/gen_phantom.m b/Archive/deconv_pipeline/gen_phantom.m
+similarity index 100%
+rename from deconv_comparison/gen_phantom.m
+rename to Archive/deconv_pipeline/gen_phantom.m
+diff --git a/deconv_comparison/protocol/hcp_like_3shell.txt b/Archive/deconv_pipeline/hcp_like_3shell.txt
+similarity index 100%
+rename from deconv_comparison/protocol/hcp_like_3shell.txt
+rename to Archive/deconv_pipeline/hcp_like_3shell.txt
+diff --git a/deconv_comparison/kernel.py b/Archive/deconv_pipeline/kernel.py
+similarity index 100%
+rename from deconv_comparison/kernel.py
+rename to Archive/deconv_pipeline/kernel.py
+diff --git a/deconv_comparison/mrtrix_io.py b/Archive/deconv_pipeline/mrtrix_io.py
+similarity index 100%
+rename from deconv_comparison/mrtrix_io.py
+rename to Archive/deconv_pipeline/mrtrix_io.py
+diff --git a/deconv_comparison/mrtrix_responses/resp_csf.txt b/Archive/deconv_pipeline/mrtrix_responses/resp_csf.txt
+similarity index 100%
+rename from deconv_comparison/mrtrix_responses/resp_csf.txt
+rename to Archive/deconv_pipeline/mrtrix_responses/resp_csf.txt
+diff --git a/deconv_comparison/mrtrix_responses/resp_gm.txt b/Archive/deconv_pipeline/mrtrix_responses/resp_gm.txt
+similarity index 100%
+rename from deconv_comparison/mrtrix_responses/resp_gm.txt
+rename to Archive/deconv_pipeline/mrtrix_responses/resp_gm.txt
+diff --git a/deconv_comparison/mrtrix_responses/resp_wm.txt b/Archive/deconv_pipeline/mrtrix_responses/resp_wm.txt
+similarity index 100%
+rename from deconv_comparison/mrtrix_responses/resp_wm.txt
+rename to Archive/deconv_pipeline/mrtrix_responses/resp_wm.txt
+diff --git a/deconv_comparison/mrtrix_responses/resp_wm_fa.txt b/Archive/deconv_pipeline/mrtrix_responses/resp_wm_fa.txt
+similarity index 100%
+rename from deconv_comparison/mrtrix_responses/resp_wm_fa.txt
+rename to Archive/deconv_pipeline/mrtrix_responses/resp_wm_fa.txt
+diff --git a/deconv_comparison/mrtrix_responses/resp_wm_tournier.txt b/Archive/deconv_pipeline/mrtrix_responses/resp_wm_tournier.txt
+similarity index 100%
+rename from deconv_comparison/mrtrix_responses/resp_wm_tournier.txt
+rename to Archive/deconv_pipeline/mrtrix_responses/resp_wm_tournier.txt
+diff --git a/deconv_comparison/octave_test_stubs/axis.m b/Archive/deconv_pipeline/octave_test_stubs/axis.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/axis.m
+rename to Archive/deconv_pipeline/octave_test_stubs/axis.m
+diff --git a/deconv_comparison/octave_test_stubs/bar.m b/Archive/deconv_pipeline/octave_test_stubs/bar.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/bar.m
+rename to Archive/deconv_pipeline/octave_test_stubs/bar.m
+diff --git a/deconv_comparison/octave_test_stubs/camlight.m b/Archive/deconv_pipeline/octave_test_stubs/camlight.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/camlight.m
+rename to Archive/deconv_pipeline/octave_test_stubs/camlight.m
+diff --git a/deconv_comparison/octave_test_stubs/colormap.m b/Archive/deconv_pipeline/octave_test_stubs/colormap.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/colormap.m
+rename to Archive/deconv_pipeline/octave_test_stubs/colormap.m
+diff --git a/deconv_comparison/octave_test_stubs/figure.m b/Archive/deconv_pipeline/octave_test_stubs/figure.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/figure.m
+rename to Archive/deconv_pipeline/octave_test_stubs/figure.m
+diff --git a/deconv_comparison/octave_test_stubs/gca.m b/Archive/deconv_pipeline/octave_test_stubs/gca.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/gca.m
+rename to Archive/deconv_pipeline/octave_test_stubs/gca.m
+diff --git a/deconv_comparison/octave_test_stubs/grid.m b/Archive/deconv_pipeline/octave_test_stubs/grid.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/grid.m
+rename to Archive/deconv_pipeline/octave_test_stubs/grid.m
+diff --git a/deconv_comparison/octave_test_stubs/hold.m b/Archive/deconv_pipeline/octave_test_stubs/hold.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/hold.m
+rename to Archive/deconv_pipeline/octave_test_stubs/hold.m
+diff --git a/deconv_comparison/octave_test_stubs/legend.m b/Archive/deconv_pipeline/octave_test_stubs/legend.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/legend.m
+rename to Archive/deconv_pipeline/octave_test_stubs/legend.m
+diff --git a/deconv_comparison/octave_test_stubs/lighting.m b/Archive/deconv_pipeline/octave_test_stubs/lighting.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/lighting.m
+rename to Archive/deconv_pipeline/octave_test_stubs/lighting.m
+diff --git a/deconv_comparison/octave_test_stubs/lines.m b/Archive/deconv_pipeline/octave_test_stubs/lines.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/lines.m
+rename to Archive/deconv_pipeline/octave_test_stubs/lines.m
+diff --git a/deconv_comparison/octave_test_stubs/plot.m b/Archive/deconv_pipeline/octave_test_stubs/plot.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/plot.m
+rename to Archive/deconv_pipeline/octave_test_stubs/plot.m
+diff --git a/deconv_comparison/octave_test_stubs/set.m b/Archive/deconv_pipeline/octave_test_stubs/set.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/set.m
+rename to Archive/deconv_pipeline/octave_test_stubs/set.m
+diff --git a/deconv_comparison/octave_test_stubs/subplot.m b/Archive/deconv_pipeline/octave_test_stubs/subplot.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/subplot.m
+rename to Archive/deconv_pipeline/octave_test_stubs/subplot.m
+diff --git a/deconv_comparison/octave_test_stubs/surf.m b/Archive/deconv_pipeline/octave_test_stubs/surf.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/surf.m
+rename to Archive/deconv_pipeline/octave_test_stubs/surf.m
+diff --git a/deconv_comparison/octave_test_stubs/text.m b/Archive/deconv_pipeline/octave_test_stubs/text.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/text.m
+rename to Archive/deconv_pipeline/octave_test_stubs/text.m
+diff --git a/deconv_comparison/octave_test_stubs/title.m b/Archive/deconv_pipeline/octave_test_stubs/title.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/title.m
+rename to Archive/deconv_pipeline/octave_test_stubs/title.m
+diff --git a/deconv_comparison/octave_test_stubs/view.m b/Archive/deconv_pipeline/octave_test_stubs/view.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/view.m
+rename to Archive/deconv_pipeline/octave_test_stubs/view.m
+diff --git a/deconv_comparison/octave_test_stubs/xlabel.m b/Archive/deconv_pipeline/octave_test_stubs/xlabel.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/xlabel.m
+rename to Archive/deconv_pipeline/octave_test_stubs/xlabel.m
+diff --git a/deconv_comparison/octave_test_stubs/xlim.m b/Archive/deconv_pipeline/octave_test_stubs/xlim.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/xlim.m
+rename to Archive/deconv_pipeline/octave_test_stubs/xlim.m
+diff --git a/deconv_comparison/octave_test_stubs/ylabel.m b/Archive/deconv_pipeline/octave_test_stubs/ylabel.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/ylabel.m
+rename to Archive/deconv_pipeline/octave_test_stubs/ylabel.m
+diff --git a/deconv_comparison/octave_test_stubs/ylim.m b/Archive/deconv_pipeline/octave_test_stubs/ylim.m
+similarity index 100%
+rename from deconv_comparison/octave_test_stubs/ylim.m
+rename to Archive/deconv_pipeline/octave_test_stubs/ylim.m
+diff --git a/deconv_comparison/run_all.sh b/Archive/deconv_pipeline/run_all.sh
+similarity index 100%
+rename from deconv_comparison/run_all.sh
+rename to Archive/deconv_pipeline/run_all.sh
+diff --git a/deconv_comparison/run_mrtrix.sh b/Archive/deconv_pipeline/run_mrtrix.sh
+similarity index 100%
+rename from deconv_comparison/run_mrtrix.sh
+rename to Archive/deconv_pipeline/run_mrtrix.sh
+diff --git a/deconv_comparison/score_mrtrix.py b/Archive/deconv_pipeline/score_mrtrix.py
+similarity index 100%
+rename from deconv_comparison/score_mrtrix.py
+rename to Archive/deconv_pipeline/score_mrtrix.py
+diff --git a/deconv_comparison/score_sweep.py b/Archive/deconv_pipeline/score_sweep.py
+similarity index 100%
+rename from deconv_comparison/score_sweep.py
+rename to Archive/deconv_pipeline/score_sweep.py
+diff --git a/deconv_comparison/setup_protocol.py b/Archive/deconv_pipeline/setup_protocol.py
+similarity index 100%
+rename from deconv_comparison/setup_protocol.py
+rename to Archive/deconv_pipeline/setup_protocol.py
+diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.ipynb b/Archive/deconv_pipeline/smi_manuscript_60deg.ipynb
+similarity index 100%
+rename from deconv_comparison/notebooks/smi_manuscript_60deg.ipynb
+rename to Archive/deconv_pipeline/smi_manuscript_60deg.ipynb
+diff --git a/deconv_comparison/sweep_nonneg.m b/Archive/deconv_pipeline/sweep_nonneg.m
+similarity index 100%
+rename from deconv_comparison/sweep_nonneg.m
+rename to Archive/deconv_pipeline/sweep_nonneg.m
+diff --git a/deconv_comparison/tables.py b/Archive/deconv_pipeline/tables.py
+similarity index 100%
+rename from deconv_comparison/tables.py
+rename to Archive/deconv_pipeline/tables.py
+diff --git a/deconv_comparison/write_exact_response.py b/Archive/deconv_pipeline/write_exact_response.py
+similarity index 100%
+rename from deconv_comparison/write_exact_response.py
+rename to Archive/deconv_pipeline/write_exact_response.py
 diff --git a/README for Claude.md b/README for Claude.md
-index fda5d4c..845ed89 100644
+index fda5d4c..0e17375 100644
 --- a/README for Claude.md	
 +++ b/README for Claude.md	
 @@ -81,10 +81,11 @@ Three things about it that matter more than the code:
@@ -18,7 +255,7 @@ index fda5d4c..845ed89 100644
  2. **`SMOKE_TEST` is new and is the knob to reach for first.** `true` gives one
     Lmax, three SNRs, `NREP = 27` — minutes, every CHECK still executed,
     indicative numbers only. `false` is the manuscript configuration: 42
-@@ -94,6 +95,43 @@ Three things about it that matter more than the code:
+@@ -94,6 +95,65 @@ Three things about it that matter more than the code:
     because an MRtrix FOD is unnormalised. The finder itself moved to
     `helpers/fODF_peak_score.m` so nothing can score an fODF a second way.
  
@@ -59,10 +296,32 @@ index fda5d4c..845ed89 100644
 +   so there is no model mismatch anywhere -- arguably the largest assumption in
 +   the whole package, and the one a reviewer will find first.
 +
++**The package was centralised.** `deconv_comparison/` now holds only what
++`smi_manuscript_60deg.m` needs: `mc_config.m`, `mrtrix_io.m`, `oct_path.m`,
++`protocol/hcp_real_3shell.txt`, `stubs/`, the two notebooks, and the two test
++files. Everything else moved to **`Archive/deconv_pipeline/`** -- the whole
++Octave+MRtrix+Python campaign (`run_all.sh`, `gen_montecarlo.m`, `binio`,
++`kernel.py`, the scorers, the figure scripts, `mrtrix_responses/`,
++`hcp_like_3shell.txt`, `octave_test_stubs/`, and the PR #22 `.ipynb`).
++
++Archived, not deleted: it is the only provenance for `Reports/deconv_tables.md`
++and `REPORT_SMI_deconvolution_MonteCarlo.md`, and section 8's "regenerate the
++tables on the real protocol" would be a re-run of it. Its paths assume it sits
++beside `SMI.m`, which it no longer does, so it needs its `addpath` lines fixed
++before it will run. Nothing in the manuscript path imports any of it -- checked
++before the move, and both test suites pass without it.
++
++**Glyphs no longer render negative lobes.** `GLYPH_NEG = 'clamp'` in the
++Configuration block; `SMI_response_helpers` gained the mode and still defaults
++to `'abs'` for the archived viewer. A band-limited fODF rings below zero -- at
++Lmax 6 on a noise-free edema voxel, MSMT-CSD's is negative over **64.6%** of the
++sphere and SSST-CSD's over 48.6% -- and under `'abs'` every one of those regions
++was drawn at positive radius, growing lobes that are not fibres.
++
  **Run `check_manuscript_static.m` before starting a long run.** It parses the
  whole file without executing it, audits the subscript arity of the scoring
  arrays, and checks every `RUN{}` field read is written — seconds, not hours.
-@@ -457,6 +495,7 @@ The response/deconvolution work now on master:
+@@ -457,6 +517,7 @@ The response/deconvolution work now on master:
  | `deconv_comparison/` | the Monte Carlo package. Has its own `README.md` — read that one for the run order |
  | `deconv_comparison/notebooks/` | the two narrated notebooks, and a `README.md` listing every `CHECK` and what it establishes |
  | `deconv_comparison/protocol/` | `hcp_real_3shell.txt` is the acquisition in use; `hcp_like_3shell.txt` is the synthetic scheme the published tables were measured on, marked superseded |
@@ -431,6 +690,265 @@ index 0000000..afd46b7
 +
 +`deconv_comparison/test_csd_arms.m` re-runs the end-to-end consequence in about
 +two seconds.
+diff --git a/deconv_comparison/README.md b/deconv_comparison/README.md
+index 3250288..40e7aa7 100644
+--- a/deconv_comparison/README.md
++++ b/deconv_comparison/README.md
+@@ -1,168 +1,115 @@
+-# Monte Carlo comparison: constrained SMI vs MSMT-CSD vs SSST-CSD
+-
+-The simulation behind `../Reports/REPORT_SMI_deconvolution_MonteCarlo.md`, in the design
+-of Jeurissen et al. (2014): synthesise noise-free signal vectors for crossing
+-white matter fibres by forward convolution, add complex Gaussian noise so the
+-magnitude is Rician, and deconvolve 10,000 independent realisations of each
+-condition with each method.
+-
+-**CSD and MSMT-CSD are MRtrix3 3.0.4 itself** — `dwi2response`, `dwi2fod` and
+-`sh2peaks`, the binaries. The SMI fODF goes through the same `sh2peaks`, so peak
+-extraction is identical for every arm and is not something this package
+-implements. The only MRtrix behaviour implemented here is reading and writing
+-its image format (`mrtrix_io.m`, `mrtrix_io.py`), verified against `mrinfo` and
+-`mrconvert`.
+-
+-**Everything here is simulation.** No result in this directory or in the report
+-has touched a patient scan — including the "real data" the response functions
+-are estimated from, which is a synthetic phantom. Section 2 of the report says
+-exactly what that does and does not buy.
++# Constrained SMI vs SSST-CSD vs MSMT-CSD
++
++The simulation behind the manuscript, in the design of Jeurissen et al. (2014):
++synthesise noise-free signal vectors for crossing white matter fibres by forward
++convolution, add complex Gaussian noise so the magnitude is Rician, and
++deconvolve many independent realisations of each condition with each method.
++
++**Everything here serves one file**, `notebooks/smi_manuscript_60deg.m`. It runs
++all three arms — SMI, SSST-CSD and MSMT-CSD — on **one simulation, one noise
++draw, one peak finder, in one scope**. There is no second forward model to keep
++in step and no question about whether the arms saw the same data: they are the
++same array.
++
++**CSD and MSMT-CSD are MRtrix3 3.0.4 itself.** `dwi2fod`, `dwiextract` and
++`mrinfo` are the binaries, called as subprocesses. The only MRtrix behaviour
++implemented locally is reading and writing its image format (`mrtrix_io.m`),
++which `mrinfo` checks on every run.
++
++**Everything here is simulation.** No result in this directory has touched a
++patient scan.
+ 
+ ## What is compared
+ 
+ | arm | what it is |
+ |---|---|
+-| SMI constrained | `SMI.fit`, `fODF_regularization.flag_nonneg = 1` at the shipped defaults, `CS_phase = 0` |
+-| SSST-CSD | `dwi2fod csd` on the b = 3 shell, `dwi2response tournier` response |
+-| MSMT-CSD | `dwi2fod msmt_csd` on all shells, `dwi2response dhollander` 3-tissue responses |
+-
+-All three deconvolve at Lmax 6 and read the same image. The band limited ground
+-truth is written as an SH image too and run through the same `sh2peaks`, which
+-is where the "ceiling" column in the report comes from. (The walkthrough fits
+-SMI at Lmax 4, 6 and 8 to show what the angular order costs; the comparison
+-arms are fixed at 6 so the three methods stay comparable.)
++| SMI constrained | `SMI.fit`, `fODF_regularization.flag_nonneg = 1`, `CS_phase = 0`. **Estimates its kernel per voxel** |
++| SSST-CSD | `dwi2fod csd` on the top shell |
++| MSMT-CSD | `dwi2fod msmt_csd` on all four shells, 3 tissues, `-neg_lambda 1` |
++
++Two settings decide what "fair" means here, and both are documented at length in
++`Reports/REPORT_CSD_response_derivation.md`:
++
++- **`CSD_RESPONSE_KERNEL = 'healthy'`** — both tissues are deconvolved with the
++  healthy WM response, because that is what a population-averaged single-fibre
++  estimate is. This is the one place the arms are not on equal footing, and the
++  inequality is real: SMI re-estimates its kernel per voxel and adapts, CSD
++  cannot.
++- **`MSMT_NEG_LAMBDA = 1`** — MRtrix ships `1e-10`, which leaves `msmt_csd`
++  effectively unconstrained while `csd`'s constraint is at strength 1. Running
++  both "at their defaults" is not a like-for-like comparison and produced a
++  wrong result once already.
+ 
+ **`CS_phase = 0` matters.** At SMI's default of 1 the SH basis differs from
+-MRtrix's by `(-1)^m`, which is a 180 degree rotation about z of every fODF.
+-`check_mrtrix_basis.sh` measures that against MRtrix itself.
++MRtrix's by `(-1)^m`, a 180 degree rotation about z of every fODF.
+ 
+ ## The protocol
+ 
+-Everything now runs on **a real HCP 3-shell acquisition** — 288 volumes, 18 at
+-b = 5 s/mm² plus 90 directions each at nominal b = 1, 2, 3 ms/µm², read from
++**A real HCP 3-shell acquisition** — 288 volumes, 18 at b = 5 s/mm² plus 90
++directions each at nominal b = 1, 2, 3 ms/µm², read from
+ `protocol/hcp_real_3shell.txt` through `mc_config.m` so no arm can disagree
+ about what was acquired.
+ 
+-**The tables in `Reports/` predate this** and were measured on the older
+-synthetic scheme, which is still on disk and marked superseded. Regenerating
+-them is a re-run, not a code change.
+-
+-Two properties of the real scheme are worth knowing because synthetic
+-protocols do not have them, and both are checked rather than assumed:
++Three properties of the real scheme, all checked rather than assumed:
+ 
+-- the b = 0 volumes are **b = 5 s/mm², not 0**, and carry unit direction
+-  vectors even though the direction is meaningless there;
++- the b = 0 volumes are **b = 5 s/mm², not 0**, and carry unit direction vectors
++  even though the direction is meaningless there. `B0_SNAP` sets them to
++  exactly 0 so `S(0)/S0 = 1` holds exactly;
+ - the b values **jitter within each shell** (18 distinct values), and
+-  `SMI.Group_dwi_in_shells_b_beta_TE` is what bins them — the walkthrough
+-  checks it recovers `[18 90 90 90]`;
++  `SMI.Group_dwi_in_shells_b_beta_TE` bins them — checked to recover
++  `[18 90 90 90]`;
+ - the supplied `.bvec` is unit only to **1.1e-6**. `mc_config.m` warns loudly
+-  and normalises. Left alone this breaks any calculation that reads `g(3)` as
+-  `cos(theta)`: at Lmax 8 the zonal-response identity degrades from 1e-15 to
+-  5e-7.
+-
+-## Start here if you want to check it yourself
+-
+-`notebooks/smi_simulation_walkthrough.m` is the SMI arm taken apart, one step
+-at a time, with a `CHECK` after every step that compares its output against
+-something computed a different way. It needs no data and no Python, takes
+-about six minutes (it fits at Lmax 4, 6 and 8 in turn), and it opens as a
+-MATLAB Live Script with no edits. Read
+-`notebooks/README.md` for what each check establishes.
+-
+-**The CSD and MSMT-CSD arms now do have one.**
+-`notebooks/smi_manuscript_60deg.m` runs all three arms in a single file: it
+-builds the signal, fits SMI, and hands the *same array* to `dwi2fod csd` and
+-`dwi2fod msmt_csd`, scoring all three with one peak finder. Set
+-`SMOKE_TEST = true` there for a version that runs in minutes.
+-
+-## Run order
+-
+-`./run_all.sh` does all of it (`NREP=200 ./run_all.sh` for a quick version).
+-Step by step:
+-
+-```
+-python3 setup_protocol.py                                   # evaluation sphere
+-octave --eval "oct_path; gen_phantom(30,'p30')"             # response phantom
+-./run_mrtrix.sh responses                                   # dwi2response x3
+-./check_mrtrix_basis.sh                                     # SH basis vs MRtrix
+-
+-octave --eval "oct_path; gen_montecarlo(30,10000,'snr30')"  # signal + SMI
+-./run_mrtrix.sh fit snr30                                   # dwi2fod + sh2peaks
++  and normalises. Left alone this breaks any calculation reading `g(3)` as
++  `cos θ`: at Lmax 8 the zonal-response identity degrades from 1e-15 to 5e-7.
+ 
+-python3 tables.py nf snr50:50 snr30:30 ...  | tee ../Reports/deconv_tables.md
+-python3 figure_mc.py ../Figures/fodf_deconv_montecarlo.png snr50:50 snr30:30 ...
+-python3 figure_response.py p30 ../Figures/fodf_response_shview.png
++## What is here
+ 
+-octave --eval "oct_path; sweep_nonneg(30,2000,'sw30')"      # report section 6
+-./run_mrtrix.sh sweep sw30 6 && python3 score_sweep.py sw30 30
+-./run_mrtrix.sh control snr50                               # report section 7
+-```
+-
+-`nf` is the noise-free arm (`gen_montecarlo(1e4, 500, 'nf')`), used only to
+-normalise peak amplitudes so methods whose fODFs live on different scales can
+-still be compared.
++| file | what |
++|---|---|
++| `notebooks/smi_manuscript_60deg.m` | **the manuscript simulation.** All three arms, two kernels, SNR swept, seven figures |
++| `notebooks/smi_simulation_walkthrough.m` | the SMI arm taken apart step by step, one SNR, 30/45/60 degrees |
++| `notebooks/README.md` | what every `CHECK` establishes and why it is not circular. **Read this before changing either file** |
++| `mc_config.m` | the shared geometry and protocol utilities: `pick_grid`, `rotate_about`, `load_protocol_file` |
++| `mrtrix_io.m` | read and write MRtrix `.mif` / `.mih` images |
++| `oct_path.m` | puts `SMI.m`, `helpers/` and the Octave shims on the path |
++| `protocol/hcp_real_3shell.txt` | the acquisition in use, as tracked text |
++| `stubs/` | Octave shims for `round(x,n)`, `discretize`, `datetime` |
++| `check_manuscript_static.m` | static checks on the manuscript file: it parses, the scoring arrays are subscripted correctly, every `RUN{}` field read is written |
++| `test_csd_arms.m` | the CSD arms alone in ~2 s, no `SMI.fit`. The regression test for the `-neg_lambda` bug |
+ 
+-### The manuscript simulation runs all three arms itself
++The fODF machinery lives in `../helpers/`: `fODF_modulation_helpers.m` (forward
++model, Watson, projection), `SMI_response_helpers.m` (kernel → zonal response,
++glyphs) and `fODF_peak_score.m` (the one peak finder every arm goes through).
+ 
+-`notebooks/smi_manuscript_60deg.m` does not need any of the above. It builds the
+-signal, fits SMI, and calls `dwi2fod csd` and `dwi2fod msmt_csd` on **the same
+-noisy array**, all in one file:
++## Running it
+ 
+ ```
+ cd notebooks
+-octave-cli --no-gui -q smi_manuscript_60deg.m        # SMOKE_TEST = true: minutes
+-```
+-
+-That is the arrangement to prefer for anything comparative. `run_all.sh` above
+-is the older, larger campaign: it reaches 10,000 realisations and four crossing
+-angles by splitting the work across `gen_montecarlo.m`, `run_mrtrix.sh` and the
+-Python scorers, which is why it exists, but the arms there are joined by voxel
+-index across three languages rather than by being the same array in one scope.
++octave-cli --no-gui -q smi_manuscript_60deg.m     # SMOKE_TEST = true: minutes
+ 
+-## Files
+-
+-| file | what |
+-|---|---|
+-| `notebooks/` | narrated step-by-step walkthroughs, with a `CHECK` after every step |
+-| `protocol/hcp_real_3shell.txt` | **the acquisition in use**: a real HCP 3-shell scheme, as tracked text |
+-| `protocol/hcp_like_3shell.txt` | the synthetic scheme the published tables were measured on. Superseded, kept for provenance |
+-| `setup_protocol.py` | the evaluation sphere, and the superseded synthetic table (the only thing that uses dipy) |
+-| `mc_config.m` | **every constant of the experiment, in one place.** `gen_montecarlo.m` and `sweep_nonneg.m` both read from it, so the main run and the sweep cannot disagree about what is being simulated. Start here to see what the experiment *is* |
+-| `gen_phantom.m` | the synthetic voxel population the responses are estimated from |
+-| `gen_montecarlo.m` | the Monte Carlo signals and the SMI arm |
+-| `sweep_nonneg.m` | one kernel fit, six regularizer settings (report section 6) |
+-| `run_mrtrix.sh` | every MRtrix call: responses, fits, peaks, controls |
+-| `write_exact_response.py` | the exact kernel response in MRtrix response format |
+-| `mrtrix_io.{m,py}` | read and write MRtrix `.mif` / `.mih` images |
+-| `score_mrtrix.py` | matches `sh2peaks` output to the true axes; the ACC |
+-| `score_sweep.py`, `tables.py`, `figure_*.py` | tables and figures |
+-| `check_mrtrix_basis.sh` | SMI's SH basis against MRtrix's, both `CS_phase` values |
+-| `dump_bases.m` | writes SMI's SH basis for that check |
+-| `test_csd_arms.m` | **the CSD arms alone, in ~2 seconds, with no `SMI.fit`.** Builds the same signal, runs both `dwi2fod` arms at 60/75/90 degrees noise free, and asserts SSST recovers the true angle and MSMT separates as well as SSST. `test_csd_arms(true)` adds the `-neg_lambda` / `-norm_lambda` sweep. This is the regression test for the defaults bug |
+-| `check_manuscript_static.m` | static checks on `notebooks/smi_manuscript_60deg.m`: it parses, the scoring arrays are subscripted with the right arity, every `RUN{}` field read is written. Seconds, and worth running before any long sweep |
+-| `binio.{m,py}`, `kernel.py` | Octave/Python exchange, and the SM kernel in Python |
+-| `stubs/` | Octave shims for `round(x,n)`, `discretize`, `datetime` |
+-| `octave_test_stubs/` | graphics stubs, so the plotting examples run headless |
+-
+-`binio.{m,py}` and `kernel.py` are copies of the files of the same name in
+-`freewater_comparison/` on the unmerged `claude/freewater-simulations` branch.
+-If that branch lands they should be de-duplicated; they are copied rather than
+-referenced so this package does not depend on an unmerged branch.
++cd ..
++octave-cli --no-gui -q check_manuscript_static.m  # seconds, before any long run
++octave-cli --no-gui -q test_csd_arms.m            # the MRtrix side alone, ~2 s
++```
+ 
+-Requires **MRtrix3 3.0.4**, Octave (`statistics`) and Python
+-(`numpy matplotlib`, plus `dipy` for `setup_protocol.py` alone). Intermediate
+-arrays land in `data/` and `mrtrix/`, neither of which is tracked.
++No Python and no data to download. MRtrix3 must be on the `PATH`. At its
++manuscript settings the simulation is 42 `SMI.fit` calls and runs in hours;
++`SMOKE_TEST = true` cuts it to one Lmax and three SNRs while still executing
++every `CHECK`.
+ 
+-## Planned extension: edematous kernel
++## The older campaign
+ 
+-A future simulation condition should consider a kernel in an edematous
+-environment. This is a scope marker only: no edema model, parameterization,
+-response-estimation strategy, or result is defined yet.
++`../Archive/deconv_pipeline/` holds the original Monte Carlo pipeline — the
++Octave + MRtrix + Python arrangement that produced `Reports/deconv_tables.md`
++and `Reports/REPORT_SMI_deconvolution_MonteCarlo.md`. It is archived rather than
++deleted because those reports' numbers have no other provenance and
++regenerating them on the real protocol is still an open task.
+ 
+-## Superseded
++It reached 10,000 realisations and four crossing angles by splitting the work
++across three languages and joining the arms by voxel index, which is exactly
++what the manuscript file replaced. Prefer the manuscript file for anything new.
+ 
+-An earlier version of this package ran CSD and MSMT-CSD through dipy and
+-reimplemented `dwi2response dhollander`, `mrthreshold` and `amp2response` from
+-the MRtrix source. That is all removed — MRtrix does it. Its conclusions about
+-MSMT-CSD reproduced under the real thing; see `git log` if the reimplementation
+-is ever wanted back.
++An even earlier version ran CSD and MSMT-CSD through dipy and reimplemented
++`dwi2response dhollander`, `mrthreshold` and `amp2response` from the MRtrix
++source. All of that is gone — MRtrix does it. See `git log` if it is ever
++wanted back.
 diff --git a/deconv_comparison/check_manuscript_static.m b/deconv_comparison/check_manuscript_static.m
 index 778ffbc..72c7967 100644
 --- a/deconv_comparison/check_manuscript_static.m
@@ -524,7 +1042,7 @@ index 47d8116..7c872c1 100644
  ### Where the response files are, and what sets the FOD order
  
 diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
-index 8132c41..7e323c9 100644
+index 8132c41..55a4461 100644
 --- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
 +++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
 @@ -236,6 +236,49 @@ RUN_MRTRIX = 1;     % 0 scores the SMI arm alone, exactly as before
@@ -731,7 +1249,28 @@ index 8132c41..7e323c9 100644
      'ceil_n',  ceil_n);
  
  end   % ik, the kernel loop
-@@ -1641,13 +1766,19 @@ if MAKE_FIGURES
+@@ -1610,6 +1735,20 @@ fprintf('==================== both kernels done ====================\n\n');
+ MAKE_FIGURES = true;
+ ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
+ GLYPH_N      = 121;          % mesh resolution for every glyph
++GLYPH_NEG    = 'clamp';      % what a glyph does with NEGATIVE fODF amplitude.
++                             %   'clamp'  radius = max(amplitude,0)
++                             %   'abs'    radius = |amplitude|, the shview convention
++                             %
++                             % A band-limited fODF rings and the rings go below
++                             % zero. Measured on a noise-free edema voxel at
++                             % Lmax 6, MSMT-CSD's fODF is negative over 64.6% of
++                             % the sphere and SSST-CSD's over 48.6%. Under 'abs'
++                             % every one of those regions is drawn at POSITIVE
++                             % radius, so the glyph grows lobes that are not
++                             % fibres and reads as inflated -- and the sign is
++                             % only in the colour, which flat-shaded gnuplot
++                             % makes easy to miss. 'clamp' shows the fODF a
++                             % tractography algorithm would actually follow.
+ LMAX_FIG     = 6;            % the angular order Figure 7 compares the arms at.
+                              % 6 because that is what the published comparison
+                              % in Reports/ ran every arm at, so Figure 7 is the
+@@ -1641,13 +1780,19 @@ if MAKE_FIGURES
      ic   = 1;                                  % the only condition: 60 degrees
  
      % ================================================================
@@ -754,7 +1293,7 @@ index 8132c41..7e323c9 100644
      %
      % *Every glyph on this figure shares ONE radial scale*, so size carries
      % meaning: a smaller glyph is a genuinely smaller signal. That is the whole
-@@ -1657,27 +1788,18 @@ if MAKE_FIGURES
+@@ -1657,27 +1802,18 @@ if MAKE_FIGURES
      %
      % Two things follow from the shared scale and are worth expecting:
      %
@@ -785,7 +1324,7 @@ index 8132c41..7e323c9 100644
  
      % one radial scale for the whole figure, over every glyph it will draw
      r_sh = cell(NKERN, nsh);
-@@ -1690,7 +1812,7 @@ if MAKE_FIGURES
+@@ -1690,7 +1826,7 @@ if MAKE_FIGURES
      end
      if rmax <= 0, rmax = 1; end
  
@@ -794,7 +1333,25 @@ index 8132c41..7e323c9 100644
      col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
      subplot(nrow1, 1+nsh, col1);
      % The ground truth is an fODF, not a signal, so it is NOT on the response
-@@ -1718,35 +1840,16 @@ if MAKE_FIGURES
+@@ -1699,7 +1835,7 @@ if MAKE_FIGURES
+     gt_pk = max(abs(sh_gt(ic,:) * Yg'));
+     if gt_pk <= 0, gt_pk = 1; end
+     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
+-                                GLYPH_N, GLYPH_N, 1/gt_pk);
++                                GLYPH_N, GLYPH_N, 1/gt_pk, GLYPH_NEG);
+     surf(X, Y, Z, Cc); shading interp;
+     axis equal off vis3d; view(ISO_VIEW);
+     set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+@@ -1709,7 +1845,7 @@ if MAKE_FIGURES
+     for ikk = 1:NKERN
+         for i = 1:nsh
+             subplot(nrow1, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
+-            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
++            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax, GLYPH_NEG);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
+             set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+@@ -1718,35 +1854,16 @@ if MAKE_FIGURES
          end
      end
  
@@ -831,7 +1388,34 @@ index 8132c41..7e323c9 100644
          fprintf('\n');
      end
      fprintf(['   Every kernel gives the same response at b = 0, since S(0)/S0 = 1, so\n' ...
-@@ -1846,56 +1949,75 @@ if MAKE_FIGURES
+@@ -1795,7 +1912,7 @@ if MAKE_FIGURES
+         for j = 2:nsh
+             for kk = 1:NSNR
+                 subplot(nsh-1, NSNR, (j-2)*NSNR + kk);
+-                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
++                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax, GLYPH_NEG);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+                 camlight headlight; lighting gouraud;
+@@ -1825,7 +1942,7 @@ if MAKE_FIGURES
+ 
+             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
+             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
+-                                        GLYPH_N, GLYPH_N, 1);
++                                        GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
+             camlight headlight; lighting gouraud;
+@@ -1836,7 +1953,7 @@ if MAKE_FIGURES
+                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
+                 v  = find(snr_id(:) == is, 1);
+                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
+-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
++                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+                 camlight headlight; lighting gouraud;
+@@ -1846,56 +1963,75 @@ if MAKE_FIGURES
      end
  
      % ================================================================
@@ -937,6 +1521,125 @@ index 8132c41..7e323c9 100644
                  end
              end
          end
+@@ -1925,7 +2061,7 @@ if MAKE_FIGURES
+         for ia = 1:NA
+             subplot(NA, NSNR+1, (ia-1)*(NSNR+1) + 1);
+             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
+-                                        GLYPH_N, GLYPH_N, 1);
++                                        GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
+             surf(X, Y, Z, Cc); shading interp;
+             axis equal off vis3d; view(ISO_VIEW);
+             camlight headlight; lighting gouraud;
+@@ -1939,7 +2075,7 @@ if MAKE_FIGURES
+                 plm = (m(2:end) * ((1/sqrt(4*pi))/m(1))) ./ sc;
+                 subplot(NA, NSNR+1, (ia-1)*(NSNR+1) + 1 + kk);
+                 [X, Y, Z, Cc] = RH.sh_glyph(plm, Lf, C.CS_PHASE, ...
+-                                            GLYPH_N, GLYPH_N, 1);
++                                            GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
+                 surf(X, Y, Z, Cc); shading interp;
+                 axis equal off vis3d; view(ISO_VIEW);
+                 camlight headlight; lighting gouraud;
+diff --git a/helpers/SMI_response_helpers.m b/helpers/SMI_response_helpers.m
+index 017abc5..882803e 100644
+--- a/helpers/SMI_response_helpers.m
++++ b/helpers/SMI_response_helpers.m
+@@ -9,7 +9,7 @@ function H = SMI_response_helpers()
+ %   H.zh(kernel,b,Lmax,D_FW,S0)       zonal harmonic (m=0) coefficients per shell
+ %   H.profile(r,theta)                response amplitude R(theta) from zonal r_l
+ %   H.grid(Nth,Nph)                   (theta,phi) mesh and the direction list
+-%   H.glyph(amp,TH,PH)                shview-style glyph vertices from amplitudes
++%   H.glyph(amp,TH,PH,scale,negmode)  glyph vertices; negmode 'abs' or 'clamp'
+ %   H.zh_glyph(r,Nth,Nph)             glyph of an axially symmetric response
+ %   H.sh_glyph(plm,Lmax,CS,Nth,Nph)   glyph of a general (fODF) plm vector
+ %   H.write_response(file,R)          write an MRtrix-format response .txt
+@@ -124,16 +124,35 @@ dirs = [sin(TH(:)).*cos(PH(:)), sin(TH(:)).*sin(PH(:)), cos(TH(:))];
+ end
+ 
+ % =====================================================================
+-function [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale)
+-% [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale)
+-%
+-% shview-style glyph: the radius is the ABSOLUTE amplitude and the colour is
+-% the SIGNED amplitude, so negative lobes are visible as a colour change
+-% rather than being folded silently into the surface. `scale` multiplies the
+-% radius (default 1). amp must have the size of TH.
+-if nargin < 4 || isempty(scale), scale = 1; end
++function [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale,negmode)
++% [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale,negmode)
++%
++% Glyph vertices from sampled amplitudes. `scale` multiplies the radius
++% (default 1). amp must have the size of TH. Colour is ALWAYS the signed
++% amplitude; `negmode` decides what the RADIUS does with negative values:
++%
++%   'abs'    radius = |amplitude|   (default, the shview convention)
++%   'clamp'  radius = max(amplitude,0)
++%
++% WHY 'clamp' EXISTS. A band-limited fODF rings, and the rings go below zero:
++% measured on a noise-free edema voxel at Lmax 6, MSMT-CSD's fODF is negative
++% over 64.6% of the sphere and SSST-CSD's over 48.6%. Under 'abs' every one of
++% those negative regions is drawn at POSITIVE radius, so the glyph grows lobes
++% that are not fibres and reads as inflated. The colour channel does encode the
++% sign, but flat-shaded renderers (gnuplot, which is what Octave has here) make
++% that cue easy to miss.
++%
++% 'abs' is kept as the default because it is what `shview` does and what the
++% archived response viewer was written against; a response function is
++% positive nearly everywhere, so the two modes agree there.
++if nargin < 4 || isempty(scale),   scale = 1;      end
++if nargin < 5 || isempty(negmode), negmode = 'abs'; end
+ amp = reshape(amp,size(TH));
+-R = scale*abs(amp);
++switch negmode
++    case 'abs',   R = scale*abs(amp);
++    case 'clamp', R = scale*max(amp,0);
++    otherwise,    error('amp_glyph: negmode must be ''abs'' or ''clamp''');
++end
+ X = R.*sin(TH).*cos(PH);
+ Y = R.*sin(TH).*sin(PH);
+ Z = R.*cos(TH);
+@@ -141,8 +160,8 @@ C = amp;
+ end
+ 
+ % =====================================================================
+-function [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale)
+-% [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale)
++function [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale,negmode)
++% [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale,negmode)
+ %
+ % Glyph of an axially symmetric response with zonal coefficients r, i.e. a
+ % surface of revolution about z. This is what `shview` draws for one row of a
+@@ -150,13 +169,14 @@ function [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale)
+ if nargin < 2 || isempty(Nth), Nth = 121; end
+ if nargin < 3 || isempty(Nph), Nph = 121; end
+ if nargin < 4 || isempty(scale), scale = 1; end
++if nargin < 5 || isempty(negmode), negmode = 'abs'; end
+ [TH,PH] = sphere_grid(Nth,Nph);
+-[X,Y,Z,C] = amp_glyph(zh_profile(r,TH),TH,PH,scale);
++[X,Y,Z,C] = amp_glyph(zh_profile(r,TH),TH,PH,scale,negmode);
+ end
+ 
+ % =====================================================================
+-function [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale)
+-% [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale)
++function [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale,negmode)
++% [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale,negmode)
+ %
+ % Glyph of a general fODF given in SMI's normalized plm convention (l = 2..Lmax,
+ % the l=0 term is implicit and contributes the fixed 1/(4*pi) floor). Same
+@@ -165,11 +185,12 @@ function [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale)
+ if nargin < 4 || isempty(Nth), Nth = 91;  end
+ if nargin < 5 || isempty(Nph), Nph = 121; end
+ if nargin < 6 || isempty(scale), scale = 1; end
++if nargin < 7 || isempty(negmode), negmode = 'abs'; end
+ [TH,PH,dirs] = sphere_grid(Nth,Nph);
+ Ylm = SMI.get_even_SH(dirs,Lmax,CS_phase);
+ L   = repelem(0:2:Lmax,2*(0:2:Lmax)+1)';
+ amp = Ylm*([1; plm(:)].*sqrt((2*L+1)/(4*pi)));
+-[X,Y,Z,C] = amp_glyph(amp,TH,PH,scale);
++[X,Y,Z,C] = amp_glyph(amp,TH,PH,scale,negmode);
+ end
+ 
+ % =====================================================================
 diff --git a/helpers/fODF_peak_score.m b/helpers/fODF_peak_score.m
 index 2eda904..8959d52 100644
 --- a/helpers/fODF_peak_score.m
