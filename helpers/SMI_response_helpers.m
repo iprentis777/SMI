@@ -9,7 +9,7 @@ function H = SMI_response_helpers()
 %   H.zh(kernel,b,Lmax,D_FW,S0)       zonal harmonic (m=0) coefficients per shell
 %   H.profile(r,theta)                response amplitude R(theta) from zonal r_l
 %   H.grid(Nth,Nph)                   (theta,phi) mesh and the direction list
-%   H.glyph(amp,TH,PH)                shview-style glyph vertices from amplitudes
+%   H.glyph(amp,TH,PH,scale,negmode)  glyph vertices; negmode 'abs' or 'clamp'
 %   H.zh_glyph(r,Nth,Nph)             glyph of an axially symmetric response
 %   H.sh_glyph(plm,Lmax,CS,Nth,Nph)   glyph of a general (fODF) plm vector
 %   H.write_response(file,R)          write an MRtrix-format response .txt
@@ -124,16 +124,35 @@ dirs = [sin(TH(:)).*cos(PH(:)), sin(TH(:)).*sin(PH(:)), cos(TH(:))];
 end
 
 % =====================================================================
-function [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale)
-% [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale)
+function [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale,negmode)
+% [X,Y,Z,C] = amp_glyph(amp,TH,PH,scale,negmode)
 %
-% shview-style glyph: the radius is the ABSOLUTE amplitude and the colour is
-% the SIGNED amplitude, so negative lobes are visible as a colour change
-% rather than being folded silently into the surface. `scale` multiplies the
-% radius (default 1). amp must have the size of TH.
-if nargin < 4 || isempty(scale), scale = 1; end
+% Glyph vertices from sampled amplitudes. `scale` multiplies the radius
+% (default 1). amp must have the size of TH. Colour is ALWAYS the signed
+% amplitude; `negmode` decides what the RADIUS does with negative values:
+%
+%   'abs'    radius = |amplitude|   (default, the shview convention)
+%   'clamp'  radius = max(amplitude,0)
+%
+% WHY 'clamp' EXISTS. A band-limited fODF rings, and the rings go below zero:
+% measured on a noise-free edema voxel at Lmax 6, MSMT-CSD's fODF is negative
+% over 64.6% of the sphere and SSST-CSD's over 48.6%. Under 'abs' every one of
+% those negative regions is drawn at POSITIVE radius, so the glyph grows lobes
+% that are not fibres and reads as inflated. The colour channel does encode the
+% sign, but flat-shaded renderers (gnuplot, which is what Octave has here) make
+% that cue easy to miss.
+%
+% 'abs' is kept as the default because it is what `shview` does and what the
+% archived response viewer was written against; a response function is
+% positive nearly everywhere, so the two modes agree there.
+if nargin < 4 || isempty(scale),   scale = 1;      end
+if nargin < 5 || isempty(negmode), negmode = 'abs'; end
 amp = reshape(amp,size(TH));
-R = scale*abs(amp);
+switch negmode
+    case 'abs',   R = scale*abs(amp);
+    case 'clamp', R = scale*max(amp,0);
+    otherwise,    error('amp_glyph: negmode must be ''abs'' or ''clamp''');
+end
 X = R.*sin(TH).*cos(PH);
 Y = R.*sin(TH).*sin(PH);
 Z = R.*cos(TH);
@@ -141,8 +160,8 @@ C = amp;
 end
 
 % =====================================================================
-function [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale)
-% [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale)
+function [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale,negmode)
+% [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale,negmode)
 %
 % Glyph of an axially symmetric response with zonal coefficients r, i.e. a
 % surface of revolution about z. This is what `shview` draws for one row of a
@@ -150,13 +169,14 @@ function [X,Y,Z,C] = zh_glyph(r,Nth,Nph,scale)
 if nargin < 2 || isempty(Nth), Nth = 121; end
 if nargin < 3 || isempty(Nph), Nph = 121; end
 if nargin < 4 || isempty(scale), scale = 1; end
+if nargin < 5 || isempty(negmode), negmode = 'abs'; end
 [TH,PH] = sphere_grid(Nth,Nph);
-[X,Y,Z,C] = amp_glyph(zh_profile(r,TH),TH,PH,scale);
+[X,Y,Z,C] = amp_glyph(zh_profile(r,TH),TH,PH,scale,negmode);
 end
 
 % =====================================================================
-function [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale)
-% [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale)
+function [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale,negmode)
+% [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale,negmode)
 %
 % Glyph of a general fODF given in SMI's normalized plm convention (l = 2..Lmax,
 % the l=0 term is implicit and contributes the fixed 1/(4*pi) floor). Same
@@ -165,11 +185,12 @@ function [X,Y,Z,C] = sh_glyph(plm,Lmax,CS_phase,Nth,Nph,scale)
 if nargin < 4 || isempty(Nth), Nth = 91;  end
 if nargin < 5 || isempty(Nph), Nph = 121; end
 if nargin < 6 || isempty(scale), scale = 1; end
+if nargin < 7 || isempty(negmode), negmode = 'abs'; end
 [TH,PH,dirs] = sphere_grid(Nth,Nph);
 Ylm = SMI.get_even_SH(dirs,Lmax,CS_phase);
 L   = repelem(0:2:Lmax,2*(0:2:Lmax)+1)';
 amp = Ylm*([1; plm(:)].*sqrt((2*L+1)/(4*pi)));
-[X,Y,Z,C] = amp_glyph(amp,TH,PH,scale);
+[X,Y,Z,C] = amp_glyph(amp,TH,PH,scale,negmode);
 end
 
 % =====================================================================

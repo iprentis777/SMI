@@ -1735,6 +1735,20 @@ fprintf('==================== both kernels done ====================\n\n');
 MAKE_FIGURES = true;
 ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
 GLYPH_N      = 121;          % mesh resolution for every glyph
+GLYPH_NEG    = 'clamp';      % what a glyph does with NEGATIVE fODF amplitude.
+                             %   'clamp'  radius = max(amplitude,0)
+                             %   'abs'    radius = |amplitude|, the shview convention
+                             %
+                             % A band-limited fODF rings and the rings go below
+                             % zero. Measured on a noise-free edema voxel at
+                             % Lmax 6, MSMT-CSD's fODF is negative over 64.6% of
+                             % the sphere and SSST-CSD's over 48.6%. Under 'abs'
+                             % every one of those regions is drawn at POSITIVE
+                             % radius, so the glyph grows lobes that are not
+                             % fibres and reads as inflated -- and the sign is
+                             % only in the colour, which flat-shaded gnuplot
+                             % makes easy to miss. 'clamp' shows the fODF a
+                             % tractography algorithm would actually follow.
 LMAX_FIG     = 6;            % the angular order Figure 7 compares the arms at.
                              % 6 because that is what the published comparison
                              % in Reports/ ran every arm at, so Figure 7 is the
@@ -1766,13 +1780,19 @@ if MAKE_FIGURES
     ic   = 1;                                  % the only condition: 60 degrees
 
     % ================================================================
-    % FIGURE 1 -- the ground truth, each kernel's response, and the difference
+    % FIGURE 1 -- the ground truth and each kernel's response per shell
     % ================================================================
     % The left column is the fODF being convolved. It is the same for both
     % kernels: the ground truth geometry does not depend on the tissue.
     %
-    % To its right, one row per kernel and one glyph per shell, then a third
-    % row holding the difference between them.
+    % To its right, one row per kernel and one glyph per shell.
+    %
+    % *There is deliberately no difference row.* An earlier version carried one,
+    % showing R_healthy - R_edema per shell. It is gone because the shared
+    % radial scale already makes that comparison directly -- the edema glyphs
+    % are visibly smaller than the healthy ones in the same units, which is the
+    % claim -- while a residual glyph restated it in a form that is harder to
+    % read and invited the misreading that the residual is itself a response.
     %
     % *Every glyph on this figure shares ONE radial scale*, so size carries
     % meaning: a smaller glyph is a genuinely smaller signal. That is the whole
@@ -1782,27 +1802,18 @@ if MAKE_FIGURES
     %
     % Two things follow from the shared scale and are worth expecting:
     %
-    % * *The b = 0 glyphs are identical unit spheres in both rows*, and their
-    %   difference glyph collapses to a point. r_0(0) = sqrt(4*pi) for ANY
-    %   kernel, because S(0)/S0 = 1 exactly. That identity holds here because
+    % * *The b = 0 glyphs are identical unit spheres in both rows.*
+    %   r_0(0) = sqrt(4*pi) for ANY kernel, because S(0)/S0 = 1 exactly. That identity holds here because
     %   |B0_SNAP| set the acquired b = 5 s/mm^2 volumes to exactly 0; with
     %   |B0_SNAP = 0| they would differ slightly instead. Either way it is
     %   correct, not a bug.
     % * The scale is set by that b = 0 sphere, the largest thing on the figure.
     %
-    % The difference row is the residual R_healthy(theta) - R_edema(theta),
-    % which is exact rather than sampled: the responses are zonal, so the
-    % difference is just the difference of their zonal coefficients. Radius is
-    % |difference| and colour is the SIGNED difference, so where edema exceeds
-    % healthy is visible as a colour change rather than being lost in a
-    % magnitude. Each title carries the peak |difference| on the shared scale.
-    %
     % This is also the panel built to take CSD and MSMT-CSD: dwi2response
     % writes zonal coefficients in exactly the form RH.zh_glyph draws, so an
     % estimated response becomes another row here with no conversion.
     th_prof = linspace(0, pi, 361);
-    show_diff = (NKERN == 2);          % a residual row only makes sense for a pair
-    nrow1     = NKERN + double(show_diff);
+    nrow1   = NKERN;
 
     % one radial scale for the whole figure, over every glyph it will draw
     r_sh = cell(NKERN, nsh);
@@ -1815,7 +1826,7 @@ if MAKE_FIGURES
     end
     if rmax <= 0, rmax = 1; end
 
-    figure('Name', 'Fig 1  ground truth fODF, kernel responses, and their difference');
+    figure('Name', 'Fig 1  ground truth fODF and the kernel responses per shell');
     col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
     subplot(nrow1, 1+nsh, col1);
     % The ground truth is an fODF, not a signal, so it is NOT on the response
@@ -1824,7 +1835,7 @@ if MAKE_FIGURES
     gt_pk = max(abs(sh_gt(ic,:) * Yg'));
     if gt_pk <= 0, gt_pk = 1; end
     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
-                                GLYPH_N, GLYPH_N, 1/gt_pk);
+                                GLYPH_N, GLYPH_N, 1/gt_pk, GLYPH_NEG);
     surf(X, Y, Z, Cc); shading interp;
     axis equal off vis3d; view(ISO_VIEW);
     set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
@@ -1834,7 +1845,7 @@ if MAKE_FIGURES
     for ikk = 1:NKERN
         for i = 1:nsh
             subplot(nrow1, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
-            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
+            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax, GLYPH_NEG);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
@@ -1843,34 +1854,15 @@ if MAKE_FIGURES
         end
     end
 
-    if show_diff
-        for i = 1:nsh
-            subplot(nrow1, 1+nsh, NKERN*(1+nsh) + 1 + i);
-            r_d  = r_sh{1,i} - r_sh{2,i};
-            pk_d = max(abs(RH.profile(r_d, th_prof)));
-            [X, Y, Z, Cc] = RH.zh_glyph(r_d, GLYPH_N, GLYPH_N, 1/rmax);
-            surf(X, Y, Z, Cc); shading interp;
-            axis equal off vis3d; view(ISO_VIEW);
-            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
-            camlight headlight; lighting gouraud;
-            title(sprintf('%s - %s, b = %.0f\npeak |diff| %.3f', ...
-                          KERNELS{1}.name, KERNELS{2}.name, b_shell(i), pk_d));
-        end
-    end
-
-    % The same difference as numbers, since a glyph is hard to read off a page.
+    % The same comparison as numbers, since a glyph is hard to read off a page.
     fprintf('   Fig 1: response peak amplitude on the shared scale (max = %.3f)\n', rmax);
     fprintf('        b   ');
     for ikk = 1:NKERN, fprintf('%12s', KERNELS{ikk}.name); end
-    if show_diff, fprintf('%12s', 'difference'); end
     fprintf('\n');
     for i = 1:nsh
         fprintf('     %4.2f   ', b_shell(i));
         for ikk = 1:NKERN
             fprintf('%12.4f', max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
-        end
-        if show_diff
-            fprintf('%12.4f', max(abs(RH.profile(r_sh{1,i} - r_sh{2,i}, th_prof))));
         end
         fprintf('\n');
     end
@@ -1920,7 +1912,7 @@ if MAKE_FIGURES
         for j = 2:nsh
             for kk = 1:NSNR
                 subplot(nsh-1, NSNR, (j-2)*NSNR + kk);
-                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
+                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax, GLYPH_NEG);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;
@@ -1950,7 +1942,7 @@ if MAKE_FIGURES
 
             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
-                                        GLYPH_N, GLYPH_N, 1);
+                                        GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
@@ -1961,7 +1953,7 @@ if MAKE_FIGURES
                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
                 v  = find(snr_id(:) == is, 1);
                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
+                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;
@@ -2069,7 +2061,7 @@ if MAKE_FIGURES
         for ia = 1:NA
             subplot(NA, NSNR+1, (ia-1)*(NSNR+1) + 1);
             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
-                                        GLYPH_N, GLYPH_N, 1);
+                                        GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
@@ -2083,7 +2075,7 @@ if MAKE_FIGURES
                 plm = (m(2:end) * ((1/sqrt(4*pi))/m(1))) ./ sc;
                 subplot(NA, NSNR+1, (ia-1)*(NSNR+1) + 1 + kk);
                 [X, Y, Z, Cc] = RH.sh_glyph(plm, Lf, C.CS_PHASE, ...
-                                            GLYPH_N, GLYPH_N, 1);
+                                            GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;
