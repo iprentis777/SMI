@@ -1735,6 +1735,20 @@ fprintf('==================== both kernels done ====================\n\n');
 MAKE_FIGURES = true;
 ISO_VIEW     = [1 1 1];      % isometric camera: equal foreshortening on x, y, z
 GLYPH_N      = 121;          % mesh resolution for every glyph
+GLYPH_NEG    = 'clamp';      % what a glyph does with NEGATIVE fODF amplitude.
+                             %   'clamp'  radius = max(amplitude,0)
+                             %   'abs'    radius = |amplitude|, the shview convention
+                             %
+                             % A band-limited fODF rings and the rings go below
+                             % zero. Measured on a noise-free edema voxel at
+                             % Lmax 6, MSMT-CSD's fODF is negative over 64.6% of
+                             % the sphere and SSST-CSD's over 48.6%. Under 'abs'
+                             % every one of those regions is drawn at POSITIVE
+                             % radius, so the glyph grows lobes that are not
+                             % fibres and reads as inflated -- and the sign is
+                             % only in the colour, which flat-shaded gnuplot
+                             % makes easy to miss. 'clamp' shows the fODF a
+                             % tractography algorithm would actually follow.
 LMAX_FIG     = 6;            % the angular order Figure 7 compares the arms at.
                              % 6 because that is what the published comparison
                              % in Reports/ ran every arm at, so Figure 7 is the
@@ -1821,7 +1835,7 @@ if MAKE_FIGURES
     gt_pk = max(abs(sh_gt(ic,:) * Yg'));
     if gt_pk <= 0, gt_pk = 1; end
     [X, Y, Z, Cc] = RH.sh_glyph(plm_gt(ic,:), LMAX_GT, C.CS_PHASE, ...
-                                GLYPH_N, GLYPH_N, 1/gt_pk);
+                                GLYPH_N, GLYPH_N, 1/gt_pk, GLYPH_NEG);
     surf(X, Y, Z, Cc); shading interp;
     axis equal off vis3d; view(ISO_VIEW);
     set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
@@ -1831,7 +1845,7 @@ if MAKE_FIGURES
     for ikk = 1:NKERN
         for i = 1:nsh
             subplot(nrow1, 1+nsh, (ikk-1)*(1+nsh) + 1 + i);
-            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax);
+            [X, Y, Z, Cc] = RH.zh_glyph(r_sh{ikk,i}, GLYPH_N, GLYPH_N, 1/rmax, GLYPH_NEG);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
@@ -1898,7 +1912,7 @@ if MAKE_FIGURES
         for j = 2:nsh
             for kk = 1:NSNR
                 subplot(nsh-1, NSNR, (j-2)*NSNR + kk);
-                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax);
+                [X, Y, Z, Cc] = RH.glyph(sig{ikk, j-1, kk}, THg, PHg, 1/smax, GLYPH_NEG);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;
@@ -1928,7 +1942,7 @@ if MAKE_FIGURES
 
             subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1);
             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
-                                        GLYPH_N, GLYPH_N, 1);
+                                        GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
@@ -1939,7 +1953,7 @@ if MAKE_FIGURES
                 subplot(numel(LMAX_LIST), NSNR+1, (iL-1)*(NSNR+1) + 1 + kk);
                 v  = find(snr_id(:) == is, 1);
                 [X, Y, Z, Cc] = RH.sh_glyph(RUN{ikk}.fits{iL}.sh(v, 2:nc)./sc, ...
-                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1);
+                                            Lf, C.CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;
@@ -2047,7 +2061,7 @@ if MAKE_FIGURES
         for ia = 1:NA
             subplot(NA, NSNR+1, (ia-1)*(NSNR+1) + 1);
             [X, Y, Z, Cc] = RH.sh_glyph(sh_gt(ic,2:nc)./sc, Lf, C.CS_PHASE, ...
-                                        GLYPH_N, GLYPH_N, 1);
+                                        GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
             surf(X, Y, Z, Cc); shading interp;
             axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
@@ -2061,7 +2075,7 @@ if MAKE_FIGURES
                 plm = (m(2:end) * ((1/sqrt(4*pi))/m(1))) ./ sc;
                 subplot(NA, NSNR+1, (ia-1)*(NSNR+1) + 1 + kk);
                 [X, Y, Z, Cc] = RH.sh_glyph(plm, Lf, C.CS_PHASE, ...
-                                            GLYPH_N, GLYPH_N, 1);
+                                            GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
                 surf(X, Y, Z, Cc); shading interp;
                 axis equal off vis3d; view(ISO_VIEW);
                 camlight headlight; lighting gouraud;

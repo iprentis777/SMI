@@ -132,6 +132,28 @@ on real data:
    so there is no model mismatch anywhere -- arguably the largest assumption in
    the whole package, and the one a reviewer will find first.
 
+**The package was centralised.** `deconv_comparison/` now holds only what
+`smi_manuscript_60deg.m` needs: `mc_config.m`, `mrtrix_io.m`, `oct_path.m`,
+`protocol/hcp_real_3shell.txt`, `stubs/`, the two notebooks, and the two test
+files. Everything else moved to **`Archive/deconv_pipeline/`** -- the whole
+Octave+MRtrix+Python campaign (`run_all.sh`, `gen_montecarlo.m`, `binio`,
+`kernel.py`, the scorers, the figure scripts, `mrtrix_responses/`,
+`hcp_like_3shell.txt`, `octave_test_stubs/`, and the PR #22 `.ipynb`).
+
+Archived, not deleted: it is the only provenance for `Reports/deconv_tables.md`
+and `REPORT_SMI_deconvolution_MonteCarlo.md`, and section 8's "regenerate the
+tables on the real protocol" would be a re-run of it. Its paths assume it sits
+beside `SMI.m`, which it no longer does, so it needs its `addpath` lines fixed
+before it will run. Nothing in the manuscript path imports any of it -- checked
+before the move, and both test suites pass without it.
+
+**Glyphs no longer render negative lobes.** `GLYPH_NEG = 'clamp'` in the
+Configuration block; `SMI_response_helpers` gained the mode and still defaults
+to `'abs'` for the archived viewer. A band-limited fODF rings below zero -- at
+Lmax 6 on a noise-free edema voxel, MSMT-CSD's is negative over **64.6%** of the
+sphere and SSST-CSD's over 48.6% -- and under `'abs'` every one of those regions
+was drawn at positive radius, growing lobes that are not fibres.
+
 **Run `check_manuscript_static.m` before starting a long run.** It parses the
 whole file without executing it, audits the subscript arity of the scoring
 arrays, and checks every `RUN{}` field read is written — seconds, not hours.
