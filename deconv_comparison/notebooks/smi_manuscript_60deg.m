@@ -236,6 +236,49 @@ RUN_MRTRIX = 1;     % 0 scores the SMI arm alone, exactly as before
 % 60 degree error is response-limited and gets WORSE with the blunter response.
 RESPONSE_MODE = 'dispersed';
 
+% *WHICH TISSUE'S KERNEL THE CSD RESPONSE IS BUILT FROM. This is the assumption
+% the manuscript is really about, so it is a knob and not a hard-coded choice.*
+%
+%   'healthy'  the healthy WM response is used for BOTH tissues (the default,
+%              and what real CSD does)
+%   'matched'  each tissue gets a response built from its own kernel
+%
+% *Why 'healthy' is the realistic setting.* A CSD response function is estimated
+% once per subject -- or per study -- by selecting single-fibre white matter
+% voxels and averaging them. Nobody estimates a separate response for edematous
+% tissue: the edema is what is being imaged, not a population you can draw a
+% reference from, and the selection heuristics (|dwi2response tournier|,
+% |dhollander|) are built to find the most anisotropic voxels, which is exactly
+% what edema is not. So on real data the edema voxels are deconvolved with a
+% response averaged over HEALTHY white matter, and any mismatch between that
+% response and the tissue actually present is an error the method has to live
+% with.
+%
+% *Why that matters here more than anywhere else in this file.* It is the one
+% place where the two arms are NOT on equal footing, and the inequality is real
+% rather than an artefact:
+%
+% * SMI *estimates its kernel per voxel*. In edema it fits an edema kernel, so
+%   it adapts. Step 6 already shows the estimate is imperfect, which is the
+%   honest version of that advantage.
+% * CSD *is given a fixed response*. In edema that response describes different
+%   tissue from the one in the voxel.
+%
+% Setting this to 'matched' hands CSD a response it could not have on real data
+% and makes the edema comparison flattering to it. That configuration is worth
+% running as a CONTROL -- it separates "CSD is hurt by the response mismatch"
+% from "CSD is hurt by the low anisotropic signal in edema" -- but it is not the
+% configuration a manuscript claim should rest on.
+%
+% Step 6b prints the response it used against the response the tissue would have
+% implied, so the size of the mismatch is on the record rather than assumed.
+%
+% *The full derivation of the response -- why it takes the form it does, what it
+% assumes, and where each step is checked -- is in
+% Reports/REPORT_CSD_response_derivation.md.* Read that before changing anything
+% about how the response is built.
+CSD_RESPONSE_KERNEL = 'healthy';
+
 % *The two regularisation weights msmt_csd takes, and why they are set here
 % rather than left at MRtrix's defaults.* This is the single most consequential
 % setting in Step 6b and it was got wrong once, so it is a knob with its
@@ -1114,10 +1157,30 @@ f_b3 = fullfile(MDIR, [TAG '_b3']);
 if st ~= 0, fprintf(2, '%s\n', txt); error('dwiextract failed'); end
 
 % ---- the responses, one set per Lmax
-% Built from THIS kernel, so the edema arm gets the edema response. That is why
-% the CSD arms can run for both kernels here where a stored, estimated response
-% would only ever have described one tissue.
-r_delta_top = RH.zh(K, b_mr(end)/1000, LMAX_GT, C.D_FW);
+% *Which kernel the response is built from is a setting, not this iteration's
+% kernel.* See CSD_RESPONSE_KERNEL in the Configuration block. At the default,
+% 'healthy', both tissues are deconvolved with the healthy WM response, because
+% that is what a response estimated by population-averaging single-fibre white
+% matter actually is. The edema arm is therefore deconvolved with a response
+% describing DIFFERENT TISSUE, which is the situation on real data and is the
+% asymmetry the manuscript is about: SMI re-estimates its kernel per voxel and
+% adapts, CSD cannot.
+if strcmp(CSD_RESPONSE_KERNEL, 'matched')
+    K_RESP    = K;
+    resp_name = C.PRESET;
+else
+    knames = cellfun(@(s) s.name, KERNELS, 'UniformOutput', false);
+    ir = find(strcmp(knames, CSD_RESPONSE_KERNEL), 1);
+    if isempty(ir)
+        error(['CSD_RESPONSE_KERNEL = ''%s'' names no kernel. ' ...
+               'Available: %s, or ''matched''.'], ...
+              CSD_RESPONSE_KERNEL, strjoin(knames, ', '));
+    end
+    K_RESP    = KERNELS{ir}.K;
+    resp_name = KERNELS{ir}.name;
+end
+
+r_delta_top = RH.zh(K_RESP, b_mr(end)/1000, LMAX_GT, C.D_FW);
 r_disp_top  = r_delta_top .* WATSON_PL(:)';
 fprintf('   the response, normalised to l = 0, at the top shell b = %.2f:\n', ...
         b_mr(end)/1000);
@@ -1125,12 +1188,38 @@ fprintf('        %-22s', 'delta (exact kernel)');
 fprintf('%9.4f', r_delta_top/r_delta_top(1)); fprintf('\n');
 fprintf('        %-22s', 'dispersion matched');
 fprintf('%9.4f', r_disp_top/r_disp_top(1)); fprintf('\n');
-fprintf('        using RESPONSE_MODE = ''%s''\n', RESPONSE_MODE);
+fprintf('        RESPONSE_MODE = ''%s'',  built from the ''%s'' kernel %s\n', ...
+        RESPONSE_MODE, resp_name, mat2str(K_RESP));
+
+% NOT a check, a measurement, and one of the numbers the manuscript wants: how
+% far the response the CSD arms were GIVEN is from the response this tissue
+% would actually imply. Zero for the healthy arm at the default; the edema arm
+% is where it bites, and its size is the response mismatch CSD carries into
+% edema on real data.
+r_tissue_top = RH.zh(K, b_mr(end)/1000, LMAX_GT, C.D_FW);
+if strcmp(RESPONSE_MODE, 'dispersed')
+    r_tissue_top = r_tissue_top .* WATSON_PL(:)';
+end
+n_given  = r_disp_top/r_disp_top(1);
+n_tissue = r_tissue_top/r_tissue_top(1);
+if max(abs(n_given - n_tissue)) < 1e-12
+    fprintf('        response matches this tissue exactly (no mismatch)\n');
+else
+    fprintf('        MISMATCH -- this tissue (%s) would imply', C.PRESET);
+    fprintf('%9.4f', n_tissue); fprintf('\n');
+    fprintf('        difference                              ');
+    fprintf('%9.4f', n_given - n_tissue); fprintf('\n');
+    fprintf(['        The %s arm is deconvolved with the %s response. That is\n' ...
+             '        deliberate and it is what real CSD does -- a response is\n' ...
+             '        estimated from single-fibre WM, never from edema. Set\n' ...
+             '        CSD_RESPONSE_KERNEL = ''matched'' for the control.\n'], ...
+            C.PRESET, resp_name);
+end
 
 f_resp = cell(1, numel(LMAX_LIST));
 for iL = 1:numel(LMAX_LIST)
     Lf   = LMAX_LIST(iL);
-    r_wm = RH.zh(K, b_mr/1000, Lf, C.D_FW);            % [nshell x (Lf/2+1)]
+    r_wm = RH.zh(K_RESP, b_mr/1000, Lf, C.D_FW);       % [nshell x (Lf/2+1)]
     if strcmp(RESPONSE_MODE, 'dispersed')
         r_wm = r_wm .* repmat(WATSON_PL(1:Lf/2+1)', size(r_wm,1), 1);
     end
@@ -1300,6 +1389,8 @@ bias_all = nan(NARM, numel(LMAX_LIST), NSNR, NCOND);    % mean angular error, de
 sd_all   = nan(NARM, numel(LMAX_LIST), NSNR, NCOND);    % its standard deviation
 med_all  = nan(NARM, numel(LMAX_LIST), NSNR, NCOND);    % median angular error
 spur_all = zeros(NARM, numel(LMAX_LIST), NSNR, NCOND);  % spurious peaks / voxel
+amp_all  = nan(NARM, numel(LMAX_LIST), NSNR, NCOND);    % anisotropic peak amplitude
+iso_all  = nan(NARM, numel(LMAX_LIST), NSNR, NCOND);    % the isotropic term
 ceil_n   = zeros(NARM, numel(LMAX_LIST), NCOND);        % peaks the truth gives
 ceil_err = nan(NARM, numel(LMAX_LIST), NCOND);          % and the truth's error
 
@@ -1321,12 +1412,14 @@ for ia = 1:NARM
                 % Row 1 is the ground truth truncated to THIS Lmax; rows 2:end
                 % are the realisations of this condition at this SNR.
                 blk = [sh_gt(ic,1:nc); ARMS{ia}.sh{iL}(rows,:)];
-                [nfound, aerr] = PK.score(blk, Ye, axes_gt{ic}, ctxP);
+                [nfound, aerr, apk, a0] = PK.score(blk, Ye, axes_gt{ic}, ctxP);
 
                 ceil_n(ia,iL,ic)   = nfound(1);       % identical at every SNR
                 ceil_err(ia,iL,ic) = aerr(1);
                 nf  = nfound(2:end);
                 ae  = aerr(2:end);
+                ap  = apk(2:end);
+                ai  = a0(2:end);
                 fin = isfinite(ae);
 
                 res_all(ia,iL,is,ic)  = 100*mean(nf == ntrue);
@@ -1338,6 +1431,11 @@ for ia = 1:NARM
                 if sum(fin) > 1
                     sd_all(ia,iL,is,ic) = std(ae(fin));
                 end
+                % Amplitude, in this arm's OWN convention. Never compare it
+                % across arms -- an SMI fODF integrates to 1 and an MRtrix FOD
+                % does not -- only within an arm, across tissue or SNR.
+                if any(isfinite(ap)), amp_all(ia,iL,is,ic) = mean(ap(isfinite(ap))); end
+                if any(isfinite(ai)), iso_all(ia,iL,is,ic) = mean(ai(isfinite(ai))); end
 
                 fprintf('     %9s  %5s   %11.1f%%   %8.2f  %8.2f     %8.2f   %8.3f\n', ...
                         COLHDR{ic}, SNR_LABEL{is}, res_all(ia,iL,is,ic), ...
@@ -1365,6 +1463,31 @@ fprintf('   a resolvable ceiling is the method or the noise, and the SNR column 
 fprintf('   which -- if it is still low at SNR inf, noise was never the problem.\n');
 fprintf('   The ceiling is a property of the TRUTH, so it is identical across arms;\n');
 fprintf('   it is printed under each because that is where it is read.\n\n');
+
+% ---- amplitude, which the angular table cannot show
+% Tractography terminates on fODF AMPLITUDE, not on angular error, so an arm can
+% score a perfect orientation and still be untrackable. This block is the only
+% place that is visible.
+%
+% Read DOWN a column, never across: the numbers are in each arm's own
+% convention. SMI's fODF has p_00 = 1 and integrates to 1; an MRtrix FOD is
+% unnormalised and its amplitude carries apparent fibre density. The ratio
+% between two conditions within one arm is the scale-free quantity.
+fprintf('   peak amplitude above the isotropic floor, mean over voxels\n');
+fprintf('   (each arm in ITS OWN scale -- compare down a column, not across)\n');
+fprintf('     %-10s %-5s', 'arm', 'Lmax');
+for k = 1:NSNR, fprintf('%11s', SNR_LABEL{SNR_ORD(k)}); end
+fprintf('   iso term\n');
+for ia = 1:NARM
+    for iL = 1:numel(LMAX_LIST)
+        fprintf('     %-10s %-5d', ARMS{ia}.name, LMAX_LIST(iL));
+        for k = 1:NSNR
+            fprintf('%11.4f', amp_all(ia,iL,SNR_ORD(k),1));
+        end
+        fprintf('%11.4f\n', iso_all(ia,iL,SNR_ORD(end),1));
+    end
+end
+fprintf('\n');
 
 % CHECK. The isotropic subtraction. For an fODF in SMI's convention the
 % per-voxel l = 0 term IS the constant 1/(4*pi); for an MRtrix FOD it is not.
@@ -1580,6 +1703,8 @@ RUN{ik} = struct( ...
     'bias',    bias_all, ...
     'sd',      sd_all, ...
     'spur',    spur_all, ...
+    'amp',     amp_all, ...
+    'iso',     iso_all, ...
     'ceil_n',  ceil_n);
 
 end   % ik, the kernel loop
@@ -1846,56 +1971,75 @@ if MAKE_FIGURES
     end
 
     % ================================================================
-    % FIGURE 6 -- bias, spread and spurious peaks against SNR, per arm
+    % FIGURE 6 -- the comparison figure: arms against SNR
     % ================================================================
-    % *ONE ROW PER KERNEL AND ARM*, three columns: mean angular error, its
-    % standard deviation, and the mean spurious peak count. One curve per Lmax.
-    % Every row shares y limits per column, so healthy and edema and SMI and CSD
-    % are all read off the same axis rather than each being autoscaled to look
-    % similar.
+    % *ONE FIGURE PER KERNEL. Rows are Lmax, columns are the metric, and the
+    % three lines in every panel are the arms.* That is the layout the
+    % comparison wants: within a panel the only thing changing is the method,
+    % and the arms sit on the same axes because they were run on the same
+    % voxels -- there is no Monte Carlo error between them to explain away.
     %
-    % This is the figure the comparison lives in, and the arms are on the same
-    % axes precisely because they were run on the same voxels -- there is no
-    % Monte Carlo error between arms to explain away.
+    % *Y limits are shared per column across BOTH kernels*, so a panel from the
+    % edema figure can be read against the same panel of the healthy one
+    % without rescaling by eye. That is the whole point of drawing them
+    % separately rather than autoscaling each.
     %
-    % Drawn from exactly the arrays Step 7 printed, so the tables and the plots
-    % cannot disagree.
-    figure('Name', 'Fig 6  bias, spread and spurious peaks against SNR');
+    % The fourth column is AMPLITUDE, and it is the one that does not obey the
+    % rule above: amplitude is in each arm's own convention -- SMI's fODF
+    % integrates to 1, an MRtrix FOD does not -- so the three lines in that
+    % panel are NOT on a common scale and their vertical ordering is
+    % meaningless. What is meaningful is each line's own shape across SNR, and
+    % the same line between the healthy and edema figures. The panel is titled
+    % to say so.
+    %
+    % Drawn from exactly the arrays Step 7 printed, so tables and plots cannot
+    % disagree.
     xs   = 1:NSNR;                       % SNR_ORD order: worst first, Inf last
-    mets = {'bias', 'sd', 'spur'};
-    labs = {'mean angular error (deg)', 'std of angular error (deg)', ...
-            'spurious peaks per voxel'};
+    mets = {'bias', 'sd', 'spur', 'amp'};
+    % Column titles are kept SHORT deliberately. The descriptive versions --
+    % "mean angular error", "std of angular error", "spurious peaks per voxel",
+    % "peak amplitude above the isotropic floor" -- overrun the panel width and
+    % collide with their neighbours under gnuplot, which is the same failure the
+    % figure titles hit once before. The long names live in notebooks/README.md.
+    labs = {'bias (deg)', 'spread (deg)', 'spurious/vox', 'amp (own scale)'};
     NA   = numel(RUN{1}.armname);
-    ylim_all = cell(1,3);
-    for im = 1:3
+    NM   = numel(mets);
+
+    % Shared y limits per metric, computed over every kernel, arm and Lmax.
+    ylim_all = cell(1, NM);
+    for im = 1:NM
         hi = 0;
         for ikk = 1:NKERN
             M = RUN{ikk}.(mets{im});
-            hi = max(hi, max(max(max(M(:,:,SNR_ORD,ic)))));
+            v = M(:,:,SNR_ORD,ic);
+            v = v(isfinite(v));
+            if ~isempty(v), hi = max(hi, max(v)); end
         end
         if ~isfinite(hi) || hi <= 0, hi = 1; end
         ylim_all{im} = [0 1.05*hi];
     end
+
     for ikk = 1:NKERN
-        for ia = 1:NA
-            for im = 1:3
-                subplot(NKERN*NA, 3, ((ikk-1)*NA + ia - 1)*3 + im);
+        figure('Name', sprintf('Fig 6  arms against SNR, %s', RUN{ikk}.name));
+        for iL = 1:numel(LMAX_LIST)
+            for im = 1:NM
+                subplot(numel(LMAX_LIST), NM, (iL-1)*NM + im);
                 hold on;
                 M = RUN{ikk}.(mets{im});
-                for iL = 1:numel(LMAX_LIST)
+                for ia = 1:NA
                     plot(xs, squeeze(M(ia, iL, SNR_ORD, ic)), '-o', 'LineWidth', 1.5);
                 end
                 set(gca, 'XTick', xs, 'XTickLabel', SNR_LABEL(SNR_ORD));
-                xlim([0.5 NSNR+0.5]); ylim(ylim_all{im});
-                grid on;
+                xlim([0.5 NSNR+0.5]); ylim(ylim_all{im}); grid on;
                 if im == 1
-                    ylabel(sprintf('%s / %s', RUN{ikk}.name, RUN{ikk}.armname{ia}));
+                    ylabel(sprintf('Lmax %d', LMAX_LIST(iL)));
                 end
-                if ikk == NKERN && ia == NA, xlabel('SNR'); end
-                if ikk == 1 && ia == 1, title(labs{im}); end
-                if ikk == 1 && ia == 1 && im == 3
-                    legend(arrayfun(@(L) sprintf('Lmax %d', L), LMAX_LIST, ...
-                                    'UniformOutput', false), 'Location', 'best');
+                if iL == 1
+                    title(labs{im});
+                end
+                if iL == numel(LMAX_LIST), xlabel('SNR'); end
+                if iL == 1 && im == NM
+                    legend(RUN{ikk}.armname, 'Location', 'best');
                 end
             end
         end

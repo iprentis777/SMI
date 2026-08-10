@@ -90,11 +90,26 @@ P = P(sel,:);
 end
 
 % =====================================================================
-function [nfound, aerr] = score_block(SH, Ye, axes_true, ctx)
-% [nfound, aerr] = score_block(SH, Ye, axes_true, ctx)
+function [nfound, aerr, apk, a0] = score_block(SH, Ye, axes_true, ctx)
+% [nfound, aerr, apk, a0] = score_block(SH, Ye, axes_true, ctx)
 %
 % SH is [nrow x ncoef] spherical harmonic coefficients, Ye the matching basis on
 % ctx.dirs. axes_true is a cell array of true fibre axes.
+%
+% apk is the ANISOTROPIC amplitude at the primary peak -- the fODF amplitude
+% there minus that voxel's own isotropic term -- and a0 is the isotropic term
+% itself. Together they are what a tractography algorithm actually thresholds
+% on, and they are the only outputs here that carry the fODF's SCALE.
+%
+% *Amplitude is comparable WITHIN an arm, not across arms, and that is not a
+% limitation of this code but of the quantity.* An SMI fODF has p_00 = 1 and
+% integrates to 1 in every voxel; an MRtrix FOD is unnormalised and its
+% amplitude carries apparent fibre density. So `apk` for SMI and `apk` for
+% MSMT-CSD are different physical quantities and must never be plotted on one
+% axis as though they were. What IS comparable, and is the number worth
+% reporting, is the RATIO of an arm's amplitude between conditions -- edema
+% against healthy, or one SNR against another -- because the arm's own
+% convention cancels.
 %
 % The neighbourhood maximum is taken for the WHOLE BLOCK at once, one pass per
 % direction, rather than per row. At NREP = 1000 the per-row form costs
@@ -104,6 +119,8 @@ nrow   = size(SH,1);
 ntrue  = numel(axes_true);
 nfound = zeros(nrow,1);
 aerr   = nan(nrow,1);
+apk    = nan(nrow,1);
+a0     = SH(:,1)/sqrt(4*pi);        % the isotropic term, per voxel
 
 % Each voxel's own isotropic term, NOT the constant. See the header.
 A = SH*Ye' - SH(:,1)/sqrt(4*pi);
@@ -132,6 +149,12 @@ for r = 1:nrow
     P = P(sel,:);
     nfound(r) = size(P,1);
     if isempty(P), continue, end
+    % The anisotropic amplitude AT the primary peak. lm has already been
+    % sorted by amplitude and pruned, so lm(sel) in that order gives the
+    % surviving peaks strongest first; a(lm(1)) after the same reordering is
+    % the value at P(1,:).
+    lmk = lm(sel);
+    apk(r) = a(lmk(1));
     d = zeros(1,ntrue);
     for kk = 1:ntrue
         d(kk) = acosd(min(abs(P(1,:)*axes_true{kk}(:)), 1));
