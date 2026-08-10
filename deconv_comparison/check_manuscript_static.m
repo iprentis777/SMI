@@ -69,7 +69,8 @@ end
 % ------------------------------------------------- 2. scoring array arity
 % name -> how many subscripts a read of it must have.
 arrays = { 'res_all',  4; 'bias_all', 4; 'sd_all',   4; ...
-           'med_all',  4; 'spur_all', 4; 'ceil_n',   3; 'ceil_err', 3 };
+           'med_all',  4; 'spur_all', 4; 'amp_all',  4; 'iso_all',  4; ...
+           'ceil_n',   3; 'ceil_err', 3 };
 
 % Aliases matter, and missing them is how this check first failed its own test.
 % The bug that motivated it reads the arrays through a CELL built from them --

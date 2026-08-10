@@ -67,6 +67,10 @@ next section.
 
 ### Which tissue's kernel the CSD response comes from
 
+> The full derivation of the response — equations, the dispersion correction,
+> the isotropic responses, the assumptions and where each step is checked — is
+> **`Reports/REPORT_CSD_response_derivation.md`**. This section is the summary.
+
 `CSD_RESPONSE_KERNEL` decides this, and it is the assumption the manuscript is
 really about. The default is **`'healthy'`: both tissues are deconvolved with
 the healthy WM response.** `'matched'` gives each tissue a response built from
