@@ -64,23 +64,90 @@ Because the response is built from *this iteration's* kernel, the CSD arms run
 for **both** the healthy and the edema tissue. A stored, estimated response
 could only ever have described one of them.
 
+### Where the response files are, and what sets the FOD order
+
+`dwi2fod` needs three response `.txt` files for `msmt_csd` (WM, GM, CSF) and one
+for `csd`. **They are generated at run time**, not tracked, into
+`deconv_comparison/mrtrix/` — which is gitignored, because they are derived
+entirely from the kernel and are reproduced exactly on the next run:
+
+```
+mrtrix/ms_<preset>_resp_wm_lmax<L>.txt      one row per shell, L/2+1 columns
+mrtrix/ms_<preset>_resp_gm.txt              one row per shell, 1 column
+mrtrix/ms_<preset>_resp_csf.txt             one row per shell, 1 column
+mrtrix/ms_<preset>_resp_wm_b3_lmax<L>.txt   top shell only, for SSST-CSD
+```
+
+`<preset>` is `healthy` or `edema`, so both tissues keep their own set. They
+persist after a run — read them with `shview` or `cat` to see exactly what each
+arm was deconvolved with.
+
+**`-lmax` is not passed to `dwi2fod`, and does not need to be.** MRtrix's
+documented default is *"the lmax of the corresponding response function, based
+on its number of coefficients, up to a maximum of 8"* — and one WM response is
+written per Lmax with exactly `L/2+1` columns, so the file already pins the
+order. The same mechanism gives `msmt_csd` its GM and CSF at lmax 0, since those
+responses are one column wide.
+
+Measured rather than assumed: with and without the flag, `dwi2fod` returns the
+same **15, 28 and 45** coefficients at Lmax 4, 6 and 8, and the output FODs are
+**bit identical** (`max|diff| = 0`).
+
+**Images are written as `.mif`** — one self-contained file per image, rather than
+the `.mih` + `.dat` pair the older pipeline scripts use. `mrtrix_io.m` picks the
+format from the extension it is given, so the older callers are unchanged. The
+writer resolves the `file: . <offset>` circularity (the offset is part of the
+header whose length it describes) by iterating to a fixed point, and it is
+verified against MRtrix on every run via `mrinfo`, plus a round trip through
+`mrconvert` that matches the `.mih` path bit for bit.
+
 ### Findings, not failures
 
-**MSMT-CSD's noise-free angular error is far above the ceiling, and a blunter
-response makes it worse.** At 60 degrees, Lmax 6, `SNR = inf` — no noise at all:
+**RETRACTED: the large MSMT-CSD noise-free error was a setup error, not a
+property of the method.** An earlier version of this file reported MSMT-CSD at
+7.80° noise-free against a 1.27° ceiling and attributed it to response
+mismatch, citing section 6.4. That was wrong, and the user was right to
+disbelieve it — it contradicted Jeurissen et al. 2014.
 
-| response | MSMT peak errors | SSST peak errors |
-|---|---|---|
-| dispersion matched | **7.80°**, 3.54° | 1.27°, 1.72° |
-| delta | 2.82°, 3.54° | 1.27°, 1.72° |
+**The cause.** `dwi2fod csd` and `dwi2fod msmt_csd` do not ship comparable
+defaults. The SSST algorithm's non-negativity constraint has strength 1;
+`msmt_csd`'s `-neg_lambda` defaults to **1e-10**, essentially unregularised.
+Running both "at their defaults" compared a constrained arm against an
+unconstrained one. The MSMT fODF came back much blunter — `l = 6` band power
+**0.31** against SSST's **1.11** — which pulls a crossing's two lobes together
+and displaces the peaks.
 
-SSST-CSD sits exactly on the ceiling either way. MSMT finds both lobes in both
-cases — the *count* is right — but its primary lobe is displaced, and the
-displacement roughly triples when the response is blunted. Not a setup bug: it
-reproduces from a third direction the report's finding that MSMT's 60 degree
-error is **response-limited** (6.85° estimated, 2.36° with the exact response,
-section 6.4). It is also the strongest argument for reporting `RESPONSE_MODE`
-alongside any MSMT number.
+Peak separation on the noise-free crossing (true 60.00; band-limited truth at
+Lmax 6 gives 60.94):
+
+| true angle | SSST-CSD | MSMT, MRtrix defaults | MSMT, `-neg_lambda 1` |
+|---|---|---|---|
+| 60° | 60.94 | **48.67** | **60.94** |
+| 75° | 73.95 | 70.99 | **73.95** |
+| 90° | 89.36 | **86.38** | **89.36** |
+
+MSMT under-separated at **every** angle including 90°, which no published
+MSMT-CSD comparison shows — that was the tell that the setup was wrong rather
+than the method. With `-neg_lambda 1` it matches SSST-CSD exactly at 60, 75 and
+90 degrees.
+
+**Excluded first, each by measurement rather than argument:** the shells
+(`msmt_csd` on b = 3 alone fails identically), the tissue count (WM-only
+identical), the response family (delta only partly helps), the peak finder
+(`sh2peaks` agrees to 0.06°), the SH basis (SSST is exact), and signal scaling
+(bit identical from S0 = 1 to 10⁴).
+
+`MSMT_NEG_LAMBDA` and `MSMT_NORM_LAMBDA` are now explicit in the Configuration
+block, and Step 6b prints the `l >= 2` band power of both arms on every run, so
+a repeat of this failure is visible in the output rather than only in the peak
+table. **Report both values with any MSMT number** — the sensitivity spans
+48.67° to 64.97° at a true 60° crossing, so an MSMT result quoted without them
+is not reproducible.
+
+**Also disproved: section 6.4's low-b hypothesis.** The Monte Carlo report
+supposed that low-b shells carry too little angular contrast and pull the joint
+fit toward a single lobe. Measured here, SSST-CSD on **b = 1 alone** recovers
+60.94° — identical to b = 3 alone. Low-b data is not the problem.
 
 **The angular error uses the largest peak only, and a symmetric crossing is a
 near-tie.** MSMT's two lobes differ by ~7% in amplitude; which is "primary" can
@@ -89,14 +156,17 @@ lobes' errors with no real change in the reconstruction. Read it alongside the
 peak count and the spurious count. The peak finder lives in
 `helpers/fODF_peak_score.m` and records this in its header.
 
-**Noise can improve a bias-limited arm's mean angular error**, so the "more
-noise must not help" check is classified rather than simply failed. Healthy,
-Lmax 6: MSMT-CSD reads 5.96° at SNR 10 and **7.80° with no noise at all**. That
-is not a broken simulation — with the noise gone, what is left is the response
-mismatch, and noise partly masks it by jittering the primary lobe around. The
-check now reports an arm whose noise-free error is more than twice its ceiling
-as a **NOTE** (bias limited) and fails only an arm that sits near its ceiling
-and still degrades without noise, which would be a real plumbing fault.
+**Noise can improve a bias-dominated arm's mean angular error**, so the "more
+noise must not help" check is classified rather than simply failed: with the
+noise gone, what is left is whatever systematic displacement the method has, and
+noise partly masks it by jittering the primary lobe around. The check reports an
+arm whose noise-free error is more than twice its ceiling as a **NOTE**, and
+fails only an arm that sits near its ceiling and still degrades without noise.
+
+**The numbers that motivated this were the void MSMT ones** (see the retraction
+above), so the classification has not yet been exercised by a case known to be
+real. It is kept because it is right in principle and costs nothing, not because
+it has been demonstrated.
 
 **Sigma is recovered at b = 0, not over all volumes.** Rician noise is a
 magnitude, so `std(S_noisy − S_clean)` equals sigma only where the signal is
@@ -263,11 +333,50 @@ rather than carried over:
   jitter — MRtrix reports `[0, 998.28, 1998.17, 2996.06]` s/mm² — so the
   nominal values would attach each response row to a b nobody acquired at.
 
+The hook's fourth claim, that `dwi2fod` must be given `-lmax` matching
+`LMAX_LIST` or the ceiling is the wrong bound, is **half right and no longer
+how it works**: the order does have to match, but the response file's column
+count already enforces it, so the flag is redundant. See above.
+
 `SMOKE_TEST = true` cuts the file to one Lmax, three SNRs and `NREP = 27`, which
 runs in minutes and still executes every CHECK. Its numbers are indicative only
 and every printout says so. `false` is the shipped default and the manuscript
 configuration: 42 `SMI.fit` calls, hours. The two MRtrix arms cost seconds
 either way, because they scale with voxel count rather than with fit count.
+
+### Testing the CSD arms on their own
+
+`smi_manuscript_60deg.m` runs all three arms, but its SMI arm costs 42 fits and
+hours at the manuscript settings, which makes it the wrong instrument for "does
+the MRtrix side still work". From `deconv_comparison/`:
+
+```
+octave-cli --no-gui -q test_csd_arms.m          # ~2 seconds
+```
+
+It builds the same noise-free signal from the same kernel and protocol, hands it
+to `dwi2fod`, and scores the peaks at 60, 75 and 90 degrees — the whole MRtrix
+path, none of the cost. It asserts that SSST-CSD recovers the true angle to
+within the direction grid, that MSMT-CSD separates as well as SSST-CSD, and that
+both handle 90 degrees. That last one is the check that would have caught the
+`-neg_lambda` bug immediately.
+
+`test_csd_arms(true)` adds the sensitivity sweep:
+
+| `neg_lambda` | `norm_lambda` | separation at a true 60° crossing |
+|---|---|---|
+| 1e-10 | 1e-10 | 48.67 ← **MRtrix's shipped defaults** |
+| 1e-3 | 1e-10 | 53.65 |
+| 1 | 1e-10 | 64.97 |
+| 1e-3 | 1e-3 | 48.67 |
+| **1** | **1e-3** | **60.94** ← what the manuscript file uses |
+
+`neg_lambda = 1` is the principled half of that choice: it matches the strength
+`dwi2fod csd` uses for its own non-negativity constraint, which is what makes
+the two arms like-for-like. **`norm_lambda = 1e-3` is the least justified
+constant in this package** — it was chosen because it lands on the band-limited
+truth, which is uncomfortably close to fitting the answer. Interrogate it before
+publishing anything that depends on it.
 
 ### Check it before you run it
 

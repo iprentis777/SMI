@@ -138,6 +138,7 @@ index across three languages rather than by being the same array in one scope.
 | `score_sweep.py`, `tables.py`, `figure_*.py` | tables and figures |
 | `check_mrtrix_basis.sh` | SMI's SH basis against MRtrix's, both `CS_phase` values |
 | `dump_bases.m` | writes SMI's SH basis for that check |
+| `test_csd_arms.m` | **the CSD arms alone, in ~2 seconds, with no `SMI.fit`.** Builds the same signal, runs both `dwi2fod` arms at 60/75/90 degrees noise free, and asserts SSST recovers the true angle and MSMT separates as well as SSST. `test_csd_arms(true)` adds the `-neg_lambda` / `-norm_lambda` sweep. This is the regression test for the defaults bug |
 | `check_manuscript_static.m` | static checks on `notebooks/smi_manuscript_60deg.m`: it parses, the scoring arrays are subscripted with the right arity, every `RUN{}` field read is written. Seconds, and worth running before any long sweep |
 | `binio.{m,py}`, `kernel.py` | Octave/Python exchange, and the SM kernel in Python |
 | `stubs/` | Octave shims for `round(x,n)`, `discretize`, `datetime` |
