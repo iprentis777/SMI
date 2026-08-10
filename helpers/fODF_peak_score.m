@@ -95,14 +95,41 @@ function [nfound, aerr] = score_block(SH, Ye, axes_true, ctx)
 %
 % SH is [nrow x ncoef] spherical harmonic coefficients, Ye the matching basis on
 % ctx.dirs. axes_true is a cell array of true fibre axes.
+%
+% The neighbourhood maximum is taken for the WHOLE BLOCK at once, one pass per
+% direction, rather than per row. At NREP = 1000 the per-row form costs
+% nrow*ND small gathers and dominates the runtime of the whole simulation; this
+% form costs ND gathers of [nrow x k]. The two select identical peaks.
 nrow   = size(SH,1);
 ntrue  = numel(axes_true);
 nfound = zeros(nrow,1);
 aerr   = nan(nrow,1);
+
 % Each voxel's own isotropic term, NOT the constant. See the header.
 A = SH*Ye' - SH(:,1)/sqrt(4*pi);
+
+Amax = zeros(nrow, ctx.ND);
+for j = 1:ctx.ND
+    Amax(:,j) = max(A(:, ctx.nbr{j}), [], 2);
+end
+ismax = (A > 0) & (A >= Amax);
+
 for r = 1:nrow
-    P = row_peaks(A(r,:), ctx);
+    lm = find(ismax(r,:));
+    if isempty(lm), continue, end
+    a  = A(r,:);
+    lm = lm(a(lm) >= ctx.rel*max(a(lm)));
+    [~, o] = sort(a(lm), 'descend');
+    lm = lm(o);
+    P  = ctx.dirs(lm,:);
+    sel = true(size(P,1),1);
+    for i = 1:size(P,1)
+        if ~sel(i), continue, end
+        dup = abs(P*P(i,:)') > ctx.cosN;
+        dup(i) = false;
+        sel(dup) = false;
+    end
+    P = P(sel,:);
     nfound(r) = size(P,1);
     if isempty(P), continue, end
     d = zeros(1,ntrue);

@@ -69,7 +69,11 @@ about six minutes (it fits at Lmax 4, 6 and 8 in turn), and it opens as a
 MATLAB Live Script with no edits. Read
 `notebooks/README.md` for what each check establishes.
 
-The CSD and MSMT-CSD arms do not have a walkthrough yet.
+**The CSD and MSMT-CSD arms now do have one.**
+`notebooks/smi_manuscript_60deg.m` runs all three arms in a single file: it
+builds the signal, fits SMI, and hands the *same array* to `dwi2fod csd` and
+`dwi2fod msmt_csd`, scoring all three with one peak finder. Set
+`SMOKE_TEST = true` there for a version that runs in minutes.
 
 ## Run order
 
@@ -98,29 +102,22 @@ octave --eval "oct_path; sweep_nonneg(30,2000,'sw30')"      # report section 6
 normalise peak amplitudes so methods whose fODFs live on different scales can
 still be compared.
 
-### The Python CSD arm
+### The manuscript simulation runs all three arms itself
 
-`notebooks/csd_manuscript_60deg.ipynb` is a separate, shorter route: it builds
-the signal in Python, runs both CSD arms through MRtrix, and exports the results
-for the `.m` side to draw figures from. It never fits SMI, so it runs in minutes.
+`notebooks/smi_manuscript_60deg.m` does not need any of the above. It builds the
+signal, fits SMI, and calls `dwi2fod csd` and `dwi2fod msmt_csd` on **the same
+noisy array**, all in one file:
 
 ```
-octave-cli --no-gui -q dump_reference.m       # the Octave side of the forward model
-python3 check_python_vs_octave.py             # prove Python reproduces it (22 checks)
-
-jupyter nbconvert --to notebook --execute --inplace \
-        notebooks/csd_manuscript_60deg.ipynb  # the CSD arms + the export
-
-octave-cli --no-gui -q test_csd_roundtrip.m   # re-score the export in Octave
-octave-cli --no-gui -q figures_csd_arms.m     # the figures
+cd notebooks
+octave-cli --no-gui -q smi_manuscript_60deg.m        # SMOKE_TEST = true: minutes
 ```
 
-The first two steps are what make this legitimate rather than a parallel
-simulation that merely resembles the `.m` one: the noise-free signal agrees to
-**6.7e-15**, and `test_csd_roundtrip.m` reproduces the notebook's peak counts
-exactly and its angular errors to **4.6e-10 deg**. Needs `numpy`, `scipy` and
-`matplotlib`; the noise realisations are the one thing that is *not* shared
-across the two languages, so the notebook exports the noisy signal it used.
+That is the arrangement to prefer for anything comparative. `run_all.sh` above
+is the older, larger campaign: it reaches 10,000 realisations and four crossing
+angles by splitting the work across `gen_montecarlo.m`, `run_mrtrix.sh` and the
+Python scorers, which is why it exists, but the arms there are joined by voxel
+index across three languages rather than by being the same array in one scope.
 
 ## Files
 
@@ -141,13 +138,8 @@ across the two languages, so the notebook exports the noisy signal it used.
 | `score_sweep.py`, `tables.py`, `figure_*.py` | tables and figures |
 | `check_mrtrix_basis.sh` | SMI's SH basis against MRtrix's, both `CS_phase` values |
 | `dump_bases.m` | writes SMI's SH basis for that check |
+| `check_manuscript_static.m` | static checks on `notebooks/smi_manuscript_60deg.m`: it parses, the scoring arrays are subscripted with the right arity, every `RUN{}` field read is written. Seconds, and worth running before any long sweep |
 | `binio.{m,py}`, `kernel.py` | Octave/Python exchange, and the SM kernel in Python |
-| `smi_sim.py` | **the forward model in Python**: protocol, SH basis, Watson fODF, `K_l(b)`, forward convolution, Rician noise, the dispersion-matched response, and an MRtrix `.mih` writer. What lets the CSD arms be driven from a Python notebook |
-| `dump_reference.m` | writes the Octave side of the forward model into `data/`, for the comparison below |
-| `check_python_vs_octave.py` | measures `smi_sim.py` against the Octave original, array by array. 22 comparisons; the noise-free signal agrees to 6.7e-15 |
-| `read_csd_export.m` | reads everything `notebooks/csd_manuscript_60deg.ipynb` exported: arms, scores, SH coefficients, and the noisy signal itself |
-| `test_csd_roundtrip.m` | re-scores those SH coefficients with the Octave peak finder and compares against Python's numbers |
-| `figures_csd_arms.m` | the manuscript figures over the CSD arms, from the export |
 | `stubs/` | Octave shims for `round(x,n)`, `discretize`, `datetime` |
 | `octave_test_stubs/` | graphics stubs, so the plotting examples run headless |
 
