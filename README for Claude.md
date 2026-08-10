@@ -49,7 +49,8 @@ markup so they run in MATLAB and Octave and convert to a Live Script unedited:
 | notebook | what it is |
 |---|---|
 | `smi_simulation_walkthrough.m` | the general SMI arm. Single fibre plus 30/45/60 degrees, one SNR, Lmax 4/6/8, four figures |
-| `smi_manuscript_60deg.m` | **the manuscript figure source.** 60 degrees only, two kernels back to back, SNR swept, six figures |
+| `smi_manuscript_60deg.m` | **the manuscript figure source, and now the whole comparison.** 60 degrees only, two kernels back to back, SNR swept, and **all three arms — SMI, SSST-CSD, MSMT-CSD — running inside this one file** |
+| `smi_manuscript_60deg.ipynb` | an earlier three-arm version on the Octave Jupyter kernel (PR #22). Healthy kernel only, exact delta response. **Superseded by the `.m`**; kept because its figures are verified to render inline |
 
 Both put every knob in one Configuration block at the top and end every step
 with a `CHECK` that compares its output against something computed a different
@@ -57,7 +58,81 @@ way. `notebooks/README.md` lists what each check establishes and why it is not
 circular; read that before changing either file.
 
 `smi_manuscript_60deg.m` at its defaults is **42 `SMI.fit` calls** (2 kernels x
-7 SNR x 3 Lmax) and runs in hours. `NREP` is the knob; 25 makes it minutes.
+7 SNR x 3 Lmax) and runs in hours. **`SMOKE_TEST = true` is the knob** — one
+Lmax, three SNRs, `NREP = 27`, minutes, every CHECK still executed.
+
+### All three arms now run inside `smi_manuscript_60deg.m`
+
+**This replaced a two-language arrangement, deliberately.** An earlier version
+of this work put the CSD arms in a Python notebook and exported results back to
+the `.m` file. It worked and the identity between the two forward models was
+measured (noise-free signal to 6.7e-15), but the user judged that two kernels
+would invite methodological questions, and they were right: it is now one file.
+
+Step 6b calls `dwi2fod csd` and `dwi2fod msmt_csd` on **the same `S_noisy`
+array `SMI.fit` was just given**. One simulation, one noise draw, one peak
+finder, one scope. There is nothing to reconcile, which is the whole point.
+
+Three things about it that matter more than the code:
+
+1. **The response is dispersion matched** (`RESPONSE_MODE = 'dispersed'`):
+   `r_l(b) = K_l(b) p_l^Watson(kappa) sqrt((2l+1) 4 pi)`. A fibre here is a
+   Watson at `kappa = 16`, not a delta, so this is the response a perfect
+   `dwi2response` would recover. At b = 3 it lands between the delta and the
+   three estimators and accounts for **~69% of the `l = 2` gap** — most of what
+   makes an estimated response blunt really is dispersion, as section 6.3
+   supposed. `'delta'` switches back. Because the response is built from the
+   current iteration's kernel, **the CSD arms run for the edema tissue too**;
+   the old "the edema arm waits on a synthetic response" blocker was an artefact
+   of using a stored estimated response.
+2. **`SMOKE_TEST` is new and is the knob to reach for first.** `true` gives one
+   Lmax, three SNRs, `NREP = 27` — minutes, every CHECK still executed,
+   indicative numbers only. `false` is the manuscript configuration: 42
+   `SMI.fit` calls, hours. The MRtrix arms cost seconds either way.
+3. **Step 7 gained a leading arm index** and its peak finder now subtracts each
+   voxel's own `l = 0` term rather than the constant `1/(4*pi)` — mandatory,
+   because an MRtrix FOD is unnormalised. The finder itself moved to
+   `helpers/fODF_peak_score.m` so nothing can score an fODF a second way.
+
+**Run `check_manuscript_static.m` before starting a long run.** It parses the
+whole file without executing it, audits the subscript arity of the scoring
+arrays, and checks every `RUN{}` field read is written — seconds, not hours.
+It exists because adding the arm index made those arrays 4-D and one read 500
+lines away was missed, killing a run in the final summary table after
+everything else had printed. The audit is bracket-depth aware and **follows
+cell aliases**, since the missed read was `sums{im}(iL, SNR_ORD(k), ic)`;
+a checker looking only for `res_all(` misses it. That blind spot was found by
+injecting the bug into a copy and confirming the checker caught it — do the
+same to any check you add here, or you do not know it works.
+
+**Two CHECKs had to be corrected, both found by running rather than reading:**
+
+- *Sigma recovery moved to the b = 0 volumes.* Rician noise is a magnitude, so
+  `std(S_noisy - S_clean)` equals sigma only where signal exceeds the noise
+  floor. In edema the mean b = 3 signal is **0.0399** against `sigma = 0.1` —
+  the signal is *below* the noise — and the old all-volume estimate read 14%
+  low and failed. At b = 0 the signal is exactly 1 by construction. Both
+  numbers print; the gap is the Rician floor.
+- *"More noise must not help" is now classified, not just failed.* Its premise
+  is that error is noise-dominated, which is false for a bias-limited arm:
+  healthy MSMT-CSD reads 5.96 deg at SNR 10 and **7.80 deg with no noise**,
+  because noise partly masks a response mismatch. An arm whose noise-free error
+  exceeds twice its ceiling is now reported as a NOTE; only an arm sitting near
+  its ceiling that still degrades without noise fails.
+
+**A finding worth carrying forward.** MSMT-CSD's noise-free angular error at 60
+degrees is **7.80 deg against a 1.27 deg ceiling** with the dispersion-matched
+response, and 2.82 deg with the delta. It finds both lobes either way; the
+primary lobe is displaced, and the displacement roughly triples when the
+response is blunted. SSST-CSD sits exactly on the ceiling in both cases. That
+reproduces section 6.4's "MSMT's 60 degree error is response-limited" from a
+third direction, and it means **any MSMT number should be reported alongside
+which response it was given**.
+
+**The old commented hook before Step 7 is gone.** Three of its claims were
+false: the arms do not appear automatically in the figures (there was no arm
+dimension), the peak finder was not scale-free, and the response must be
+evaluated at MRtrix's own per-shell b rather than the nominal 0/1/2/3.
 
 ### Still on a branch, not merged
 
@@ -264,13 +339,28 @@ Other traps, all hit at least once:
 - **`median(...,4,'omitnan')`** is version-dependent. `SMI.neighbour_median`
   deliberately takes the median by sorting instead (NaN sorts last in both), so
   it needs no nanflag and no toolbox.
-- Graphics are unusable. `deconv_comparison/octave_test_stubs/` stubs
-  `figure/histogram/subplot/...` so the plotting examples run headless.
+- Graphics are limited, but **no longer unusable — this changed and the old
+  claim is wrong**. With `octave` (not just `octave-cli`) installed, the gnuplot
+  toolkit renders headless and `print -dpng` writes real files:
+  a figure script driving `print -dpng` produces real PNGs without error. gnuplot
+  still ignores `camlight` and `lighting`, so glyphs are flat shaded here and
+  correct in MATLAB. `deconv_comparison/octave_test_stubs/` stubs
+  `figure/histogram/subplot/...` for the older plotting examples that only need
+  to run headless; prefer actually rendering now that it works.
 - `strel('disk',r,0)` — Octave requires the explicit `N`; `N=0` is an exact
   disk and is the better choice in MATLAB too.
-- Python needs only **`numpy matplotlib`**, except `setup_protocol.py`, which
-  needs `dipy` for its gradient-direction repulsion. **cvxpy is no longer
-  needed** — it was only there for the removed dipy MSMT-CSD path.
+- Python needs only **`numpy matplotlib`**, and only for the older
+  `run_all.sh` campaign — `smi_manuscript_60deg.m` needs no Python at all.
+  `setup_protocol.py` additionally needs `dipy` for its gradient-direction
+  repulsion. **cvxpy is no longer needed** — it was only there for the removed
+  dipy MSMT-CSD path.
+- **If you do need Python here, check which `python3` you get.** In this
+  container `/usr/local/bin/python3` is 3.11 while `apt` installs
+  `python3-numpy` for **3.12**, so a plain `python3 -c "import numpy"` fails
+  with the misleading *"you should not try to import numpy from its source
+  directory"*. The real error underneath is
+  `No module named 'numpy.core._multiarray_umath'`, i.e. an ABI mismatch.
+  `/usr/bin/python3.12` is the working interpreter.
 - **A real `.bvec` is not unit to machine precision.** The supplied HCP file is
   unit only to `1.1e-6`, being written at seven significant figures. Anything
   that reads `g(3)` as `cos(theta)` without normalising inherits that: measured
@@ -532,22 +622,45 @@ it has never touched real data.
 
 ## 8. Next steps, roughly in order of value per hour
 
-1. **Run `smi_manuscript_60deg.m` at full size and read Figure 6.** Everything
-   about it is built and checked; nothing has been run at `NREP = 1000`. The
-   user runs it on their own hardware, which is faster than the container — do
-   not burn hours running it here unless asked. **No figure in any notebook has
-   ever been verified to RENDER**: Octave's `print` is broken in this container,
-   so the figure blocks are only ever checked to execute against the stubs in
-   `deconv_comparison/octave_test_stubs/`. That gap has already shipped one real
-   bug (section 3, the shared-scale trap).
-2. **Wire up the CSD and MSMT-CSD arms.** The hook is already there: a commented
-   block just before Step 7 of `smi_manuscript_60deg.m`, at the *scoring* stage,
-   so uncommenting it makes them scored by the same peak finder as SMI and they
-   appear automatically as extra columns in Figures 4-5 and extra curves in
-   Figure 6. Figure 1 is the panel built to take their estimated responses. Two
-   traps recorded in the stub: `dwi2fod` needs `-lmax` matching `LMAX_LIST` or
-   the ceiling is the wrong bound, and an MRtrix FOD is not normalised while an
-   SMI fODF integrates to 1.
+1. **Run `smi_manuscript_60deg.m` at full size.** Everything about it is built
+   and checked, and it now runs all three arms, but **nothing has been run at
+   `NREP = 1000`** — only at `SMOKE_TEST = true`, whose numbers are indicative
+   only. The user runs it on their own hardware, which is faster than the
+   container; do not burn hours running it here unless asked.
+
+   What to read first: **Figure 6** (bias, spread and spurious peaks against
+   SNR, one row per kernel and arm) and **Figure 7** (the three arms side by
+   side as glyphs). The smoke run already reproduces the published ordering at
+   60 degrees, Lmax 6, healthy kernel:
+
+   | kernel | arm | SNR 10 correct / spurious | SNR 30 correct / spurious | SNR inf error |
+   |---|---|---|---|---|
+   | healthy | SMI | **100.0% / 0.000** | 100.0% / 0.000 | 1.72 deg |
+   | healthy | SSST-CSD | 44.4% / 0.667 | 100.0% / 0.000 | **1.27 deg** (ceiling) |
+   | healthy | MSMT-CSD | 85.2% / 0.000 | 92.6% / 0.000 | 7.80 deg |
+   | edema | SMI | 0.0% / 1.741 | **70.4% / 0.296** | 1.27 deg |
+   | edema | SSST-CSD | 0.0% / 3.111 | 0.0% / 2.556 | 1.27 deg |
+   | edema | MSMT-CSD | 33.3% / 0.074 | 48.1% / 0.000 | 11.72 deg |
+
+   Two things stand out, and the second is new. **In healthy tissue the arms
+   trade places with SNR** — section 6.4's finding, now reproduced on one noise
+   draw shared by all three arms instead of across separate runs. **In edema the
+   trade disappears and SSST-CSD collapses**: 0% correct at both finite SNRs
+   with 2.5-3 spurious peaks per voxel, where SMI still recovers 70% at SNR 30.
+   That is the "less anisotropic signal, amplified in inverse proportion"
+   mechanism (section 6.5) appearing as a measured method difference rather than
+   as an argument. At `NREP = 27` these are 27 realisations — a smoke signal,
+   not a result.
+
+   **Its figures have still never been verified to RENDER at full size** — that
+   gap already shipped one real bug (section 3, the shared-scale trap). The
+   excuse is gone though: Octave's `print` works in this container (section 4).
+   Render them before trusting them.
+2. ~~**Wire up the CSD and MSMT-CSD arms.**~~ **Done, in the `.m` file itself.**
+   Step 6b of `smi_manuscript_60deg.m` calls `dwi2fod csd` and
+   `dwi2fod msmt_csd` on the same `S_noisy` the SMI arm is fitted to. The
+   commented hook is gone and so is the two-language arrangement that briefly
+   replaced it. See section 1.
 3. **Revisit `examples/example_fODF_regularization_sweep.m`.** The user asked
    for this explicitly and it was deferred to its own patch: audit it for hidden
    bugs, and add 3D isometric panels of the reconstructed fODFs as
