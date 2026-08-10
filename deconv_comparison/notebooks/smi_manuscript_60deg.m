@@ -236,6 +236,44 @@ RUN_MRTRIX = 1;     % 0 scores the SMI arm alone, exactly as before
 % 60 degree error is response-limited and gets WORSE with the blunter response.
 RESPONSE_MODE = 'dispersed';
 
+% *WHICH TISSUE'S KERNEL THE CSD RESPONSE IS BUILT FROM. This is the assumption
+% the manuscript is really about, so it is a knob and not a hard-coded choice.*
+%
+%   'healthy'  the healthy WM response is used for BOTH tissues (the default,
+%              and what real CSD does)
+%   'matched'  each tissue gets a response built from its own kernel
+%
+% *Why 'healthy' is the realistic setting.* A CSD response function is estimated
+% once per subject -- or per study -- by selecting single-fibre white matter
+% voxels and averaging them. Nobody estimates a separate response for edematous
+% tissue: the edema is what is being imaged, not a population you can draw a
+% reference from, and the selection heuristics (|dwi2response tournier|,
+% |dhollander|) are built to find the most anisotropic voxels, which is exactly
+% what edema is not. So on real data the edema voxels are deconvolved with a
+% response averaged over HEALTHY white matter, and any mismatch between that
+% response and the tissue actually present is an error the method has to live
+% with.
+%
+% *Why that matters here more than anywhere else in this file.* It is the one
+% place where the two arms are NOT on equal footing, and the inequality is real
+% rather than an artefact:
+%
+% * SMI *estimates its kernel per voxel*. In edema it fits an edema kernel, so
+%   it adapts. Step 6 already shows the estimate is imperfect, which is the
+%   honest version of that advantage.
+% * CSD *is given a fixed response*. In edema that response describes different
+%   tissue from the one in the voxel.
+%
+% Setting this to 'matched' hands CSD a response it could not have on real data
+% and makes the edema comparison flattering to it. That configuration is worth
+% running as a CONTROL -- it separates "CSD is hurt by the response mismatch"
+% from "CSD is hurt by the low anisotropic signal in edema" -- but it is not the
+% configuration a manuscript claim should rest on.
+%
+% Step 6b prints the response it used against the response the tissue would have
+% implied, so the size of the mismatch is on the record rather than assumed.
+CSD_RESPONSE_KERNEL = 'healthy';
+
 % *The two regularisation weights msmt_csd takes, and why they are set here
 % rather than left at MRtrix's defaults.* This is the single most consequential
 % setting in Step 6b and it was got wrong once, so it is a knob with its
@@ -1114,10 +1152,30 @@ f_b3 = fullfile(MDIR, [TAG '_b3']);
 if st ~= 0, fprintf(2, '%s\n', txt); error('dwiextract failed'); end
 
 % ---- the responses, one set per Lmax
-% Built from THIS kernel, so the edema arm gets the edema response. That is why
-% the CSD arms can run for both kernels here where a stored, estimated response
-% would only ever have described one tissue.
-r_delta_top = RH.zh(K, b_mr(end)/1000, LMAX_GT, C.D_FW);
+% *Which kernel the response is built from is a setting, not this iteration's
+% kernel.* See CSD_RESPONSE_KERNEL in the Configuration block. At the default,
+% 'healthy', both tissues are deconvolved with the healthy WM response, because
+% that is what a response estimated by population-averaging single-fibre white
+% matter actually is. The edema arm is therefore deconvolved with a response
+% describing DIFFERENT TISSUE, which is the situation on real data and is the
+% asymmetry the manuscript is about: SMI re-estimates its kernel per voxel and
+% adapts, CSD cannot.
+if strcmp(CSD_RESPONSE_KERNEL, 'matched')
+    K_RESP    = K;
+    resp_name = C.PRESET;
+else
+    knames = cellfun(@(s) s.name, KERNELS, 'UniformOutput', false);
+    ir = find(strcmp(knames, CSD_RESPONSE_KERNEL), 1);
+    if isempty(ir)
+        error(['CSD_RESPONSE_KERNEL = ''%s'' names no kernel. ' ...
+               'Available: %s, or ''matched''.'], ...
+              CSD_RESPONSE_KERNEL, strjoin(knames, ', '));
+    end
+    K_RESP    = KERNELS{ir}.K;
+    resp_name = KERNELS{ir}.name;
+end
+
+r_delta_top = RH.zh(K_RESP, b_mr(end)/1000, LMAX_GT, C.D_FW);
 r_disp_top  = r_delta_top .* WATSON_PL(:)';
 fprintf('   the response, normalised to l = 0, at the top shell b = %.2f:\n', ...
         b_mr(end)/1000);
@@ -1125,12 +1183,38 @@ fprintf('        %-22s', 'delta (exact kernel)');
 fprintf('%9.4f', r_delta_top/r_delta_top(1)); fprintf('\n');
 fprintf('        %-22s', 'dispersion matched');
 fprintf('%9.4f', r_disp_top/r_disp_top(1)); fprintf('\n');
-fprintf('        using RESPONSE_MODE = ''%s''\n', RESPONSE_MODE);
+fprintf('        RESPONSE_MODE = ''%s'',  built from the ''%s'' kernel %s\n', ...
+        RESPONSE_MODE, resp_name, mat2str(K_RESP));
+
+% NOT a check, a measurement, and one of the numbers the manuscript wants: how
+% far the response the CSD arms were GIVEN is from the response this tissue
+% would actually imply. Zero for the healthy arm at the default; the edema arm
+% is where it bites, and its size is the response mismatch CSD carries into
+% edema on real data.
+r_tissue_top = RH.zh(K, b_mr(end)/1000, LMAX_GT, C.D_FW);
+if strcmp(RESPONSE_MODE, 'dispersed')
+    r_tissue_top = r_tissue_top .* WATSON_PL(:)';
+end
+n_given  = r_disp_top/r_disp_top(1);
+n_tissue = r_tissue_top/r_tissue_top(1);
+if max(abs(n_given - n_tissue)) < 1e-12
+    fprintf('        response matches this tissue exactly (no mismatch)\n');
+else
+    fprintf('        MISMATCH -- this tissue (%s) would imply', C.PRESET);
+    fprintf('%9.4f', n_tissue); fprintf('\n');
+    fprintf('        difference                              ');
+    fprintf('%9.4f', n_given - n_tissue); fprintf('\n');
+    fprintf(['        The %s arm is deconvolved with the %s response. That is\n' ...
+             '        deliberate and it is what real CSD does -- a response is\n' ...
+             '        estimated from single-fibre WM, never from edema. Set\n' ...
+             '        CSD_RESPONSE_KERNEL = ''matched'' for the control.\n'], ...
+            C.PRESET, resp_name);
+end
 
 f_resp = cell(1, numel(LMAX_LIST));
 for iL = 1:numel(LMAX_LIST)
     Lf   = LMAX_LIST(iL);
-    r_wm = RH.zh(K, b_mr/1000, Lf, C.D_FW);            % [nshell x (Lf/2+1)]
+    r_wm = RH.zh(K_RESP, b_mr/1000, Lf, C.D_FW);       % [nshell x (Lf/2+1)]
     if strcmp(RESPONSE_MODE, 'dispersed')
         r_wm = r_wm .* repmat(WATSON_PL(1:Lf/2+1)', size(r_wm,1), 1);
     end

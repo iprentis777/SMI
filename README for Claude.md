@@ -81,10 +81,11 @@ Three things about it that matter more than the code:
    `dwi2response` would recover. At b = 3 it lands between the delta and the
    three estimators and accounts for **~69% of the `l = 2` gap** — most of what
    makes an estimated response blunt really is dispersion, as section 6.3
-   supposed. `'delta'` switches back. Because the response is built from the
-   current iteration's kernel, **the CSD arms run for the edema tissue too**;
-   the old "the edema arm waits on a synthetic response" blocker was an artefact
-   of using a stored estimated response.
+   supposed. `'delta'` switches back. This sets the response's SHAPE; which
+   tissue's kernel it is built from is the separate `CSD_RESPONSE_KERNEL`
+   setting, below. The old "the edema arm waits on a synthetic response"
+   blocker was an artefact of using a stored estimated response and is gone
+   either way.
 2. **`SMOKE_TEST` is new and is the knob to reach for first.** `true` gives one
    Lmax, three SNRs, `NREP = 27` — minutes, every CHECK still executed,
    indicative numbers only. `false` is the manuscript configuration: 42
@@ -93,6 +94,43 @@ Three things about it that matter more than the code:
    voxel's own `l = 0` term rather than the constant `1/(4*pi)` — mandatory,
    because an MRtrix FOD is unnormalised. The finder itself moved to
    `helpers/fODF_peak_score.m` so nothing can score an fODF a second way.
+
+**The CSD response now comes from the HEALTHY kernel for both tissues**
+(`CSD_RESPONSE_KERNEL = 'healthy'`). This is the assumption the manuscript is
+about. A real CSD response is estimated by population-averaging single-fibre
+white matter; nobody estimates one for edema, so on real data edema voxels are
+deconvolved with a healthy-WM average. `'matched'` is the control.
+
+It is the one place the arms are not on equal footing, and the inequality is
+real: **SMI re-estimates its kernel per voxel and adapts; CSD cannot.**
+
+Measured noise free at 60 degrees (truth 60.00, band-limited 60.94): with the
+healthy response both arms give 60.94 on edema signal; with the *matched* edema
+response MSMT collapses to **21.49**. That is the opposite of the intuition and
+the cause is conditioning -- the edema WM `l = 0` decay is nearly collinear with
+CSF's, the angle between the two response vectors falling from **31.3 deg**
+(healthy) to **8.9 deg** (edema), which makes MSMT's tissue split unstable.
+
+**A tractography number that orientation accuracy hides:** on edema signal with
+the healthy response, MSMT puts only **4.7%** of the l = 0 signal in WM
+(0.047 / 0.285 / 0.668 for WM/GM/CSF). Orientation is perfect, amplitude is
+tiny -- section 6.1's "MSMT-CSD dims in edema", which is what you want for
+terminating in CSF and not what you want for tracking through edema. Report
+amplitude alongside any angular result.
+
+**Assumptions still standing, and worth listing since the manuscript will have
+to address them.** Every one of these hands a method something it would not have
+on real data:
+
+1. CSD gets the **exact analytic** response, not a `dwi2response` estimate --
+   no estimation error, no population-averaging spread.
+2. The response's dispersion is the **true** `kappa = 16`.
+3. The GM and CSF responses use the **true** `D_FW`, and no simulated voxel
+   contains either tissue.
+4. `SMI.fit` is given the **true** sigma via `options.sigma`.
+5. The generating model and SMI's fitted model are **the same Standard Model**,
+   so there is no model mismatch anywhere -- arguably the largest assumption in
+   the whole package, and the one a reviewer will find first.
 
 **Run `check_manuscript_static.m` before starting a long run.** It parses the
 whole file without executing it, audits the subscript arity of the scoring

@@ -60,9 +60,66 @@ Carlo report supposed. At `l = 4` and `l = 6` it overshoots slightly, so
 Read that row as indicative: they were estimated on the **superseded synthetic
 protocol**, not this acquisition.
 
-Because the response is built from *this iteration's* kernel, the CSD arms run
-for **both** the healthy and the edema tissue. A stored, estimated response
-could only ever have described one of them.
+Note that `RESPONSE_MODE` decides the *shape* of the response (delta vs
+dispersed). **Which tissue's kernel it is built from is a separate setting**,
+`CSD_RESPONSE_KERNEL`, and its default is not this iteration's kernel — see the
+next section.
+
+### Which tissue's kernel the CSD response comes from
+
+`CSD_RESPONSE_KERNEL` decides this, and it is the assumption the manuscript is
+really about. The default is **`'healthy'`: both tissues are deconvolved with
+the healthy WM response.** `'matched'` gives each tissue a response built from
+its own kernel, and is a control rather than a realistic configuration.
+
+**Why `'healthy'` is the realistic setting.** A CSD response is estimated once
+per subject or per study by selecting single-fibre white matter voxels and
+averaging them. Nobody estimates a response *for edema*: it is the tissue being
+imaged, not a reference population, and the selection heuristics
+(`dwi2response tournier`, `dhollander`) look for the most anisotropic voxels,
+which is precisely what edema is not. So on real data edema voxels are
+deconvolved with a healthy-WM average, and the mismatch is an error the method
+has to live with.
+
+**This is the one place the two arms are not on equal footing, and the
+inequality is real rather than an artefact of the setup.** SMI re-estimates its
+kernel *per voxel*, so in edema it fits an edema kernel and adapts — Step 6
+prints how imperfectly, which is the honest version of that advantage. CSD is
+handed a fixed response and cannot adapt. Setting `'matched'` hands CSD
+something it could not have on real data.
+
+**Measured, noise free, 60° crossing** (truth 60.00; band-limited truth 60.94):
+
+| tissue | response used | SSST sep | MSMT sep |
+|---|---|---|---|
+| healthy | healthy | 60.94 | 60.94 |
+| edema | **healthy** (the default) | 60.94 | **60.94** |
+| edema | matched (edema) | 60.94 | **21.49** |
+
+The result is the opposite of the intuition: giving MSMT the *matched* edema
+response makes it much worse. The reason is conditioning, and it is measurable.
+MSMT separates tissues on how the `l = 0` response decays across shells, and the
+edema WM response decays almost like CSF:
+
+| `l = 0` decay across shells | b=0 | b=1 | b=2 | b=3 |
+|---|---|---|---|---|
+| healthy WM | 1 | 0.513 | 0.335 | 0.253 |
+| edema WM | 1 | 0.188 | 0.069 | 0.040 |
+| CSF | 1 | 0.050 | 0.003 | 0.000 |
+
+The angle between the WM and CSF response vectors falls from **31.3°** (healthy)
+to **8.9°** (edema). At 8.9° those two columns of MSMT's design matrix are
+nearly parallel, the WM/CSF split becomes unstable, and the WM fODF is
+corrupted. So `'healthy'` is both the realistic choice and the better
+conditioned one.
+
+**One number to carry forward, because it is a tractography result rather than
+an angular one.** With the healthy response on edema signal, MSMT assigns only
+**4.7%** of the `l = 0` signal to WM (WM/GM/CSF = 0.047 / 0.285 / 0.668). The
+peak *orientation* is perfect, but the fODF amplitude is tiny — which is exactly
+the section 6.1 story: MSMT-CSD dims in edema. Good for terminating in CSF,
+bad for tracking *through* an edematous region. Orientation accuracy alone will
+not show this; the amplitude has to be reported with it.
 
 ### Where the response files are, and what sets the FOD order
 
