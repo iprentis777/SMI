@@ -37,9 +37,13 @@ if ~isfield(opts,'vox') || isempty(opts.vox)
     opts.vox = ones(1, numel(sz));
 end
 
-[d, base, ~] = fileparts(name);
-hdr = fullfile(d, [base '.mih']);
-dat = fullfile(d, [base '.dat']);
+% .mif or .mih is chosen by the EXTENSION of `name`, so a caller asks for what
+% it wants and nothing changes under callers that do not. `.mif` is a single
+% self-contained file and is the better default for anything a human will move,
+% copy or open later; `.mih` leaves a separate `.dat` beside the header, which
+% is easier to debug and is what the older pipeline scripts already expect.
+[d, base, ext] = fileparts(name);
+use_mif = strcmpi(ext, '.mif');
 
 switch opts.datatype
     case 'Float32LE', prec = 'float32'; A = single(A);
@@ -48,31 +52,66 @@ switch opts.datatype
     otherwise, error('mrtrix_io: unsupported datatype %s', opts.datatype);
 end
 
-fid = fopen(dat, 'wb');
-if fid < 0, error('mrtrix_io: cannot write %s', dat); end
-fwrite(fid, A, prec);                       % column-major, axis 0 fastest
-fclose(fid);
-
-fid = fopen(hdr, 'w');
-fprintf(fid, 'mrtrix image\n');
-fprintf(fid, 'dim: %s\n', strjoin(arrayfun(@(x) sprintf('%d',x), sz, ...
-                                           'UniformOutput', false), ','));
-fprintf(fid, 'vox: %s\n', strjoin(arrayfun(@(x) sprintf('%g',x), opts.vox, ...
-                                           'UniformOutput', false), ','));
-fprintf(fid, 'layout: %s\n', strjoin(arrayfun(@(k) sprintf('+%d',k), ...
-                                     0:numel(sz)-1, 'UniformOutput', false), ','));
-fprintf(fid, 'datatype: %s\n', opts.datatype);
-fprintf(fid, 'transform: 1,0,0,0\n');
-fprintf(fid, 'transform: 0,1,0,0\n');
-fprintf(fid, 'transform: 0,0,1,0\n');
+% The header is identical in both formats except for the `file:` line, so it is
+% built once as text rather than printed twice.
+L = {};
+L{end+1} = 'mrtrix image';
+L{end+1} = sprintf('dim: %s', strjoin(arrayfun(@(x) sprintf('%d',x), sz, ...
+                                               'UniformOutput', false), ','));
+L{end+1} = sprintf('vox: %s', strjoin(arrayfun(@(x) sprintf('%g',x), opts.vox, ...
+                                               'UniformOutput', false), ','));
+L{end+1} = sprintf('layout: %s', strjoin(arrayfun(@(k) sprintf('+%d',k), ...
+                                 0:numel(sz)-1, 'UniformOutput', false), ','));
+L{end+1} = sprintf('datatype: %s', opts.datatype);
+L{end+1} = 'transform: 1,0,0,0';
+L{end+1} = 'transform: 0,1,0,0';
+L{end+1} = 'transform: 0,0,1,0';
 if isfield(opts,'grad') && ~isempty(opts.grad)
     for i = 1:size(opts.grad,1)
-        fprintf(fid, 'dw_scheme: %.10g,%.10g,%.10g,%.10g\n', opts.grad(i,:));
+        L{end+1} = sprintf('dw_scheme: %.10g,%.10g,%.10g,%.10g', opts.grad(i,:)); %#ok<AGROW>
     end
 end
-fprintf(fid, 'file: %s 0\n', [base '.dat']);
-fprintf(fid, 'END\n');
-fclose(fid);
+body = sprintf('%s\n', L{:});
+
+if ~use_mif
+    % ---- .mih: text header, raw data in a sibling .dat
+    fid = fopen(fullfile(d, [base '.dat']), 'wb');
+    if fid < 0, error('mrtrix_io: cannot write %s.dat', base); end
+    fwrite(fid, A, prec);                   % column-major, axis 0 fastest
+    fclose(fid);
+
+    fid = fopen(fullfile(d, [base '.mih']), 'w');
+    if fid < 0, error('mrtrix_io: cannot write %s.mih', base); end
+    fwrite(fid, [body sprintf('file: %s 0\nEND\n', [base '.dat'])], 'char');
+    fclose(fid);
+else
+    % ---- .mif: one file, data appended after the header
+    %
+    % `file: . <offset>` gives the byte position where the data starts, and that
+    % offset is part of the header whose length it describes. Resolve the
+    % circularity by iterating to a fixed point: the only thing that changes
+    % between rounds is the number of digits in the offset, so it converges in
+    % two or three passes and provably terminates because the digit count is
+    % monotonic and bounded.
+    off = 0;
+    for it = 1:8
+        tail   = sprintf('file: . %d\nEND\n', off);
+        newoff = numel(body) + numel(tail);
+        if newoff == off, break, end
+        off = newoff;
+    end
+    tail = sprintf('file: . %d\nEND\n', off);
+    if numel(body) + numel(tail) ~= off
+        error('mrtrix_io: .mif offset did not converge (%d vs %d)', ...
+              numel(body) + numel(tail), off);
+    end
+
+    fid = fopen(fullfile(d, [base '.mif']), 'wb');   % 'wb': no newline translation
+    if fid < 0, error('mrtrix_io: cannot write %s.mif', base); end
+    fwrite(fid, [body tail], 'char');
+    fwrite(fid, A, prec);                   % column-major, axis 0 fastest
+    fclose(fid);
+end
 end
 
 % =====================================================================

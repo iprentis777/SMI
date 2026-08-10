@@ -318,9 +318,8 @@ end
 %   reported in Step 7 is then no longer an independent bound, and any Lmax 8
 %   result should be read as slightly flattering.
 %
-% The published comparison in |Reports/| ran every arm at *Lmax 6*
-% (|dwi2fod ... -lmax 6| for CSD and MSMT-CSD), so 6 is the row to compare
-% against the report. 4 is what the real-data driver |run_smi_batch_mod.m|
+% The published comparison in |Reports/| ran every arm at *Lmax 6*, so 6 is the
+% row to compare against the report. 4 is what the real-data driver |run_smi_batch_mod.m|
 % uses. 8 is the report's own upper control.
 
 fprintf('\n=== SMI manuscript simulation ===\n');
@@ -988,10 +987,15 @@ fprintf('   CHECK p_00 == 1 convention held   max|err| = %.2e   %s\n\n', ...
 %   to a b nobody acquired at.
 % # *The response has to survive the round trip.* It is written, read back off
 %   disk, and compared against the array that was written.
-% # *Lmax has to match.* |dwi2fod| is given |-lmax| matching |LMAX_LIST| entry
-%   by entry, with one response file per Lmax holding exactly the right number
-%   of columns, so there is no silent truncation and Step 7's ceiling is the
-%   correct bound for every arm.
+% # *Lmax has to match, and the response file is what enforces it.* |-lmax| is
+%   NOT passed. MRtrix's documented default is "the lmax of the corresponding
+%   response function, based on its number of coefficients, up to a maximum
+%   of 8" -- and one response file is written per Lmax with exactly |Lf/2+1|
+%   columns, so the order is already pinned by the file. Verified rather than
+%   assumed: with and without the flag, |dwi2fod| returns the same 15, 28 and
+%   45 coefficients at Lmax 4, 6 and 8, and the FODs are bit identical. The
+%   same mechanism gives msmt_csd's GM and CSF lmax 0, since their responses
+%   are one column wide.
 % # *Scale is not comparable, and does not need to be.* An SMI fODF has
 %   |p_00 = 1| and integrates to 1; an MRtrix FOD is unnormalised and its
 %   amplitude carries apparent fibre density. Step 7's peak finder subtracts
@@ -1027,15 +1031,15 @@ fprintf('Step 6b: the CSD arms, via MRtrix3, in %s\n', MDIR);
 GRID_ALL = C.pick_grid(NVOX);
 f_dwi    = fullfile(MDIR, [TAG '_dwi']);
 f_mask   = fullfile(MDIR, [TAG '_mask']);
-MR.write(f_dwi,  reshape(S_noisy, [GRID_ALL Ndwi]), ...
+MR.write([f_dwi '.mif'],  reshape(S_noisy, [GRID_ALL Ndwi]), ...
          struct('grad', [bvecs bvals(:)*1000]));
-MR.write(f_mask, ones(GRID_ALL), struct('datatype', 'UInt8'));
-fprintf('   wrote %s_dwi.mih  [%s x %d] with dw_scheme\n', ...
+MR.write([f_mask '.mif'], ones(GRID_ALL), struct('datatype', 'UInt8'));
+fprintf('   wrote %s_dwi.mif  [%s x %d] with dw_scheme\n', ...
         TAG, mat2str(GRID_ALL), Ndwi);
 
 % CHECK. mrinfo must agree with what we think we wrote. This is the one place
 % the locally implemented image writer is checked against MRtrix itself.
-[st, txt] = system(sprintf('mrinfo -size "%s.mih" 2>&1', f_dwi));
+[st, txt] = system(sprintf('mrinfo -size "%s.mif" 2>&1', f_dwi));
 sz_mr = sscanf(txt, '%f')';
 ok_sz = (st == 0) && numel(sz_mr) == 4 && all(sz_mr == [GRID_ALL Ndwi]);
 fprintf('   CHECK mrinfo reads back size %s               %s\n', ...
@@ -1047,9 +1051,9 @@ if ~ok_sz
 end
 
 % ---- what MRtrix thinks the shells are
-[~, txt] = system(sprintf('mrinfo -shell_bvalues "%s.mih" 2>/dev/null', f_dwi));
+[~, txt] = system(sprintf('mrinfo -shell_bvalues "%s.mif" 2>/dev/null', f_dwi));
 b_mr = sscanf(txt, '%f')';
-[~, txt] = system(sprintf('mrinfo -shell_sizes "%s.mih" 2>/dev/null', f_dwi));
+[~, txt] = system(sprintf('mrinfo -shell_sizes "%s.mif" 2>/dev/null', f_dwi));
 n_mr = sscanf(txt, '%f')';
 ok_shells = (numel(b_mr) == numel(b_shell)) && all(n_mr(:)' == n_shell(:)') && ...
             all(diff(b_mr) > 0);
@@ -1067,7 +1071,7 @@ end
 % than the nominal 3000, so it cannot miss a jittered volume.
 f_b3 = fullfile(MDIR, [TAG '_b3']);
 [st, txt] = system(sprintf( ...
-    'dwiextract "%s.mih" -shells 0,%g "%s.mih" -force -quiet 2>&1', ...
+    'dwiextract "%s.mif" -shells 0,%g "%s.mif" -force -quiet 2>&1', ...
     f_dwi, b_mr(end), f_b3));
 if st ~= 0, fprintf(2, '%s\n', txt); error('dwiextract failed'); end
 
@@ -1130,22 +1134,22 @@ for iL = 1:numel(LMAX_LIST)
 
     t0 = tic;
     [st, txt] = system(sprintf( ...
-        ['dwi2fod msmt_csd "%s.mih" "%s" "%s.mih" "%s" "%s.mih" "%s" "%s.mih" ' ...
-         '-mask "%s.mih" -lmax %d,0,0 -force -quiet 2>&1'], ...
-        f_dwi, R.wm, f_msmt, R.gm, f_mgm, R.csf, f_mcsf, f_mask, Lf));
+        ['dwi2fod msmt_csd "%s.mif" "%s" "%s.mif" "%s" "%s.mif" "%s" "%s.mif" ' ...
+         '-mask "%s.mif" -force -quiet 2>&1'], ...
+        f_dwi, R.wm, f_msmt, R.gm, f_mgm, R.csf, f_mcsf, f_mask));
     if st ~= 0, fprintf(2, '%s\n', txt); error('dwi2fod msmt_csd failed at Lmax %d', Lf); end
     t_msmt = toc(t0);
 
     t0 = tic;
     [st, txt] = system(sprintf( ...
-        ['dwi2fod csd "%s.mih" "%s" "%s.mih" -mask "%s.mih" ' ...
-         '-lmax %d -force -quiet 2>&1'], f_b3, R.wm_b3, f_csd, f_mask, Lf));
+        ['dwi2fod csd "%s.mif" "%s" "%s.mif" -mask "%s.mif" ' ...
+         '-force -quiet 2>&1'], f_b3, R.wm_b3, f_csd, f_mask));
     if st ~= 0, fprintf(2, '%s\n', txt); error('dwi2fod csd failed at Lmax %d', Lf); end
     t_csd = toc(t0);
 
-    Vm = MR.read([f_msmt '.mih']); SH_MSMT{iL} = reshape(Vm, [NVOX size(Vm,4)]);
-    Vc = MR.read([f_csd  '.mih']); SH_CSD{iL}  = reshape(Vc, [NVOX size(Vc,4)]);
-    Vg = MR.read([f_mgm  '.mih']); Vf = MR.read([f_mcsf '.mih']);
+    Vm = MR.read([f_msmt '.mif']); SH_MSMT{iL} = reshape(Vm, [NVOX size(Vm,4)]);
+    Vc = MR.read([f_csd  '.mif']); SH_CSD{iL}  = reshape(Vc, [NVOX size(Vc,4)]);
+    Vg = MR.read([f_mgm  '.mif']); Vf = MR.read([f_mcsf '.mif']);
 
     fprintf('   Lmax %d: msmt_csd %.1f s, csd %.1f s, %d coefficients each\n', ...
             Lf, t_msmt, t_csd, size(Vm,4));
@@ -1470,8 +1474,8 @@ for ia = 1:NARM
     for iL = 1:numel(LMAX_LIST)
         Lf = LMAX_LIST(iL);
         fn = fullfile(edir, sprintf('%sfod_%s_lmax%d', nm, C.PRESET, Lf));
-        MR.write(fn, reshape(ARMS{ia}.sh{iL}, [GRID_ALL size(ARMS{ia}.sh{iL},2)]));
-        fprintf('   %sfod_%s_lmax%d.mih  [%s x %d]\n', nm, C.PRESET, Lf, ...
+        MR.write([fn '.mif'], reshape(ARMS{ia}.sh{iL}, [GRID_ALL size(ARMS{ia}.sh{iL},2)]));
+        fprintf('   %sfod_%s_lmax%d.mif  [%s x %d]\n', nm, C.PRESET, Lf, ...
                 mat2str(GRID_ALL), size(ARMS{ia}.sh{iL},2));
     end
 end
@@ -1492,7 +1496,7 @@ end
 fid = fopen(fullfile(edir, sprintf('voxel_key_%s.txt', C.PRESET)), 'w');
 fprintf(fid, '%% voxel  SNR  crossing_deg  axis1_x axis1_y axis1_z  axis2_x axis2_y axis2_z\n');
 fprintf(fid, '%% axis2 is 0 0 0 for the single fibre condition. SNR Inf is the noise-free arm.\n');
-fprintf(fid, '%% Voxel order is column-major over the %s grid, matching the .mih images:\n', ...
+fprintf(fid, '%% Voxel order is column-major over the %s grid, matching the .mif images:\n', ...
         mat2str(GRID_ALL));
 fprintf(fid, '%% %d contiguous blocks of %d voxels, one per SNR, in the order %s.\n', ...
         NSNR, NVOX_SNR, strjoin(SNR_LABEL, ', '));
@@ -1501,10 +1505,10 @@ fclose(fid);
 fprintf('   voxel_key_%s.txt  SNR and true fibre axes per voxel, for matching peaks back\n\n', C.PRESET);
 
 fprintf('   To check these against MRtrix3, from %s:\n', edir);
-fprintf('     sh2peaks smifod_%s_lmax6.mih peaks_lmax6.mih -num 4\n', C.PRESET);
-fprintf('     mrinfo   smifod_%s_lmax6.mih\n', C.PRESET);
-fprintf('     mrconvert smifod_%s_lmax6.mih out.mif   # if you prefer a single file\n', C.PRESET);
-fprintf('     mrview   smifod_%s_lmax6.mih -odf.load_sh smifod_%s_lmax6.mih\n', C.PRESET, C.PRESET);
+fprintf('     sh2peaks smifod_%s_lmax6.mif peaks_lmax6.mif -num 4\n', C.PRESET);
+fprintf('     mrinfo   smifod_%s_lmax6.mif\n', C.PRESET);
+fprintf('     mrconvert smifod_%s_lmax6.mif out.mif   # if you prefer a single file\n', C.PRESET);
+fprintf('     mrview   smifod_%s_lmax6.mif -odf.load_sh smifod_%s_lmax6.mif\n', C.PRESET, C.PRESET);
 fprintf('   sh2peaks writes 3 components per peak; compare against voxel_key.txt.\n');
 fprintf('   Nothing in this walkthrough runs those commands -- that is the point.\n\n');
 

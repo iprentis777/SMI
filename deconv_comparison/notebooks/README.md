@@ -64,6 +64,43 @@ Because the response is built from *this iteration's* kernel, the CSD arms run
 for **both** the healthy and the edema tissue. A stored, estimated response
 could only ever have described one of them.
 
+### Where the response files are, and what sets the FOD order
+
+`dwi2fod` needs three response `.txt` files for `msmt_csd` (WM, GM, CSF) and one
+for `csd`. **They are generated at run time**, not tracked, into
+`deconv_comparison/mrtrix/` — which is gitignored, because they are derived
+entirely from the kernel and are reproduced exactly on the next run:
+
+```
+mrtrix/ms_<preset>_resp_wm_lmax<L>.txt      one row per shell, L/2+1 columns
+mrtrix/ms_<preset>_resp_gm.txt              one row per shell, 1 column
+mrtrix/ms_<preset>_resp_csf.txt             one row per shell, 1 column
+mrtrix/ms_<preset>_resp_wm_b3_lmax<L>.txt   top shell only, for SSST-CSD
+```
+
+`<preset>` is `healthy` or `edema`, so both tissues keep their own set. They
+persist after a run — read them with `shview` or `cat` to see exactly what each
+arm was deconvolved with.
+
+**`-lmax` is not passed to `dwi2fod`, and does not need to be.** MRtrix's
+documented default is *"the lmax of the corresponding response function, based
+on its number of coefficients, up to a maximum of 8"* — and one WM response is
+written per Lmax with exactly `L/2+1` columns, so the file already pins the
+order. The same mechanism gives `msmt_csd` its GM and CSF at lmax 0, since those
+responses are one column wide.
+
+Measured rather than assumed: with and without the flag, `dwi2fod` returns the
+same **15, 28 and 45** coefficients at Lmax 4, 6 and 8, and the output FODs are
+**bit identical** (`max|diff| = 0`).
+
+**Images are written as `.mif`** — one self-contained file per image, rather than
+the `.mih` + `.dat` pair the older pipeline scripts use. `mrtrix_io.m` picks the
+format from the extension it is given, so the older callers are unchanged. The
+writer resolves the `file: . <offset>` circularity (the offset is part of the
+header whose length it describes) by iterating to a fixed point, and it is
+verified against MRtrix on every run via `mrinfo`, plus a round trip through
+`mrconvert` that matches the `.mih` path bit for bit.
+
 ### Findings, not failures
 
 **MSMT-CSD's noise-free angular error is far above the ceiling, and a blunter
@@ -262,6 +299,11 @@ rather than carried over:
   `mrinfo -shell_bvalues`, not the nominal 0/1/2/3. This protocol's shells
   jitter — MRtrix reports `[0, 998.28, 1998.17, 2996.06]` s/mm² — so the
   nominal values would attach each response row to a b nobody acquired at.
+
+The hook's fourth claim, that `dwi2fod` must be given `-lmax` matching
+`LMAX_LIST` or the ceiling is the wrong bound, is **half right and no longer
+how it works**: the order does have to match, but the response file's column
+count already enforces it, so the flag is redundant. See above.
 
 `SMOKE_TEST = true` cuts the file to one Lmax, three SNRs and `NREP = 27`, which
 runs in minutes and still executes every CHECK. Its numbers are indicative only
