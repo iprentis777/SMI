@@ -7,3 +7,5 @@ octave-workspace
 response_SMI_wm.txt
 deconv_comparison/mrtrix/
 deconv_comparison/export/
+deconv_comparison/notebooks/*_out.ipynb
+deconv_comparison/notebooks/.ipynb_checkpoints/

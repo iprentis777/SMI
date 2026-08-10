@@ -7,6 +7,52 @@ running in bulk. They are the answer to "how do I check this myself?".
 |---|---|
 | `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export. Conditions: single fibre, 30, 45, 60 degrees. **One SNR** |
 | `smi_manuscript_60deg.m` | the manuscript cut — **60 degree crossing only**, **two kernels back to back**, **swept across SNR** — six isometric figures |
+| `smi_manuscript_60deg.ipynb` | **the three-arm version.** Same experiment, healthy kernel only, with **SSST-CSD and MSMT-CSD actually running** through MRtrix3. A Jupyter notebook on the Octave kernel |
+
+## `smi_manuscript_60deg.ipynb` — the three-arm notebook
+
+The same experiment as the `.m`, with the CSD arms wired in rather than stubbed,
+and cut to the **healthy kernel only**; the edema arm waits on a synthetic
+response.
+
+| arm | what it is |
+|---|---|
+| SMI | `SMI.fit`, `fODF_regularization.flag_nonneg = 1`, `CS_phase = 0` |
+| SSST-CSD | `dwi2fod csd` on the top shell — the MRtrix3 binary |
+| MSMT-CSD | `dwi2fod msmt_csd` on all four shells, 3 tissues — the binary |
+
+**All three responses are the exact analytic kernel response**,
+`r_l(b) = K_l(b) sqrt((2l+1) 4 pi)`, so response estimation is not a confound
+and a difference between arms is the deconvolution. Swapping in an estimated
+response is one `RH.read_response` call in Step 6b — but see the warning there
+about which acquisition a stored response was estimated on.
+
+Three things the `.m` file's commented hook asserted that are **not true**, all
+corrected in the notebook:
+
+- **The arms do not "appear automatically" in the figures.** The scoring arrays
+  and every figure were indexed by `(Lmax, SNR, condition)` with no arm
+  dimension at all. There is one now.
+- **The peak finder was not scale-free.** It subtracted the constant
+  `1/(4*pi)`, which is the isotropic part only for an fODF with `p_00 = 1` in
+  every voxel. An MRtrix FOD is unnormalised and its `l=0` term varies per
+  voxel and carries apparent fibre density. The notebook subtracts **each
+  voxel's own `l = 0` term**, and checks that this agrees with the constant for
+  the SMI arm.
+- **The response must be evaluated at MRtrix's own per-shell b**, read back with
+  `mrinfo -shell_bvalues`, not at the nominal 0/1/2/3. This protocol's shells
+  jitter — MRtrix reports `[0, 998.28, 1998.17, 2996.06]` s/mm² — so the
+  nominal values attach each response row to a b nobody acquired at.
+
+`SMOKE_TEST = true` is the shipped default: one Lmax, three SNRs, `NREP = 27`,
+a few minutes. `false` gives the manuscript configuration.
+
+**Its figures have been verified to render**, which is not true of anything else
+in this repository. The Octave Jupyter kernel produces inline PNGs, so Figure 1's
+shared radial scale is confirmed working rather than assumed. Only the `gnuplot`
+toolkit is available in this container, and it ignores `camlight` and `lighting`,
+so glyphs are flat-shaded here and correct in MATLAB. Each figure is wrapped in
+`try`/`catch` and prints `** FIGURE FAILED **` rather than taking the run down.
 
 `smi_manuscript_60deg.m` keeps **every knob in one Configuration block at the
 top**, including the kernels, so retuning it never means opening another file.
@@ -175,13 +221,42 @@ understanding:
 | the ceiling | the same peak finder run on the noise-free truth *truncated to the same Lmax as the fit*. Separates "the method failed" from "this angular order cannot represent the answer" |
 | SMI bins the shells | the real protocol has 18 distinct b values; `SMI.Group_dwi_in_shells_b_beta_TE` must recover `[18 90 90 90]`, or every rotational invariant downstream is built from a fraction of the directions |
 | the noise-free arm reaches the truth | *(manuscript file only)* with `sigma = 0` the only things left between fit and truth are the band limit and the estimated kernel, so the `SNR = Inf` row must recover the true fibre count wherever the truth itself resolves. If it does not, no finite-SNR row below it is interpretable |
-| the noise-free arm is deterministic | *(manuscript file only)* at `sigma = 0` every realisation is the same signal and `SMI.fit` trains one regression per call, so the whole block must come back bit identical — its standard deviation is checked to be exactly `0` |
+| the noise-free arm is deterministic | *(manuscript files only)* at `sigma = 0` every realisation of a condition is fed the same signal, so the block must come back the same. **See the correction below — the `.m` file states this invariant in a form that is false, and the `.ipynb` states the measured one** |
 | more noise does not help | *(manuscript file only)* the mean angular error at the top of the sweep must not exceed the error at the bottom. Compared at the extremes rather than pairwise, so Monte Carlo error between adjacent SNRs cannot trip it |
 
 In the manuscript file the ceiling is not scored by a *copy* of the peak finder:
 the band-limited truth is prepended as the first row of every scored block, so
 it goes through the same lines as the realisations. That is why the `SNR = Inf`
 row and the `ceiling` row of each table print the same angular error.
+
+### Correction: `SMI.fit` is not bit-reproducible voxel to voxel
+
+`smi_manuscript_60deg.m:1069` checks that the noise-free block has standard
+deviation **exactly** `0`, and the table above used to describe that as the
+invariant. **Both are wrong**, in two separate ways, and the notebook's smoke
+run found them. The `.m` file has never been run at full size, so neither had
+ever been exercised.
+
+1. **`std(x) == 0` is not a determinism test.** `std` computes `sum(x)/n` first,
+   and for *n* identical values that division need not return the value exactly.
+   A perfectly deterministic block can yield `std ~ 1e-16`. Whether it does
+   depends on the bit pattern of the particular angular error — which is why
+   this check failed for two arms and passed for a third on identical logic.
+
+2. **`SMI.fit` genuinely is not bit-reproducible.** Measured directly: feed 27
+   voxels on a `[3 3 3]` grid a bit-identical signal at `sigma = 0`, with the
+   non-negativity constraint converging in the same 4 iterations in every
+   voxel, and SMI returns **three distinct answers — one per slice** — differing
+   by `1.6e-12` in `plm` and `1.1e-11` in the kernel. That is BLAS blocking:
+   reduction order inside the matrix operations depends on where a voxel sits
+   in the array. It is twelve orders of magnitude below the peak finder's 2.6°
+   grid resolution and changes no result.
+
+**Both MRtrix arms *are* bit identical**, because `dwi2fod` works one voxel at a
+time. So the corrected check is worth keeping rather than deleting: it separates
+a method that is exactly reproducible voxel to voxel from one that is
+reproducible only to floating point. The notebook tests the SH coefficients
+directly against a `1e-9` tolerance and prints the measured number.
 
 Three results in the output are *findings, not failures*, and each is called out
 in place because it looks alarming otherwise:
