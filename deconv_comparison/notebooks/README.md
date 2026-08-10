@@ -8,6 +8,131 @@ running in bulk. They are the answer to "how do I check this myself?".
 | `smi_simulation_walkthrough.m` | the SMI arm end to end on a real HCP protocol: ground truth, kernel, forward convolution, Rician noise, `SMI.fit` at Lmax 4/6/8, peaks, MRtrix export. Conditions: single fibre, 30, 45, 60 degrees. **One SNR** |
 | `smi_manuscript_60deg.m` | the manuscript cut — **60 degree crossing only**, **two kernels back to back**, **swept across SNR** — six isometric figures |
 | `smi_manuscript_60deg.ipynb` | **the three-arm version.** Same experiment, healthy kernel only, with **SSST-CSD and MSMT-CSD actually running** through MRtrix3. A Jupyter notebook on the Octave kernel |
+| `csd_manuscript_60deg.ipynb` | **the Python CSD arm.** The CSD half only, on a **Python** kernel, with a **dispersion-matched** response, exporting its results for the `.m` side to draw figures from |
+
+## `csd_manuscript_60deg.ipynb` — the Python CSD arm
+
+The division of labour the other notebooks could not have: **Python builds the
+signal and drives the CSD arms; the `.m` file fits SMI and draws the figures.**
+It does not fit SMI at all, which is why it runs in minutes where
+`smi_manuscript_60deg.m` runs in hours.
+
+| arm | what it is |
+|---|---|
+| SSST-CSD | `dwi2fod csd` on the top shell — the MRtrix3 binary |
+| MSMT-CSD | `dwi2fod msmt_csd` on all four shells, 3 tissues — the binary |
+
+### The response is dispersion matched, and that is the point
+
+Every other arm in this package is handed the **delta** response
+`r_l(b) = K_l(b) sqrt((2l+1) 4 pi)`, the response of a fibre with no dispersion.
+But no fibre in this simulation is a delta: each population is a Watson at
+`kappa = 16`. So this notebook builds
+
+```
+r_l(b) = K_l(b) * p_l^Watson(kappa) * sqrt((2l+1) * 4*pi)
+```
+
+which is the response of *one such population* — what a perfect `dwi2response`
+run on this data would recover. `RESPONSE_MODE` switches between the two.
+
+Measured at b = 3, normalised to `l = 0`:
+
+| response | `r_2` | `r_4` | `r_6` |
+|---|---|---|---|
+| delta (exact kernel) | -0.828 | 0.441 | -0.179 |
+| **dispersion matched, `kappa = 16`** | **-0.748** | **0.315** | **-0.089** |
+| `dwi2response dhollander` | -0.703 | 0.342 | -0.107 |
+| `dwi2response tournier` | -0.714 | 0.349 | -0.116 |
+| `dwi2response fa` | -0.718 | 0.352 | -0.121 |
+
+At `l = 2` the dispersion-matched response lands **between** the delta and the
+estimators, accounting for about **69%** of the gap between them — so most of
+what makes an estimated response blunter than the kernel is fibre dispersion,
+which is the thing section 6.3 of the Monte Carlo report attributed it to. At
+`l = 4` and `l = 6` it overshoots slightly, i.e. `kappa = 16` disperses a little
+*more* than the phantom the estimators were run on. Read that comparison as
+indicative only: those three were estimated on the **superseded synthetic
+protocol**, not this acquisition.
+
+`Figures/csd_response_dispersion.png` is this comparison drawn. It depends only
+on the kernel and `kappa`, not on `NREP`, so it is exact rather than a smoke-run
+artefact.
+
+### Identity with the `.m` file is measured, not asserted
+
+`dump_reference.m` writes the Octave side of the forward model into `data/`, and
+`check_python_vs_octave.py` recomputes all of it in Python. Step 0 of the
+notebook runs that comparison and fails loudly if it does not pass. Measured,
+22 of 22 arrays agree:
+
+| quantity | max abs err |
+|---|---|
+| SH basis, Lmax 8, both `CS_phase` conventions | 5.5e-15 |
+| ground truth `plm` | 1.0e-15 |
+| kernel invariants `K_l(b)` | 1.6e-15 |
+| **noise-free signal** | **6.7e-15** |
+
+Two rows are compared *relatively* and the reasons are worth knowing:
+Octave's `textscan` and Python's `float()` round decimal strings like `2.99`
+differently in the last bit (80 of 288 b values, 1.5e-16 relative), and the
+Watson amplitudes are `exp(kappa) ~ 9e6`, where an absolute tolerance is a
+demand for 22 significant digits.
+
+**The noise realisations are deliberately NOT identical.** Octave's
+`randn('seed',...)` legacy generator and numpy's PCG64 are different streams and
+cannot be reconciled without reimplementing one inside the other. So the noisy
+signal is **exported** instead: `C.signal` is what the CSD arms were actually
+given, and fitting SMI to it puts all three arms on the same realisations.
+
+### Handing the results to the `.m` side
+
+```matlab
+run('oct_path.m');
+C = read_csd_export();     % arms, scores, SH coefficients, signal, config
+figures_csd_arms();        % the figures, or figures_csd_arms('../Figures')
+```
+
+`test_csd_roundtrip.m` re-scores the exported SH coefficients with the **Octave**
+peak finder (`helpers/fODF_peak_score.m`) and compares against what Python
+printed. Measured: peak counts and spurious counts reproduce **exactly**, mean
+angular error to **4.6e-10 deg**. That is what makes `C.scores` usable directly
+rather than something the `.m` side has to re-derive.
+
+### Findings, not failures
+
+**MSMT-CSD's noise-free angular error is far above the ceiling, and a blunter
+response makes it worse.** At 60 degrees, Lmax 6, `SNR = inf` — no noise at all:
+
+| response | MSMT peak errors | SSST peak errors |
+|---|---|---|
+| dispersion matched | **7.80°**, 3.54° | 1.27°, 1.72° |
+| delta | 2.82°, 3.54° | 1.27°, 1.72° |
+
+SSST-CSD sits exactly on the ceiling either way. MSMT finds both lobes in both
+cases — the *count* is right — but its primary lobe is displaced, and the
+displacement roughly triples when the response is blunted. This is not a setup
+bug: it reproduces from a third direction the report's finding that MSMT's 60
+degree error is **response-limited** (6.85° estimated, 2.36° with the exact
+response, section 6.4).
+
+**The angular error uses the largest peak only, and a symmetric crossing is a
+near-tie.** MSMT's two lobes differ by 7% in amplitude; which is "primary" can
+flip on the last few ulps, and the reported error then jumps between the two
+lobes' errors with no real change. Read it alongside the peak and spurious
+counts. This is inherited deliberately — it is what `smi_manuscript_60deg.m`
+scores, and changing it would make the arms incomparable.
+
+### Its figures render, and so do the Octave ones
+
+Both were verified in this container, which is new: `figures_csd_arms.m` writes
+all three PNGs through Octave's `print` without error. **The claim elsewhere in
+this repository that Octave's `print` is broken here is no longer true** for
+these figures — gnuplot still ignores `camlight` and `lighting`, so glyphs are
+flat shaded, but they render.
+
+`SMOKE_TEST = True` ships as the default: one Lmax, three SNRs, `NREP = 27`, a
+few minutes, 23 CHECKs. `False` gives the manuscript configuration.
 
 ## `smi_manuscript_60deg.ipynb` — the three-arm notebook
 
@@ -117,12 +242,18 @@ inline in the Live Script; under Octave graphics are often unavailable, and the
 printed numbers are the deliverable either way — every figure is drawn from the
 same arrays Step 7 prints, so the tables and the plots cannot disagree.
 
-The CSD and MSMT-CSD arms are not wired up, but the hook is in place: a
-commented block just before Step 7 reads MRtrix fODF images and appends them as
-extra arms. Uncommenting it makes them scored by the **same peak finder** as
-SMI, so they appear automatically as extra columns in Figures 4–5 and extra
-curves in Figure 6 with no figure code changes. Figure 1 is the panel built to
-take their estimated responses.
+**In `smi_manuscript_60deg.m` specifically**, the CSD and MSMT-CSD arms are
+still not wired up; what is there is a commented hook just before Step 7. Two
+notebooks now run those arms for real — `smi_manuscript_60deg.ipynb` on the
+Octave kernel and `csd_manuscript_60deg.ipynb` on the Python kernel — and
+**three of the claims that commented hook makes are false**, listed at the top
+of this file: the arms do *not* appear automatically in the figures, the peak
+finder was *not* scale-free, and the response must be evaluated at MRtrix's own
+per-shell b. Take the working notebooks over the stub.
+
+The route into the `.m` file that does work today is
+`read_csd_export` + `figures_csd_arms`, which read what the Python notebook
+exported. Figure 1 is still the panel built to take an estimated response.
 
 ### Why the edema arm looks noisier, when the noise is identical
 

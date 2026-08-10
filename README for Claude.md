@@ -50,6 +50,8 @@ markup so they run in MATLAB and Octave and convert to a Live Script unedited:
 |---|---|
 | `smi_simulation_walkthrough.m` | the general SMI arm. Single fibre plus 30/45/60 degrees, one SNR, Lmax 4/6/8, four figures |
 | `smi_manuscript_60deg.m` | **the manuscript figure source.** 60 degrees only, two kernels back to back, SNR swept, six figures |
+| `smi_manuscript_60deg.ipynb` | the three-arm version on the **Octave** kernel: same experiment, healthy kernel only, SSST-CSD and MSMT-CSD actually running (PR #22) |
+| `csd_manuscript_60deg.ipynb` | **the Python CSD arm** (see below). CSD only, dispersion-matched response, exports its results for the `.m` side |
 
 Both put every knob in one Configuration block at the top and end every step
 with a `CHECK` that compares its output against something computed a different
@@ -58,6 +60,39 @@ circular; read that before changing either file.
 
 `smi_manuscript_60deg.m` at its defaults is **42 `SMI.fit` calls** (2 kernels x
 7 SNR x 3 Lmax) and runs in hours. `NREP` is the knob; 25 makes it minutes.
+
+### The Python CSD arm, `csd_manuscript_60deg.ipynb`
+
+The CSD half split out onto a **Python** kernel, so it can run in minutes
+without waiting on `SMI.fit`. It builds the signal itself, drives
+`dwi2fod csd` and `dwi2fod msmt_csd`, scores them, and **exports everything the
+`.m` side needs** — including the noisy signal, so SMI can be fitted to the same
+realisations rather than to an independent noise draw.
+
+Three things about it that matter more than the code:
+
+1. **The response is dispersion matched**, not the delta response every other
+   arm here gets: `r_l(b) = K_l(b) p_l^Watson(kappa) sqrt((2l+1) 4 pi)`. A fibre
+   in this simulation is a Watson at `kappa = 16`, not a delta, so this is the
+   response a perfect `dwi2response` would recover. Measured at b = 3, it lands
+   between the delta and the three estimators and accounts for **~69% of the
+   `l = 2` gap** between them — most of what makes an estimated response blunt
+   really is dispersion, as section 6.3 supposed.
+2. **Identity with the `.m` file is measured.** `dump_reference.m` writes the
+   Octave forward model, `check_python_vs_octave.py` recomputes it in Python:
+   22 arrays, **noise-free signal to 6.7e-15**. The notebook fails loudly if
+   that comparison does not pass.
+3. **The noise realisations are NOT shared.** Octave's legacy `randn` and
+   numpy's PCG64 cannot be reconciled. This is why `C.signal` is exported, and
+   it is the one thing to remember when combining the two halves.
+
+Round trip: `read_csd_export.m` reads it, `test_csd_roundtrip.m` re-scores the
+SH coefficients with the Octave peak finder — counts reproduce **exactly**,
+angular error to **4.6e-10 deg** — and `figures_csd_arms.m` draws the figures.
+
+**Its figures render, and so do the Octave ones.** `figures_csd_arms.m` writes
+all three PNGs through Octave's `print` without error in this container, so the
+claim below that `print` is broken here is no longer true for these figures.
 
 ### Still on a branch, not merged
 
@@ -264,13 +299,28 @@ Other traps, all hit at least once:
 - **`median(...,4,'omitnan')`** is version-dependent. `SMI.neighbour_median`
   deliberately takes the median by sorting instead (NaN sorts last in both), so
   it needs no nanflag and no toolbox.
-- Graphics are unusable. `deconv_comparison/octave_test_stubs/` stubs
-  `figure/histogram/subplot/...` so the plotting examples run headless.
+- Graphics are limited, but **no longer unusable — this changed and the old
+  claim is wrong**. With `octave` (not just `octave-cli`) installed, the gnuplot
+  toolkit renders headless and `print -dpng` writes real files:
+  `figures_csd_arms.m` produces all three of its PNGs without error. gnuplot
+  still ignores `camlight` and `lighting`, so glyphs are flat shaded here and
+  correct in MATLAB. `deconv_comparison/octave_test_stubs/` stubs
+  `figure/histogram/subplot/...` for the older plotting examples that only need
+  to run headless; prefer actually rendering now that it works.
 - `strel('disk',r,0)` — Octave requires the explicit `N`; `N=0` is an exact
   disk and is the better choice in MATLAB too.
-- Python needs only **`numpy matplotlib`**, except `setup_protocol.py`, which
-  needs `dipy` for its gradient-direction repulsion. **cvxpy is no longer
-  needed** — it was only there for the removed dipy MSMT-CSD path.
+- Python needs **`numpy scipy matplotlib`** (scipy is new: `smi_sim.py` uses
+  `scipy.special.lpmv` for the associated Legendre functions in the SH basis),
+  except `setup_protocol.py`, which needs `dipy` for its gradient-direction
+  repulsion. **cvxpy is no longer needed** — it was only there for the removed
+  dipy MSMT-CSD path.
+- **Check which `python3` you get.** In this container `/usr/local/bin/python3`
+  is 3.11 while `apt` installs `python3-numpy` for **3.12**, so a plain
+  `python3 -c "import numpy"` fails with the misleading *"you should not try to
+  import numpy from its source directory"*. The real error underneath is
+  `No module named 'numpy.core._multiarray_umath'`, i.e. an ABI mismatch.
+  `/usr/bin/python3.12` is the working interpreter; `jupyter nbconvert` needs
+  its kernel registered (`python3.12 -m ipykernel install --name py312`).
 - **A real `.bvec` is not unit to machine precision.** The supplied HCP file is
   unit only to `1.1e-6`, being written at seven significant figures. Anything
   that reads `g(3)` as `cos(theta)` without normalising inherits that: measured
@@ -535,19 +585,30 @@ it has never touched real data.
 1. **Run `smi_manuscript_60deg.m` at full size and read Figure 6.** Everything
    about it is built and checked; nothing has been run at `NREP = 1000`. The
    user runs it on their own hardware, which is faster than the container — do
-   not burn hours running it here unless asked. **No figure in any notebook has
-   ever been verified to RENDER**: Octave's `print` is broken in this container,
-   so the figure blocks are only ever checked to execute against the stubs in
-   `deconv_comparison/octave_test_stubs/`. That gap has already shipped one real
-   bug (section 3, the shared-scale trap).
-2. **Wire up the CSD and MSMT-CSD arms.** The hook is already there: a commented
-   block just before Step 7 of `smi_manuscript_60deg.m`, at the *scoring* stage,
-   so uncommenting it makes them scored by the same peak finder as SMI and they
-   appear automatically as extra columns in Figures 4-5 and extra curves in
-   Figure 6. Figure 1 is the panel built to take their estimated responses. Two
-   traps recorded in the stub: `dwi2fod` needs `-lmax` matching `LMAX_LIST` or
-   the ceiling is the wrong bound, and an MRtrix FOD is not normalised while an
-   SMI fODF integrates to 1.
+   not burn hours running it here unless asked. **Its own six figures have still
+   never been verified to RENDER** — that gap already shipped one real bug
+   (section 3, the shared-scale trap) — but the excuse is gone: Octave's `print`
+   works in this container (see section 4), `csd_manuscript_60deg.ipynb`'s three
+   matplotlib figures render inline, and `figures_csd_arms.m` writes three PNGs
+   through gnuplot. Render this file's figures before trusting them.
+2. ~~**Wire up the CSD and MSMT-CSD arms.**~~ **Done, twice.**
+   `smi_manuscript_60deg.ipynb` (PR #22, Octave kernel, exact delta response)
+   and `csd_manuscript_60deg.ipynb` (Python kernel, dispersion-matched response,
+   exports to the `.m` side) both run the arms for real.
+
+   **The commented hook still sitting in `smi_manuscript_60deg.m` before Step 7
+   is superseded, and three of its claims are false**: the arms do not appear
+   automatically in the figures (the scoring arrays had no arm dimension), the
+   peak finder was not scale-free (it subtracted the constant `1/(4*pi)`, wrong
+   for an unnormalised MRtrix FOD), and the response must be evaluated at
+   MRtrix's own per-shell b, not the nominal 0/1/2/3. Delete it or point it at
+   the notebooks; do not uncomment it.
+
+   What is genuinely left is folding the exported arms into
+   `smi_manuscript_60deg.m` itself. `read_csd_export` returns them, and
+   `C.signal` is the noisy signal the CSD arms actually saw — fitting SMI to it
+   rather than to a fresh draw is what puts all three arms on common random
+   numbers.
 3. **Revisit `examples/example_fODF_regularization_sweep.m`.** The user asked
    for this explicitly and it was deferred to its own patch: audit it for hidden
    bugs, and add 3D isometric panels of the reconstructed fODFs as
