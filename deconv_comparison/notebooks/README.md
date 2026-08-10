@@ -344,6 +344,40 @@ and every printout says so. `false` is the shipped default and the manuscript
 configuration: 42 `SMI.fit` calls, hours. The two MRtrix arms cost seconds
 either way, because they scale with voxel count rather than with fit count.
 
+### Testing the CSD arms on their own
+
+`smi_manuscript_60deg.m` runs all three arms, but its SMI arm costs 42 fits and
+hours at the manuscript settings, which makes it the wrong instrument for "does
+the MRtrix side still work". From `deconv_comparison/`:
+
+```
+octave-cli --no-gui -q test_csd_arms.m          # ~2 seconds
+```
+
+It builds the same noise-free signal from the same kernel and protocol, hands it
+to `dwi2fod`, and scores the peaks at 60, 75 and 90 degrees — the whole MRtrix
+path, none of the cost. It asserts that SSST-CSD recovers the true angle to
+within the direction grid, that MSMT-CSD separates as well as SSST-CSD, and that
+both handle 90 degrees. That last one is the check that would have caught the
+`-neg_lambda` bug immediately.
+
+`test_csd_arms(true)` adds the sensitivity sweep:
+
+| `neg_lambda` | `norm_lambda` | separation at a true 60° crossing |
+|---|---|---|
+| 1e-10 | 1e-10 | 48.67 ← **MRtrix's shipped defaults** |
+| 1e-3 | 1e-10 | 53.65 |
+| 1 | 1e-10 | 64.97 |
+| 1e-3 | 1e-3 | 48.67 |
+| **1** | **1e-3** | **60.94** ← what the manuscript file uses |
+
+`neg_lambda = 1` is the principled half of that choice: it matches the strength
+`dwi2fod csd` uses for its own non-negativity constraint, which is what makes
+the two arms like-for-like. **`norm_lambda = 1e-3` is the least justified
+constant in this package** — it was chosen because it lands on the band-limited
+truth, which is uncomfortably close to fitting the answer. Interrogate it before
+publishing anything that depends on it.
+
 ### Check it before you run it
 
 `check_manuscript_static.m` answers "will this file reach the end" in seconds,
