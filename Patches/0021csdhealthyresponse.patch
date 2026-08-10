@@ -524,7 +524,7 @@ index 47d8116..7c872c1 100644
  ### Where the response files are, and what sets the FOD order
  
 diff --git a/deconv_comparison/notebooks/smi_manuscript_60deg.m b/deconv_comparison/notebooks/smi_manuscript_60deg.m
-index 8132c41..241c895 100644
+index 8132c41..7e323c9 100644
 --- a/deconv_comparison/notebooks/smi_manuscript_60deg.m
 +++ b/deconv_comparison/notebooks/smi_manuscript_60deg.m
 @@ -236,6 +236,49 @@ RUN_MRTRIX = 1;     % 0 scores the SMI arm alone, exactly as before
@@ -731,7 +731,107 @@ index 8132c41..241c895 100644
      'ceil_n',  ceil_n);
  
  end   % ik, the kernel loop
-@@ -1846,56 +1971,75 @@ if MAKE_FIGURES
+@@ -1641,13 +1766,19 @@ if MAKE_FIGURES
+     ic   = 1;                                  % the only condition: 60 degrees
+ 
+     % ================================================================
+-    % FIGURE 1 -- the ground truth, each kernel's response, and the difference
++    % FIGURE 1 -- the ground truth and each kernel's response per shell
+     % ================================================================
+     % The left column is the fODF being convolved. It is the same for both
+     % kernels: the ground truth geometry does not depend on the tissue.
+     %
+-    % To its right, one row per kernel and one glyph per shell, then a third
+-    % row holding the difference between them.
++    % To its right, one row per kernel and one glyph per shell.
++    %
++    % *There is deliberately no difference row.* An earlier version carried one,
++    % showing R_healthy - R_edema per shell. It is gone because the shared
++    % radial scale already makes that comparison directly -- the edema glyphs
++    % are visibly smaller than the healthy ones in the same units, which is the
++    % claim -- while a residual glyph restated it in a form that is harder to
++    % read and invited the misreading that the residual is itself a response.
+     %
+     % *Every glyph on this figure shares ONE radial scale*, so size carries
+     % meaning: a smaller glyph is a genuinely smaller signal. That is the whole
+@@ -1657,27 +1788,18 @@ if MAKE_FIGURES
+     %
+     % Two things follow from the shared scale and are worth expecting:
+     %
+-    % * *The b = 0 glyphs are identical unit spheres in both rows*, and their
+-    %   difference glyph collapses to a point. r_0(0) = sqrt(4*pi) for ANY
+-    %   kernel, because S(0)/S0 = 1 exactly. That identity holds here because
++    % * *The b = 0 glyphs are identical unit spheres in both rows.*
++    %   r_0(0) = sqrt(4*pi) for ANY kernel, because S(0)/S0 = 1 exactly. That identity holds here because
+     %   |B0_SNAP| set the acquired b = 5 s/mm^2 volumes to exactly 0; with
+     %   |B0_SNAP = 0| they would differ slightly instead. Either way it is
+     %   correct, not a bug.
+     % * The scale is set by that b = 0 sphere, the largest thing on the figure.
+     %
+-    % The difference row is the residual R_healthy(theta) - R_edema(theta),
+-    % which is exact rather than sampled: the responses are zonal, so the
+-    % difference is just the difference of their zonal coefficients. Radius is
+-    % |difference| and colour is the SIGNED difference, so where edema exceeds
+-    % healthy is visible as a colour change rather than being lost in a
+-    % magnitude. Each title carries the peak |difference| on the shared scale.
+-    %
+     % This is also the panel built to take CSD and MSMT-CSD: dwi2response
+     % writes zonal coefficients in exactly the form RH.zh_glyph draws, so an
+     % estimated response becomes another row here with no conversion.
+     th_prof = linspace(0, pi, 361);
+-    show_diff = (NKERN == 2);          % a residual row only makes sense for a pair
+-    nrow1     = NKERN + double(show_diff);
++    nrow1   = NKERN;
+ 
+     % one radial scale for the whole figure, over every glyph it will draw
+     r_sh = cell(NKERN, nsh);
+@@ -1690,7 +1812,7 @@ if MAKE_FIGURES
+     end
+     if rmax <= 0, rmax = 1; end
+ 
+-    figure('Name', 'Fig 1  ground truth fODF, kernel responses, and their difference');
++    figure('Name', 'Fig 1  ground truth fODF and the kernel responses per shell');
+     col1 = 1 + (0:nrow1-1)*(1+nsh);        % the truth spans the first column
+     subplot(nrow1, 1+nsh, col1);
+     % The ground truth is an fODF, not a signal, so it is NOT on the response
+@@ -1718,35 +1840,16 @@ if MAKE_FIGURES
+         end
+     end
+ 
+-    if show_diff
+-        for i = 1:nsh
+-            subplot(nrow1, 1+nsh, NKERN*(1+nsh) + 1 + i);
+-            r_d  = r_sh{1,i} - r_sh{2,i};
+-            pk_d = max(abs(RH.profile(r_d, th_prof)));
+-            [X, Y, Z, Cc] = RH.zh_glyph(r_d, GLYPH_N, GLYPH_N, 1/rmax);
+-            surf(X, Y, Z, Cc); shading interp;
+-            axis equal off vis3d; view(ISO_VIEW);
+-            set(gca, 'XLim', GLYPH_LIM, 'YLim', GLYPH_LIM, 'ZLim', GLYPH_LIM);
+-            camlight headlight; lighting gouraud;
+-            title(sprintf('%s - %s, b = %.0f\npeak |diff| %.3f', ...
+-                          KERNELS{1}.name, KERNELS{2}.name, b_shell(i), pk_d));
+-        end
+-    end
+-
+-    % The same difference as numbers, since a glyph is hard to read off a page.
++    % The same comparison as numbers, since a glyph is hard to read off a page.
+     fprintf('   Fig 1: response peak amplitude on the shared scale (max = %.3f)\n', rmax);
+     fprintf('        b   ');
+     for ikk = 1:NKERN, fprintf('%12s', KERNELS{ikk}.name); end
+-    if show_diff, fprintf('%12s', 'difference'); end
+     fprintf('\n');
+     for i = 1:nsh
+         fprintf('     %4.2f   ', b_shell(i));
+         for ikk = 1:NKERN
+             fprintf('%12.4f', max(abs(RH.profile(r_sh{ikk,i}, th_prof))));
+         end
+-        if show_diff
+-            fprintf('%12.4f', max(abs(RH.profile(r_sh{1,i} - r_sh{2,i}, th_prof))));
+-        end
+         fprintf('\n');
+     end
+     fprintf(['   Every kernel gives the same response at b = 0, since S(0)/S0 = 1, so\n' ...
+@@ -1846,56 +1949,75 @@ if MAKE_FIGURES
      end
  
      % ================================================================
