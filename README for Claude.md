@@ -114,20 +114,57 @@ same to any check you add here, or you do not know it works.
   low and failed. At b = 0 the signal is exactly 1 by construction. Both
   numbers print; the gap is the Rician floor.
 - *"More noise must not help" is now classified, not just failed.* Its premise
-  is that error is noise-dominated, which is false for a bias-limited arm:
-  healthy MSMT-CSD reads 5.96 deg at SNR 10 and **7.80 deg with no noise**,
-  because noise partly masks a response mismatch. An arm whose noise-free error
-  exceeds twice its ceiling is now reported as a NOTE; only an arm sitting near
-  its ceiling that still degrades without noise fails.
+  is that error is noise-dominated, which is false for an arm whose error is
+  dominated by systematic bias: noise can jitter a displaced primary lobe closer
+  to a true axis, so removing it makes the mean angular error worse. An arm
+  whose noise-free error exceeds twice its ceiling is reported as a NOTE; only an
+  arm sitting near its ceiling that still degrades without noise fails.
+  **The numbers that originally motivated this were the void MSMT ones** (see
+  the retraction below), so the check has not yet been exercised by a case known
+  to be real. Keep it -- the classification is right in principle and costs
+  nothing -- but do not cite it as evidence of anything.
 
-**A finding worth carrying forward.** MSMT-CSD's noise-free angular error at 60
-degrees is **7.80 deg against a 1.27 deg ceiling** with the dispersion-matched
-response, and 2.82 deg with the delta. It finds both lobes either way; the
-primary lobe is displaced, and the displacement roughly triples when the
-response is blunted. SSST-CSD sits exactly on the ceiling in both cases. That
-reproduces section 6.4's "MSMT's 60 degree error is response-limited" from a
-third direction, and it means **any MSMT number should be reported alongside
-which response it was given**.
+**RETRACTED, and it is the most important correction in this section.** An
+earlier version of this handoff reported MSMT-CSD's noise-free 60 degree error
+as **7.80 deg against a 1.27 deg ceiling** and attributed it to response
+mismatch, citing section 6.4. The user disbelieved it because it contradicts
+Jeurissen et al. 2014, and they were right.
+
+**It was a setup error.** `dwi2fod csd` and `dwi2fod msmt_csd` do not ship
+comparable defaults: the SSST constraint has strength 1, while `msmt_csd`'s
+`-neg_lambda` defaults to **1e-10**, essentially unregularised. Running both
+"at their defaults" compared a constrained arm against an unconstrained one.
+The MSMT fODF came back much blunter -- `l = 6` band power 0.31 against SSST's
+1.11 -- pulling a crossing's lobes together.
+
+| true angle | SSST-CSD | MSMT, MRtrix defaults | MSMT, `-neg_lambda 1` |
+|---|---|---|---|
+| 60 deg | 60.94 | **48.67** | **60.94** |
+| 75 deg | 73.95 | 70.99 | **73.95** |
+| 90 deg | 89.36 | **86.38** | **89.36** |
+
+MSMT under-separated at *every* angle including 90 degrees. That is the tell:
+no published MSMT-CSD comparison shows a 90 degree crossing being missed, so the
+setup was wrong rather than the method. Ruled out first, each by measurement:
+the shells (msmt on b = 3 alone fails identically), the tissue count (WM-only
+identical), the response family, the peak finder (`sh2peaks` agrees to 0.06
+deg), the SH basis (SSST is exact) and signal scaling (bit identical from
+S0 = 1 to 1e4).
+
+`MSMT_NEG_LAMBDA` and `MSMT_NORM_LAMBDA` are now explicit knobs, and Step 6b
+prints both arms' `l >= 2` band power every run so a recurrence is visible in
+the output. **Any MSMT number must be reported with both values** -- the
+sensitivity spans 48.67 to 64.97 deg at a true 60 deg crossing.
+
+**Section 6.4's low-b hypothesis is disproved.** It supposed low-b shells carry
+too little angular contrast and pull the joint fit to a single lobe. Measured:
+SSST-CSD on **b = 1 alone** recovers 60.94 deg, identical to b = 3 alone.
+
+**The lesson, since this is the second time.** Both times a result "looked
+wrong" to the user it was a mistuned regularisation default -- `lambda_nonneg`
+last time (section 2.1), `-neg_lambda` this time. When two arms are compared
+"at their defaults", check that the defaults are comparable before believing
+the difference.
 
 **The old commented hook before Step 7 is gone.** Three of its claims were
 false: the arms do not appear automatically in the figures (there was no arm
@@ -637,10 +674,14 @@ it has never touched real data.
    |---|---|---|---|---|
    | healthy | SMI | **100.0% / 0.000** | 100.0% / 0.000 | 1.72 deg |
    | healthy | SSST-CSD | 44.4% / 0.667 | 100.0% / 0.000 | **1.27 deg** (ceiling) |
-   | healthy | MSMT-CSD | 85.2% / 0.000 | 92.6% / 0.000 | 7.80 deg |
+   | healthy | ~~MSMT-CSD~~ | ~~85.2% / 0.000~~ | ~~92.6% / 0.000~~ | ~~7.80 deg~~ |
    | edema | SMI | 0.0% / 1.741 | **70.4% / 0.296** | 1.27 deg |
    | edema | SSST-CSD | 0.0% / 3.111 | 0.0% / 2.556 | 1.27 deg |
-   | edema | MSMT-CSD | 33.3% / 0.074 | 48.1% / 0.000 | 11.72 deg |
+   | edema | ~~MSMT-CSD~~ | ~~33.3% / 0.074~~ | ~~48.1% / 0.000~~ | ~~11.72 deg~~ |
+
+   **Every MSMT row above is void** -- it was measured with `-neg_lambda` at
+   MRtrix's default of 1e-10, i.e. effectively unconstrained. See section 1.
+   The SMI and SSST-CSD rows are unaffected. Re-run before quoting MSMT.
 
    Two things stand out, and the second is new. **In healthy tissue the arms
    trade places with SNR** — section 6.4's finding, now reproduced on one noise

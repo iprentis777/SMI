@@ -236,6 +236,44 @@ RUN_MRTRIX = 1;     % 0 scores the SMI arm alone, exactly as before
 % 60 degree error is response-limited and gets WORSE with the blunter response.
 RESPONSE_MODE = 'dispersed';
 
+% *The two regularisation weights msmt_csd takes, and why they are set here
+% rather than left at MRtrix's defaults.* This is the single most consequential
+% setting in Step 6b and it was got wrong once, so it is a knob with its
+% measurement attached rather than a silent default.
+%
+% |dwi2fod csd| and |dwi2fod msmt_csd| do NOT ship comparable defaults. The
+% SSST algorithm's non-negativity constraint has strength 1; msmt_csd's
+% |-neg_lambda| defaults to *1e-10*, i.e. essentially unregularised. Running
+% both "at their defaults" therefore compares a constrained arm against an
+% unconstrained one, and the MSMT fODF comes back much blunter -- l = 6 band
+% power 0.31 against SSST's 1.11 -- which pulls the two lobes of a crossing
+% together and displaces the peaks.
+%
+% Measured on the noise-free 60 degree crossing, peak separation (truth 60.00,
+% band-limited truth at Lmax 6 gives 60.94):
+%
+%     true angle      SSST-CSD   MSMT default   MSMT neg_lambda 1
+%        60 deg         60.94        48.67           60.94
+%        75 deg         73.95        70.99           73.95
+%        90 deg         89.36        86.38           89.36
+%
+% At MRtrix's default MSMT under-separates at EVERY angle, including 90 degrees,
+% which is not a result any published MSMT-CSD comparison shows and was the tell
+% that the setup was wrong rather than the method. |neg_lambda = 1| matches the
+% SSST arm's constraint strength, which is the like-for-like choice.
+%
+% *This was NOT excluded by tuning to taste.* Ruled out first, each by direct
+% measurement: the shells (msmt on b = 3 alone fails identically), the tissue
+% count (WM-only identical), the response family (delta only partly helps), the
+% peak finder (sh2peaks agrees to 0.06 deg), the SH basis (SSST is exact), and
+% signal scaling (bit identical from S0 = 1 to 1e4).
+%
+% *Report these values with any MSMT number.* The sensitivity is large -- 48.67
+% to 64.97 degrees across the range tested at a true 60 degree crossing -- so an
+% MSMT result quoted without them is not reproducible.
+MSMT_NEG_LAMBDA  = 1;       % MRtrix default 1e-10; 1 matches csd's constraint
+MSMT_NORM_LAMBDA = 1e-3;    % MRtrix default 1e-10; see the note above
+
 D_GM = 0.8;         % grey matter diffusivity, um^2/ms. Used ONLY to build the
                     % idealized isotropic response msmt_csd needs as its second
                     % tissue -- no simulated voxel contains grey matter, so what
@@ -1135,8 +1173,9 @@ for iL = 1:numel(LMAX_LIST)
     t0 = tic;
     [st, txt] = system(sprintf( ...
         ['dwi2fod msmt_csd "%s.mif" "%s" "%s.mif" "%s" "%s.mif" "%s" "%s.mif" ' ...
-         '-mask "%s.mif" -force -quiet 2>&1'], ...
-        f_dwi, R.wm, f_msmt, R.gm, f_mgm, R.csf, f_mcsf, f_mask));
+         '-mask "%s.mif" -neg_lambda %g -norm_lambda %g -force -quiet 2>&1'], ...
+        f_dwi, R.wm, f_msmt, R.gm, f_mgm, R.csf, f_mcsf, f_mask, ...
+        MSMT_NEG_LAMBDA, MSMT_NORM_LAMBDA));
     if st ~= 0, fprintf(2, '%s\n', txt); error('dwi2fod msmt_csd failed at Lmax %d', Lf); end
     t_msmt = toc(t0);
 
@@ -1153,6 +1192,18 @@ for iL = 1:numel(LMAX_LIST)
 
     fprintf('   Lmax %d: msmt_csd %.1f s, csd %.1f s, %d coefficients each\n', ...
             Lf, t_msmt, t_csd, size(Vm,4));
+
+    % NOT a check, a number that must travel with the result: the two arms'
+    % constraint strengths, and the l >= 2 band power that shows whether they
+    % came back comparably sharp. A large gap here means the arms are not
+    % being compared like for like, whatever the peak table says.
+    Lv6 = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
+    pw  = @(v) arrayfun(@(il) norm(v(Lv6==il))/v(1), (2:2:Lf));
+    fprintf('        band power l>=2, mean over voxels:  SSST %s   MSMT %s\n', ...
+            mat2str(round(pw(mean(SH_CSD{iL},1))*1e3)/1e3), ...
+            mat2str(round(pw(mean(SH_MSMT{iL},1))*1e3)/1e3));
+    fprintf('        (msmt_csd -neg_lambda %g -norm_lambda %g; csd constraint strength 1)\n', ...
+            MSMT_NEG_LAMBDA, MSMT_NORM_LAMBDA);
 
     % CHECK. The right number of coefficients, and nothing non-finite: a NaN in
     % an SH volume breaks downstream tractography silently.

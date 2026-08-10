@@ -103,21 +103,51 @@ verified against MRtrix on every run via `mrinfo`, plus a round trip through
 
 ### Findings, not failures
 
-**MSMT-CSD's noise-free angular error is far above the ceiling, and a blunter
-response makes it worse.** At 60 degrees, Lmax 6, `SNR = inf` — no noise at all:
+**RETRACTED: the large MSMT-CSD noise-free error was a setup error, not a
+property of the method.** An earlier version of this file reported MSMT-CSD at
+7.80° noise-free against a 1.27° ceiling and attributed it to response
+mismatch, citing section 6.4. That was wrong, and the user was right to
+disbelieve it — it contradicted Jeurissen et al. 2014.
 
-| response | MSMT peak errors | SSST peak errors |
-|---|---|---|
-| dispersion matched | **7.80°**, 3.54° | 1.27°, 1.72° |
-| delta | 2.82°, 3.54° | 1.27°, 1.72° |
+**The cause.** `dwi2fod csd` and `dwi2fod msmt_csd` do not ship comparable
+defaults. The SSST algorithm's non-negativity constraint has strength 1;
+`msmt_csd`'s `-neg_lambda` defaults to **1e-10**, essentially unregularised.
+Running both "at their defaults" compared a constrained arm against an
+unconstrained one. The MSMT fODF came back much blunter — `l = 6` band power
+**0.31** against SSST's **1.11** — which pulls a crossing's two lobes together
+and displaces the peaks.
 
-SSST-CSD sits exactly on the ceiling either way. MSMT finds both lobes in both
-cases — the *count* is right — but its primary lobe is displaced, and the
-displacement roughly triples when the response is blunted. Not a setup bug: it
-reproduces from a third direction the report's finding that MSMT's 60 degree
-error is **response-limited** (6.85° estimated, 2.36° with the exact response,
-section 6.4). It is also the strongest argument for reporting `RESPONSE_MODE`
-alongside any MSMT number.
+Peak separation on the noise-free crossing (true 60.00; band-limited truth at
+Lmax 6 gives 60.94):
+
+| true angle | SSST-CSD | MSMT, MRtrix defaults | MSMT, `-neg_lambda 1` |
+|---|---|---|---|
+| 60° | 60.94 | **48.67** | **60.94** |
+| 75° | 73.95 | 70.99 | **73.95** |
+| 90° | 89.36 | **86.38** | **89.36** |
+
+MSMT under-separated at **every** angle including 90°, which no published
+MSMT-CSD comparison shows — that was the tell that the setup was wrong rather
+than the method. With `-neg_lambda 1` it matches SSST-CSD exactly at 60, 75 and
+90 degrees.
+
+**Excluded first, each by measurement rather than argument:** the shells
+(`msmt_csd` on b = 3 alone fails identically), the tissue count (WM-only
+identical), the response family (delta only partly helps), the peak finder
+(`sh2peaks` agrees to 0.06°), the SH basis (SSST is exact), and signal scaling
+(bit identical from S0 = 1 to 10⁴).
+
+`MSMT_NEG_LAMBDA` and `MSMT_NORM_LAMBDA` are now explicit in the Configuration
+block, and Step 6b prints the `l >= 2` band power of both arms on every run, so
+a repeat of this failure is visible in the output rather than only in the peak
+table. **Report both values with any MSMT number** — the sensitivity spans
+48.67° to 64.97° at a true 60° crossing, so an MSMT result quoted without them
+is not reproducible.
+
+**Also disproved: section 6.4's low-b hypothesis.** The Monte Carlo report
+supposed that low-b shells carry too little angular contrast and pull the joint
+fit toward a single lobe. Measured here, SSST-CSD on **b = 1 alone** recovers
+60.94° — identical to b = 3 alone. Low-b data is not the problem.
 
 **The angular error uses the largest peak only, and a symmetric crossing is a
 near-tie.** MSMT's two lobes differ by ~7% in amplitude; which is "primary" can
@@ -126,14 +156,17 @@ lobes' errors with no real change in the reconstruction. Read it alongside the
 peak count and the spurious count. The peak finder lives in
 `helpers/fODF_peak_score.m` and records this in its header.
 
-**Noise can improve a bias-limited arm's mean angular error**, so the "more
-noise must not help" check is classified rather than simply failed. Healthy,
-Lmax 6: MSMT-CSD reads 5.96° at SNR 10 and **7.80° with no noise at all**. That
-is not a broken simulation — with the noise gone, what is left is the response
-mismatch, and noise partly masks it by jittering the primary lobe around. The
-check now reports an arm whose noise-free error is more than twice its ceiling
-as a **NOTE** (bias limited) and fails only an arm that sits near its ceiling
-and still degrades without noise, which would be a real plumbing fault.
+**Noise can improve a bias-dominated arm's mean angular error**, so the "more
+noise must not help" check is classified rather than simply failed: with the
+noise gone, what is left is whatever systematic displacement the method has, and
+noise partly masks it by jittering the primary lobe around. The check reports an
+arm whose noise-free error is more than twice its ceiling as a **NOTE**, and
+fails only an arm that sits near its ceiling and still degrades without noise.
+
+**The numbers that motivated this were the void MSMT ones** (see the retraction
+above), so the classification has not yet been exercised by a case known to be
+real. It is kept because it is right in principle and costs nothing, not because
+it has been demonstrated.
 
 **Sigma is recovered at b = 0, not over all volumes.** Rician noise is a
 magnitude, so `std(S_noisy − S_clean)` equals sigma only where the signal is
