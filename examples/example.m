@@ -17,8 +17,15 @@ repo_root = fileparts(fileparts(mfilename('fullpath')));
 addpath(repo_root);
 addpath(fullfile(repo_root, 'helpers'));
 
-% Path were the test dataset is located
-pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_1';
+% Download the example data linked from examples/README.md, then set
+% SMI_EXAMPLE_DATA to the directory containing dataset_1, dataset_2, and
+% dataset_3. Each section repeats this setup so it can run independently.
+data_root = getenv('SMI_EXAMPLE_DATA');
+if isempty(data_root)
+    error(['Set SMI_EXAMPLE_DATA to the downloaded SMI_3datasets directory. ' ...
+           'See examples/README.md.']);
+end
+pathFiles = fullfile(data_root, 'dataset_1');
 
 % Load data and protocol
 nii = load_untouch_nii(fullfile(pathFiles,'dwi.nii'));
@@ -69,8 +76,15 @@ figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel(:,:,:,[1 2 3 4 
 %% EXAMPLE 2
 clc,clear,close all
 
-% Path were the test dataset is located
-pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_2';
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+data_root = getenv('SMI_EXAMPLE_DATA');
+if isempty(data_root)
+    error(['Set SMI_EXAMPLE_DATA to the downloaded SMI_3datasets directory. ' ...
+           'See examples/README.md.']);
+end
+pathFiles = fullfile(data_root, 'dataset_2');
 
 % Load data and protocol
 nii = load_untouch_nii(fullfile(pathFiles,'dwi.nii'));
@@ -123,8 +137,15 @@ figure('Position',[506 225 1347 905]), SMI.plotSlices(out.kernel.*WM_mask, slice
 %% EXAMPLE 3
 clc,clear,close all
 
-% Path were the test dataset is located
-pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_3';
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+data_root = getenv('SMI_EXAMPLE_DATA');
+if isempty(data_root)
+    error(['Set SMI_EXAMPLE_DATA to the downloaded SMI_3datasets directory. ' ...
+           'See examples/README.md.']);
+end
+pathFiles = fullfile(data_root, 'dataset_3');
 
 % Load data and protocol
 nii = load_untouch_nii(fullfile(pathFiles,'dwi.nii'));
@@ -178,8 +199,15 @@ figure('Position',[269 281 1785 821]), SMI.plotSlices(out.kernel.*WM_mask, slice
 % This adds a maximum likelihood fit on Slm(b), initialized with machine learning fits of kernel and fODF
 clc,clear,close all
 
-% Path were the test dataset is located
-pathFiles='/Users/coelhs01/Documents/SantiagoCoelho/Git/SMI_3datasets/dataset_2';
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(repo_root);
+addpath(fullfile(repo_root, 'helpers'));
+data_root = getenv('SMI_EXAMPLE_DATA');
+if isempty(data_root)
+    error(['Set SMI_EXAMPLE_DATA to the downloaded SMI_3datasets directory. ' ...
+           'See examples/README.md.']);
+end
+pathFiles = fullfile(data_root, 'dataset_2');
 
 % Load data and protocol
 nii = load_untouch_nii(fullfile(pathFiles,'dwi.nii'));

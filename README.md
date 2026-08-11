@@ -7,17 +7,36 @@ For a python implementation of SMI check our [TMI package here](https://nyu-diff
 
 | path | contents |
 |---|---|
-| `SMI.m` | the toolbox implementation |
-| `examples/` | data-driven and synthetic MATLAB examples |
-| `helpers/` | shared MATLAB helpers used by examples, tests, and simulations |
-| `tests/` | self-contained MATLAB/Octave test scripts and run instructions |
-| `Reports/` | measurement reports and generated result tables |
-| `Figures/` | generated figures used by the reports |
-| `deconv_comparison/` | the reproducible SMI/CSD/MRtrix Monte Carlo package |
-| `Patches/` | historical `git am --3way` patches for the measured changes |
-| [`Archive/`](Archive/) | learning exercises and semi-retired exploratory work |
+| [`SMI.m`](SMI.m) | the toolbox implementation |
+| [`examples/`](examples/) | data-driven and synthetic MATLAB examples |
+| [`helpers/`](helpers/) | shared MATLAB helpers used by examples, tests, and simulations |
+| [`tests/`](tests/) | self-contained MATLAB/Octave tests and a single test runner |
+| [`Reports/`](Reports/) | indexed measurement reports and generated result tables |
+| [`Figures/`](Figures/) | generated figures used by the reports |
+| [`deconv_comparison/`](deconv_comparison/) | the active manuscript simulation comparing SMI, SSST-CSD, and MSMT-CSD |
+| [`Archive/`](Archive/) | semi-retired exercises and superseded workflows kept for provenance |
+| [`Patches/`](Patches/) | historical `git am --3way` patches for the measured changes |
+| [`docs/internal/`](docs/internal/) | detailed handoff material for coding agents |
 
 The examples and tests add the repository root and `helpers/` directory to the MATLAB/Octave path from their own locations, so they can be launched from any working directory.
+
+### Current repository additions
+
+The original SMI toolbox documentation is preserved below. This fork also
+contains opt-in deconvolution extensions and manuscript-oriented simulations:
+
+| status | where to start | purpose |
+|---|---|---|
+| Core toolbox | [`SMI.m`](SMI.m) and [`examples/example.m`](examples/example.m) | Standard Model parameter estimation |
+| Active research workflow | [`deconv_comparison/README.md`](deconv_comparison/README.md) | one-script SMI/SSST-CSD/MSMT-CSD manuscript simulation |
+| Supporting measurements | [`Reports/README.md`](Reports/README.md) | report status, provenance, and limitations |
+| Archived or semi-retired | [`Archive/README.md`](Archive/README.md) | learning exercises and superseded workflows |
+
+All comparison results in this repository are simulation-only; none have been
+validated on a patient scan. To run the self-contained checks, use
+`addpath('tests'); run_all_tests` in MATLAB or Octave. Detailed implementation
+history for coding agents lives in
+[`docs/internal/AGENT_HANDOFF.md`](docs/internal/AGENT_HANDOFF.md).
 
 <br>
 
@@ -221,13 +240,13 @@ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directio
 On this score the non-negativity weight wants to be considerably larger than 1: the error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum of *this* metric. `tau` = 0.1 and `Lmax_init` = 4, the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
 
 ##### The default is 1, and the two sweeps disagree about that
-**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the Monte Carlo in `deconv_comparison/` (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of `Reports/REPORT_SMI_deconvolution_MonteCarlo.md`) finds that
+**`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the historical Monte Carlo campaign now preserved in [`Archive/deconv_pipeline/`](Archive/deconv_pipeline/) (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of [`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`](Reports/REPORT_SMI_deconvolution_MonteCarlo.md)) finds that
 
 - at `lambda_nonneg = 10` a 45 degree crossing is resolved in **0.0%** of realisations at every SNR, including noise free; at 3, in 0.2%; at 1, in 55%;
 - `lambda_nonneg = 1` has the **best angular correlation against the ground truth at every crossing angle** — 0.980 / 0.986 / 0.966 / 0.972 for a single fibre, 15, 45 and 60 degrees, against 0.930 / 0.947 / 0.887 / 0.903 at 10;
 - **spurious peaks are already fully suppressed at 1**: every constrained setting sits at exactly 0.000 spurious peaks per voxel, while turning the constraint off puts 0.026 per voxel into a 45 degree crossing.
 
-The two scores are not measuring the same thing. The sweep above minimizes the relative L2 error of the fODF over the sphere, which is dominated by the isotropic part and by negative mass, and is therefore happy to trade angular resolution for smoothness. The Monte Carlo scores peak orientation, fibre count and the angular correlation of the `l >= 2` part, which is what a tractography algorithm consumes. **Since nothing above 1 buys any further spurious-peak suppression and everything above 1 costs angular resolution, 1 is the default.** Raise it towards 10 if smoothness of the whole fODF matters more to you than resolving crossings.
+The two scores are not measuring the same thing. The sweep above minimizes the relative L2 error of the fODF over the sphere, which is dominated by the isotropic part and by negative mass, and is therefore happy to trade angular resolution for smoothness. The archived Monte Carlo campaign in [`Archive/deconv_pipeline/`](Archive/deconv_pipeline/) scores peak orientation, fibre count and the angular correlation of the `l >= 2` part, which is what a tractography algorithm consumes. **Since nothing above 1 buys any further spurious-peak suppression and everything above 1 costs angular resolution, 1 is the default.** Raise it towards 10 if smoothness of the whole fODF matters more to you than resolving crossings.
 
 Changing this default does not affect anyone who has not opted in: `flag_nonneg` and `lambda_tikhonov` still default to 0, so a fit that does not set `options.fODF_regularization` is bit-identical to before (verified, difference exactly 0).
 
@@ -338,8 +357,16 @@ kernel to a CSD/MRtrix zonal response, but readers do not need it to run SMI.
 See the [archive index](Archive/README.md) for its derivation, purpose, and
 artifacts.
 
-### How the deconvolution compares to CSD and MSMT-CSD
-`deconv_comparison/` is a Monte Carlo comparison of the constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD are run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF goes through the same `sh2peaks`, so peak extraction is identical for every arm. Full methodology and result tables are in `Reports/REPORT_SMI_deconvolution_MonteCarlo.md` and `Reports/deconv_tables.md`. **It is all simulation**, including the "real data" the responses are estimated from.
+### Historical comparison to CSD and MSMT-CSD
+The 10,000-realisation campaign described below is preserved in
+[`Archive/deconv_pipeline/`](Archive/deconv_pipeline/). It remains the provenance
+for [`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`](Reports/REPORT_SMI_deconvolution_MonteCarlo.md)
+and [`Reports/deconv_tables.md`](Reports/deconv_tables.md), but it is no longer
+the active comparison. New work should use the centralized manuscript workflow
+documented in [`deconv_comparison/README.md`](deconv_comparison/README.md), where
+SMI, SSST-CSD, and MSMT-CSD see the same simulated data in one script.
+
+The archived campaign compared constrained SMI deconvolution against MSMT-CSD and single-shell CSD on crossing fibres, in the design of Jeurissen et al. (2014): 10,000 Rician noise realisations per condition, crossings at 15, 45 and 60 degrees, SNR from 5 to noise free. **CSD and MSMT-CSD were run by MRtrix3 3.0.4 itself** (`dwi2response`, `dwi2fod`, `sh2peaks`), and the SMI fODF went through the same `sh2peaks`, so peak extraction was identical for every arm. **It is all simulation**, including the "real data" the responses were estimated from.
 
 The short version: no method dominates. Single-shell CSD is the sharpest and the most fragile — at SNR 50 it resolves 45 degree crossings 96.9% of the time, and by SNR 5 it returns the right number of fibres in 15.6% of *single fibre* voxels with 1.6 spurious peaks in each. MSMT-CSD is the most stable and the most biased: essentially no spurious peaks at any SNR, and a 45 degree crossing it does not resolve in any of 10,000 realisations — which survives both an exact response and Lmax 8. Constrained SMI sits between them: 81.1% of 45 degree crossings at SNR 50, the best 60 degree accuracy of the three from SNR 50 down to SNR 10, and at SNR 10 the correct fibre count in 99.8% of 60 degree crossings where single-shell CSD manages 49.6%.
 
