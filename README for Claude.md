@@ -293,6 +293,29 @@ Both were made against dipy and both were wrong. MRtrix settled them.
 `deconv_comparison/check_mrtrix_basis.sh` re-measures it in about a minute
 against the real binaries; run that rather than trusting either claim.
 
+**Two more, from the Figure 7 glyph-size question, both corrected by
+measurement after the user rejected them.** Recorded because the shape of the
+mistake is more instructive than either answer.
+
+3. **"Every unpinned glyph panel autoscales, so apparent size carries no
+   information."** Wrong, and wrong in a way that a local run cannot catch.
+   That is *Octave's* behaviour: its `axis equal` expands the limits to a cube,
+   so `PlotBoxAspectRatio = [1 1 1]` and the XLim/YLim/ZLim ranges come back
+   equal on every panel — measured, all five test glyphs. **MATLAB's `axis
+   equal` equalises the data *units* and lets the plot box follow the limit
+   ranges**, so an elongated fODF gets an elongated box and is fitted into the
+   subplot rectangle differently. The user renders in MATLAB. A figure claim
+   verified only under Octave is not verified.
+4. **"The size variation is a real 1.3x rise in peak radius with SNR."** Also
+   wrong — the right statistic, and the reason, are in section 6.6. The user
+   rejected it on inspection (*"This figure does not at all indicate going from
+   0.83 to 0.81 in radius... This looks to me like an increase of nearly double
+   or more"*) and was right. Two errors compounded: quoting a **trend across
+   SNR** at a figure that draws **one arbitrary realisation per SNR**, and
+   computing that trend from a **retyped, wrong edema kernel** rather than the
+   one the manuscript file defines. With the real kernel MSMT-CSD's amplitude
+   moves 7.15x, not 1.8x — the approximation had hidden the effect entirely.
+
 ### 2.3 Still standing from the previous handoff
 
 1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do much
@@ -678,6 +701,64 @@ does not, and deconvolution **divides by `K_l`** — the same `g_2 = 1/||K_2||`
 mechanism as the CSF blow-ups in section 6.3. Say "less anisotropic signal,
 amplified in inverse proportion", never "noisier".
 
+### 6.6 fODF glyph amplitude: one arm is noise-driven, the other is not
+
+Measured to answer a user question about Figure 7 of `smi_manuscript_60deg.m`,
+whose glyphs come out roughly twice the size at SNR 100 and inf as at SNR 20-50,
+non-monotonically. The question was whether that is an SNR effect. **The answer
+differs by arm, and one half of it is a substantive finding about MSMT-CSD.**
+
+`deconv_comparison/measure_glyph_spread.m`, ~4 minutes. Real MRtrix arms, the
+manuscript's **edema** kernel `[0.10 2.4 2.7 1.15 0.35]`, healthy response,
+60 degree crossing, Lmax 6, `-neg_lambda 1`. 32 independent noise realisations
+per SNR, packed into one image so it is one `dwi2fod` call per SNR. The quantity
+is the **maximum clamped glyph radius after the `p_00 = 1` normalisation
+Figure 7 applies** — literally how big the renderer draws the glyph.
+
+| SSST-CSD | SNR 5 | 10 | 20 | 30 | 50 | 100 | inf |
+|---|---|---|---|---|---|---|---|
+| min | 0.392 | 0.425 | 0.403 | 0.423 | 0.489 | 0.591 | 0.863 |
+| median | 0.594 | 0.569 | 0.608 | 0.644 | 0.759 | 0.858 | 0.863 |
+| max | 0.802 | 0.819 | 0.920 | 0.983 | 0.960 | 0.943 | 0.863 |
+| max/min | 2.05 | 1.93 | 2.28 | **2.32** | 1.96 | 1.59 | 1.00 |
+
+| MSMT-CSD | SNR 5 | 10 | 20 | 30 | 50 | 100 | inf |
+|---|---|---|---|---|---|---|---|
+| min | 0.199 | 0.224 | 0.305 | 0.498 | 0.733 | 1.352 | 2.043 |
+| median | 0.286 | 0.297 | 0.428 | 0.635 | **1.113** | **1.697** | **2.043** |
+| max | 0.376 | 0.481 | 0.604 | 0.872 | 1.420 | 2.054 | 2.043 |
+| max/min | 1.89 | 2.15 | 1.98 | 1.75 | 1.94 | 1.52 | 1.00 |
+
+**SSST-CSD: the size is the noise draw.** Median radius moves **1.52x** across
+the whole sweep; the spread *within* a single SNR reaches **2.32x**, larger than
+the trend. Figure 7 draws one arbitrary realisation per SNR
+(`find(snr_id == is & cond_id == ic, 1)`), and in this dataset that drawn
+realisation's radius swings 1.57x non-monotonically. Which SSST panel looks big
+is mostly which draw landed first in the array.
+
+**MSMT-CSD: the size is real, and it is large.** Median radius moves **7.15x**,
+monotonically, from 0.286 at SNR 5 to 2.043 noise free — three to four times the
+within-SNR spread. In edema, MSMT-CSD's white-matter fODF amplitude is strongly
+SNR-dependent: at low SNR the three-tissue decomposition assigns the signal to
+the isotropic compartments and the WM fODF is suppressed, and it recovers as SNR
+rises. **This has not been followed up and should be.** It bears directly on
+using AFD or any amplitude-derived measure from MSMT-CSD in edematous tissue,
+and it is the kind of claim section 6.5's "less anisotropic signal, amplified in
+inverse proportion" argument predicts qualitatively but has never quantified.
+
+**Caveat on these numbers, and a warning about how they were nearly got wrong
+three times.** An earlier scratch version of this measurement used an
+approximate edema kernel (`f = 0.35`, `Da = Depar = 2.0`) rather than the
+manuscript's, and reported MSMT-CSD moving 1.76x — it hid the entire effect.
+The two attempts before that were wrong in different ways (section 2.2). The
+lesson worth carrying: **read the simulated kernel out of the manuscript file,
+do not retype it**, and when a figure question turns into a measurement, measure
+the quantity the figure actually draws, over the ensemble it samples from.
+
+The within-SNR spread column is a real, showable effect in its own right —
+amplitude stability tightens with SNR for both arms — and unlike a single-draw
+glyph it is honest about what it is showing.
+
 ---
 
 ## 7. Dead ends, with evidence
@@ -719,6 +800,51 @@ it has never touched real data.
 ---
 
 ## 8. Next steps, roughly in order of value per hour
+
+0. **Redesign Figure 7 so it can honestly show the effect of SNR on fODF
+   appearance.** The user's standing request, and currently unmet. Their words:
+
+   > *"The way this is shown does not appear to be something that can be shown
+   > as a successful simulation run. It does not make sense to show glyphs that
+   > inflate in amplitude over larger SNRs, even if you claim it is luck. I
+   > still want to show the effect of increasing SNR on fODF appearance, but
+   > clearly these are a bad example."*
+
+   Read section 6.6 first — it is the measurement that constrains the design.
+   The constraint is per arm. For **SSST-CSD**, one arbitrary realisation per
+   panel cannot show an SNR effect: the within-SNR spread (up to 2.32x) is
+   larger than the across-SNR trend (1.52x), so the figure invites a reviewer to
+   read noise as signal. For **MSMT-CSD** there is a genuine 7.15x monotonic
+   amplitude trend to show — but it is invisible in the figure as built, because
+   every panel is autoscaled independently. The figure currently manages to hide
+   the one real effect and display the one artefact.
+
+   **Do not re-propose what was tried and reverted.** After the user asked
+   about these figures, this session added a `GLYPH_SCALE` knob
+   (`'panel'`/`'row'`/`'none'`), pinned the axis limits on Figures 4, 5 and 7,
+   made every pinned panel state `DataAspectRatio`/`PlotBoxAspectRatio`
+   explicitly, and added a static check for it. **All of it was reverted at the
+   user's instruction** and is not on any branch — it is in this session's
+   history only. It was the wrong altitude: it made the *rendering*
+   deterministic without fixing the fact that **the thing being rendered is one
+   noise draw**. Pinning a panel that shows an arbitrary realisation just makes
+   an unreliable figure tidy. Fix what is plotted before touching how it is
+   plotted.
+
+   Directions worth considering, none of them yet discussed with the user:
+   - plot a **representative** realisation chosen by a stated rule (median
+     radius, or median angular error) rather than the first in the array, and
+     say so in the caption;
+   - plot the **realisation-averaged fODF** per SNR, which is what "appearance
+     at this SNR" actually means, with the spread shown separately;
+   - show a small **ensemble** per SNR — 3-5 draws in a column — which makes the
+     tightening in section 6.6 the visible effect rather than an artefact to
+     apologise for;
+   - keep single draws but pair the figure with the quantitative amplitude
+     spread, so size in the glyph is never load-bearing.
+
+   Ask before building. Figure work on this project is explicitly
+   direction-first (section 10).
 
 1. **Run `smi_manuscript_60deg.m` at full size.** Everything about it is built
    and checked, and it now runs all three arms, but **nothing has been run at
@@ -852,6 +978,12 @@ it has never touched real data.
 - **Nothing goes in the repo until it is proven.** Stated explicitly.
 - Asks where changes were made — point at file and line numbers.
 - Wants patch files and README updates alongside every change.
+- **Figure changes are direction-first.** Stated explicitly: *"tweaking the
+  figures (wait for my directions)"*. Bring a measurement and a proposal, not a
+  committed change. This session ignored that once — shipped a `GLYPH_SCALE`
+  redesign on its own initiative in response to a *question* about a figure —
+  and the whole thing was reverted. The user also judges figures by looking at
+  them: a rendered screenshot beat two rounds of my arithmetic.
 - Figures matter; a manuscript is the eventual target. The manuscript-grade
   simulation is still blocked on ground-truth *density*: every voxel is a single
   kernel, so density-weighted scoring is meaningless until there is a second

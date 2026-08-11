@@ -76,6 +76,7 @@ Three properties of the real scheme, all checked rather than assumed:
 | `stubs/` | Octave shims for `round(x,n)`, `discretize`, `datetime` |
 | `check_manuscript_static.m` | static checks on the manuscript file: it parses, the scoring arrays are subscripted correctly, every `RUN{}` field read is written |
 | `test_csd_arms.m` | the CSD arms alone in ~2 s, no `SMI.fit`. The regression test for the `-neg_lambda` bug |
+| `measure_glyph_spread.m` | how much the drawn fODF glyph radius varies between noise realisations vs across SNR, ~4 min. Behind "README for Claude" section 6.6 |
 
 The fODF machinery lives in `../helpers/`: `fODF_modulation_helpers.m` (forward
 model, Watson, projection), `SMI_response_helpers.m` (kernel → zonal response,
