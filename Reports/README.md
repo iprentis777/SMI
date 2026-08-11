@@ -6,6 +6,7 @@ archived measurements and semi-retired experiments.
 
 | file | status | provenance and scope |
 |---|---|---|
+| [`REPORT_WM_simulation_rework.md`](REPORT_WM_simulation_rework.md) | current methods reference | why the deconvolution simulation was rebuilt as `deconv_comparison/notebooks/smi_wm_60deg.m`: the peak finder, the fibre orientation, the shared response, the noise model, and the two-arm split that measures what estimating the kernel costs |
 | [`REPORT_CSD_response_derivation.md`](REPORT_CSD_response_derivation.md) | current methods reference | derives the SMI-kernel-to-MRtrix response convention used by the active manuscript simulation |
 | [`REPORT_fODF_regularization_sweep.md`](REPORT_fODF_regularization_sweep.md) | supporting measurement | synthetic parameter sweep; its preference for `lambda_nonneg = 10` is superseded by the peak-based evidence supporting the shipped default of 1 |
 | [`REPORT_fODF_outlier_cap.md`](REPORT_fODF_outlier_cap.md) | current opt-in feature | synthetic validation of the post hoc cap; a non-zero cap count on real data remains a finding to investigate |

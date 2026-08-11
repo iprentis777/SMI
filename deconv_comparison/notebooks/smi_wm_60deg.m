@@ -1,0 +1,1148 @@
+%% Healthy white matter, 60 degree crossing: SMI against SSST-CSD and MSMT-CSD
+% The manuscript simulation, rebuilt around one question: *given the same
+% response function and the same data, how do the deconvolution algorithms
+% compare?* Everything that used to make that question unanswerable has been
+% removed rather than argued about.
+%
+% This file replaces |smi_manuscript_60deg.m|. What changed, and why each change
+% was made, is recorded in section 0 below -- every one of them came from a
+% measurement, not from a preference.
+%
+% *Two arms of the SMI side, run back to back.*
+%
+%  ARM 1  SMI.get_plm_from_S_and_kernel with a FIXED kernel, the same one the
+%         CSD arms are given as a response. This is the fair deconvolution
+%         comparison: same data, same kernel, same peak finder, and -- because
+%         this entry point contains no Rician bias correction -- the same noise
+%         model as MRtrix.
+%  ARM 2  SMI.fit, estimating the kernel per voxel, which is what SMI actually
+%         does on real data.
+%
+% *The difference between Arm 1 and Arm 2 is the cost of estimating the kernel*,
+% measured against a fair baseline rather than asserted. That is the number this
+% file exists to produce.
+%
+%  Step 1  the acquisition protocol        -> a real HCP 3-shell scheme
+%  Step 2  ground truth, many orientations -> 60 deg crossings, Watson kappa
+%  Step 3  the kernel as a response        -> ONE response, given to every arm
+%  Step 4  forward convolution             -> noise-free signal
+%  Step 5  Rician noise, one block per SNR -> the measured data
+%  Step 6a ARM 1, fixed-kernel deconvolution
+%  Step 6b ARM 2, SMI.fit
+%  Step 6c the CSD arms, dwi2fod csd and msmt_csd
+%  Step 7  peaks via sh2peaks, scoring     -> where does it stop working?
+%  Step 8  export every arm for MRtrix
+%  Figures 1-4
+%
+% *This file is meant to be read while it runs.* Plain |.m|, so it runs in
+% MATLAB and GNU Octave and converts to a Live Script unedited. Every step ends
+% in one or more *CHECK* lines comparing its output against something computed a
+% different way. Reading only the CHECK lines is a complete audit.
+
+%% Step 0 -- what changed from smi_manuscript_60deg.m, and the measurement behind it
+% Read this before changing anything back.
+%
+% # *Peaks come from |sh2peaks|, not from a fixed direction grid.* The old file
+%   scored peaks on 1500 directions with no refinement. Measured on the
+%   noise-free band-limited truth at Lmax 6, that scorer reports the ceiling as
+%   anything from *0.488 to 2.847 deg* depending on where the crossing sits
+%   relative to the grid, while |sh2peaks| reports *1.300 deg at every
+%   orientation* (spread 0.010 deg over 18). The grid was adding +/-1.5 deg of
+%   orientation-dependent noise to every angular number, and it inverted at
+%   least one arm ranking. CHECK 2 in Step 7 re-measures this every run.
+% # *The crossing is simulated at many ORIENTATIONS, not one.* The old file
+%   fixed one axis pair. Even with a refined peak finder the error varies
+%   substantially with orientation, so a single one is not representative:
+%   measured at SNR 10, the old file's orientation was simultaneously near-best
+%   for SMI and exactly worst for SSST-CSD, nearly doubling the apparent gap
+%   between them.
+% # *|lambda_tikhonov| is 0.* It is SMI's own shipped default, and 0.3 was
+%   measured inert (0.3 vs 0 moved a 45 deg error from 21.28 to 21.27 deg). An
+%   unmotivated deviation from a default is a question a reviewer will ask for
+%   no measured benefit. Note that this makes SMI *less* regularized than CSD,
+%   not equally: |dwi2fod csd| ships |-norm_lambda 1|, which is a penalty on the
+%   norm of the solution, i.e. Tikhonov with Gamma = I.
+% # *Every arm is handed the SAME response, built from the SAME kernel.* The old
+%   file gave the CSD arms a dispersion-matched response while SMI deconvolved
+%   with the delta kernel, so the two were recovering DIFFERENT objects -- SMI
+%   the Watson mixture, CSD a pair of deltas -- and the shared "ceiling" was
+%   wrong for the CSD arms at Lmax 8 (1.27 deg printed against their true 2.82).
+%   Here both get the delta response, so both target the same fODF and one
+%   ceiling is valid for all of them.
+% # *Edema is gone.* This file is healthy white matter only. The edema
+%   comparison raised a response-mismatch question that could not be settled at
+%   the same time as the deconvolution question; it is archived, not deleted.
+% # *MSMT-CSD runs at MRtrix's defaults AND at the tuned values*, because the
+%   difference is large, order-dependent, and interesting rather than a bug to
+%   hide. See section 0.1.
+%
+%% Step 0.1 -- the MSMT regularisation, which is a finding rather than a setting
+% |dwi2fod csd| and |dwi2fod msmt_csd| do not ship comparable defaults:
+%
+%   dwi2fod csd        -neg_lambda 1      -norm_lambda 1
+%   dwi2fod msmt_csd   -neg_lambda 1e-10  -norm_lambda 1e-10
+%
+% An earlier version of this work concluded MSMT at its defaults was
+% misconfigured, because it under-separated a 60 degree crossing. Re-measured
+% here with |sh2peaks|, 18 orientations and a shared response, that conclusion
+% is *order dependent*:
+%
+%   Lmax 4   defaults FAIL outright -- 0.0% of crossings resolved at every
+%            SNR >= 10, the two lobes merge into one
+%   Lmax 6   defaults are the most NOISE ROBUST arm -- 83.9% correct at SNR 5
+%            against SMI's 44.1% -- at the cost of high-SNR bias (2.35 deg
+%            noise free against a 1.30 deg ceiling)
+%   Lmax 8   same trade: 73.3% at SNR 5 against SMI's 11.8%, 1.35 deg noise free
+%
+% A less constrained fODF is smoother, so it throws fewer spurious peaks at low
+% SNR and carries more angular bias at high SNR. That is a bias/variance trade,
+% not a broken setting. *Report MSMT numbers with both lambda values and with
+% the Lmax*, because none of the three generalises to the others.
+
+%% Configuration -- every knob in this simulation is here
+clear; close all;
+here = fileparts(mfilename('fullpath'));
+if isempty(here), here = pwd; end
+pkgdir = fileparts(here);
+if exist('OCTAVE_VERSION', 'builtin')
+    warning('off', 'all');
+end
+run(fullfile(pkgdir, 'oct_path.m'));
+
+MC = mc_config();
+H  = fODF_modulation_helpers();
+RH = SMI_response_helpers();
+MR = mrtrix_io();
+VERDICT = {'** FAILED **', 'ok'};
+
+% ------------------------------------------------------------- the tissue
+% Healthy white matter only. SMI's compartment vector is [f Da Depar Deperp fw]:
+% intra-axonal fraction, intra-axonal diffusivity, extra-axonal parallel and
+% perpendicular diffusivities (um^2/ms), and free water fraction.
+K_WM  = [0.60 2.0 2.0 0.50 0.02];
+D_FW  = 3;          % free water diffusivity, um^2/ms
+D_GM  = 0.8;        % grey matter diffusivity, used ONLY to build the isotropic
+                    % response msmt_csd needs as a second tissue. No simulated
+                    % voxel contains grey matter, so whatever MSMT assigns there
+                    % is a measurement of its own leakage.
+KAPPA = 16;         % Watson concentration of each fibre population, ~14 deg of
+                    % dispersion. Finite, not a delta.
+
+% ----------------------------------------------------------- the geometry
+CROSS_DEG = 60;     % the only crossing angle. At kappa = 16 a 30 degree
+                    % crossing never separates and 45 separates only from Lmax 6
+                    % up, so 60 is the configuration where a difference between
+                    % methods is attributable to the method.
+AXIS1     = [0.30 -0.50 0.81]; AXIS1 = AXIS1/norm(AXIS1);
+SEED_ORI  = 101;    % seed for the random orientations
+
+% ---------------------------------------------------------- the experiment
+SMOKE_TEST = true;  % true: minutes, indicative numbers only, every CHECK runs
+if SMOKE_TEST
+    NORIENT   = 6;  NREP = 8;
+    SNR_LIST  = [10 30 Inf];
+    LMAX_LIST = 6;
+else
+    NORIENT   = 18; NREP = 50;
+    SNR_LIST  = [5 10 20 30 50 Inf];
+    LMAX_LIST = [4 6 8];
+end
+LMAX_GT  = 8;       % ground truth angular order. A CEILING, not a choice: SMI's
+                    % kernel invariants K_l are undefined above l = 8.
+CS_PHASE = 0;       % 0 == MRtrix's SH basis exactly. At SMI's default of 1 the
+                    % two differ by (-1)^m, a 180 deg rotation about z.
+PROTOCOL = 'hcp_real_3shell.txt';
+B0_SNAP  = 0.05;    % ms/um^2. Shells below this become exactly b = 0, which
+                    % makes S(0)/S0 = 1 hold exactly. The acquired .bval records
+                    % EFFECTIVE b, so its "b = 0" is really b = 5 s/mm^2.
+NDIR_Q   = 3000;    % quadrature directions for projecting a sampled fODF
+SEED     = 31415;   % noise seed, offset per SNR block
+
+RUN_ARM1 = 1;       % fixed-kernel SMI deconvolution
+RUN_ARM2 = 1;       % SMI.fit, estimating the kernel per voxel. THIS IS THE
+                    % EXPENSIVE ONE: one SMI.fit call per Lmax per SNR.
+RUN_MRTRIX = 1;     % the CSD arms
+
+% ----------------------------------------------- the constrained deconvolution
+% flag_nonneg = 1 is the arm being studied; it is OFF in the shipped defaults.
+% lambda_tikhonov = 0 is SMI's own default -- see Step 0, item 3.
+REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0);
+
+% ------------------------------------------------------------- the CSD arms
+% MSMT is run twice, at MRtrix's defaults and at values matched to the SSST
+% arm's constraint strength. See Step 0.1: the difference is order dependent.
+MSMT_VARIANTS = { struct('name','MSMT def',   'neg',1e-10, 'norm',1e-10), ...
+                  struct('name','MSMT tuned', 'neg',1,     'norm',1e-3) };
+
+% ------------------------------------------------------------ the scoring
+PEAK_REL  = 0.30;   % keep peaks at >= this fraction of the largest ANISOTROPIC
+                    % amplitude. Applied identically to every arm.
+PEAK_NUM  = 3;      % peaks sh2peaks is asked for. 3 so a spurious third is
+                    % visible; the truth has 2.
+
+% ------------------------------------------------------------- the figures
+MAKE_FIGURES = true;
+ISO_VIEW  = [1 1 1];
+GLYPH_N   = 121;
+GLYPH_NEG = 'clamp';   % 'clamp' draws radius = max(amplitude,0). A band-limited
+                       % fODF rings below zero and 'abs' would draw those rings
+                       % as lobes that are not fibres.
+GLYPH_LIM = [-1.02 1.02];
+LMAX_FIG  = 6;         % the order the glyph figure compares the arms at
+GLYPH_PICK = 'median'; % WHICH realisation the glyph panels draw:
+                       %   'median'  the realisation whose angular error is the
+                       %             median of its block -- a stated rule
+                       %   'first'   the first in the array, which is what the
+                       %             old file did
+                       % 'first' draws an arbitrary noise draw, and the spread
+                       % between draws at one SNR can exceed the trend across
+                       % SNR, which invites reading noise as signal. 'median' is
+                       % the default for that reason; say so in any caption.
+
+fprintf('\n=== healthy WM, %g deg crossing: SMI vs SSST-CSD vs MSMT-CSD ===\n', CROSS_DEG);
+if SMOKE_TEST
+    fprintf('*** SMOKE_TEST = true: reduced sweep, INDICATIVE NUMBERS ONLY ***\n');
+end
+fprintf('kernel [f Da Depar Deperp fw] = %s, extra-axonal = %.2f\n', ...
+        mat2str(K_WM), 1-K_WM(1)-K_WM(5));
+fprintf('kappa %g, %d orientations x %d reps x %d SNR, Lmax %s\n', ...
+        KAPPA, NORIENT, NREP, numel(SNR_LIST), mat2str(LMAX_LIST));
+fprintf('tikhonov %g, CS_phase %d, truth at Lmax %d\n\n', ...
+        REG.lambda_tikhonov, CS_PHASE, LMAX_GT);
+
+NSNR       = numel(SNR_LIST);
+SIGMA_LIST = 1./SNR_LIST;
+SNR_LABEL  = cell(1, NSNR);
+for is = 1:NSNR
+    if isinf(SNR_LIST(is)), SNR_LABEL{is} = 'inf';
+    else, SNR_LABEL{is} = sprintf('%g', SNR_LIST(is)); end
+end
+[~, SNR_ORD] = sort(SNR_LIST);
+
+%% Step 1 -- the acquisition protocol
+% A real HCP 3-shell scheme, 288 volumes: 18 at b ~ 0 plus 90 each at nominal
+% b = 1, 2, 3 ms/um^2. Read through the shared loader so there is one definition
+% of what was acquired, and so its normalisation warning cannot be bypassed.
+%
+% Two properties of real acquisitions are kept rather than tidied away, because
+% both are things code that only saw synthetic protocols would get wrong: the
+% b = 0 volumes are acquired at b = 5 s/mm^2, and the b values jitter within each
+% shell (18 distinct values across the scheme).
+
+[bvals, bvecs] = MC.load_protocol_file(PROTOCOL);
+Ndwi = numel(bvals);
+n_snap = sum(bvals > 0 & bvals < B0_SNAP);
+if n_snap > 0
+    fprintf('Step 1: %d volumes with 0 < b < %g snapped to exactly 0 (acquired b = %.0f s/mm^2)\n', ...
+            n_snap, B0_SNAP, 1000*max(bvals(bvals < B0_SNAP)));
+    bvals(bvals < B0_SNAP) = 0;
+end
+[tbl, ~, shell_id] = SMI.Group_dwi_in_shells_b_beta_TE(bvals, [], [], []);
+b_shell = tbl(1,:); n_shell = tbl(3,:); nsh = numel(b_shell);
+dw = shell_id(:)' > 1;
+for i = 1:nsh
+    raw = bvals(shell_id == i);
+    fprintf('   shell %d: b = %.3f, %3d directions, raw b in [%.3f, %.3f]\n', ...
+            i, b_shell(i), n_shell(i), min(raw), max(raw));
+end
+
+% CHECK 1. Directions must be unit. Passes trivially because the loader
+% normalised them; the number that matters is in the warning it printed.
+e_nrm = max(abs(sqrt(sum(bvecs.^2, 2)) - 1));
+fprintf('   CHECK directions are unit        max| |g|-1 | = %.2e   %s\n', ...
+        e_nrm, VERDICT{1+(e_nrm < 1e-12)});
+
+% CHECK 2. SMI must recover the four shells a human sees from 18 distinct b
+% values. A split shell would build every rotational invariant downstream from a
+% fraction of the directions.
+ok_shell = (nsh == 4) && all(n_shell(:)' == [18 90 90 90]);
+fprintf('   CHECK SMI bins %d b values into [18 90 90 90]        %s\n\n', ...
+        numel(unique(bvals)), VERDICT{1+ok_shell});
+
+%% Step 2 -- ground truth: one crossing, many orientations
+% The same 60 degree crossing, rotated to |NORIENT| orientations. Orientation 1
+% is the axis pair the previous version of this work used, kept so its numbers
+% remain comparable; 2..N are random rotations of that same pair.
+%
+% *Why more than one.* The peak finder, the gradient scheme and the spherical
+% harmonic basis all interact with where the fibres point. With a single
+% orientation that interaction is frozen into every number and cannot be
+% distinguished from a property of the method. CHECK 2 of Step 7 measures the
+% residual orientation dependence directly.
+%
+% Each population is a Watson at |kappa|, not a delta, because a response
+% estimated from real white matter has already absorbed fibre dispersion.
+
+dq = H.dirs(NDIR_Q);
+L_gt = repelem(0:2:LMAX_GT, 2*(0:2:LMAX_GT)+1)';
+
+AXES = cell(NORIENT, 2);
+AXES{1,1} = AXIS1; AXES{1,2} = MC.rotate_about(AXIS1, CROSS_DEG);
+rand('state', SEED_ORI); randn('state', SEED_ORI);
+for r = 2:NORIENT
+    [Q, R0] = qr(randn(3)); Q = Q*diag(sign(diag(R0)));
+    if det(Q) < 0, Q(:,1) = -Q(:,1); end
+    AXES{r,1} = (Q*AXES{1,1}(:))'; AXES{r,2} = (Q*AXES{1,2}(:))';
+end
+
+sh_gt  = zeros(NORIENT, numel(L_gt));
+plm_gt = zeros(NORIENT, numel(L_gt)-1);
+sep    = zeros(NORIENT, 1);
+for r = 1:NORIENT
+    f = H.watson(dq, AXES{r,1}, KAPPA) + H.watson(dq, AXES{r,2}, KAPPA);
+    p = H.mixture_plm(f, dq, LMAX_GT, CS_PHASE);
+    plm_gt(r,:) = p(:)';
+    sh_gt(r,:)  = ([1; p(:)] .* sqrt((2*L_gt+1)/(4*pi)))';
+    sep(r) = acosd(abs(AXES{r,1}*AXES{r,2}'));
+end
+fprintf('Step 2: %d orientations of a %g deg crossing, kappa %g\n', NORIENT, CROSS_DEG, KAPPA);
+
+% CHECK 1. Every rotation must preserve the crossing angle exactly. A wrong
+% rotation would look plausible all the way to the end.
+e_sep = max(abs(sep - CROSS_DEG));
+fprintf('   CHECK all crossings are %g deg   max err = %.2e deg   %s\n', ...
+        CROSS_DEG, e_sep, VERDICT{1+(e_sep < 1e-9)});
+
+% CHECK 2. Reconstruct each fODF from its plm and integrate over the sphere. In
+% the p_00 = 1 convention the integral is 1 by construction, so anything else
+% means the convention has been broken.
+Yq   = SMI.get_even_SH(dq, LMAX_GT, CS_PHASE);
+amp  = sh_gt * Yq';
+mass = mean(amp, 2) * 4*pi;
+e_mass = max(abs(mass - 1));
+fprintf('   CHECK fODF integrates to 1       max|int-1| = %.2e   %s\n', ...
+        e_mass, VERDICT{1+(e_mass < 1e-3)});
+
+% NOT a check, but the most surprising number in this file and better met here:
+% the band-limited truth is itself negative over much of the sphere. Truncating
+% a Watson mixture rings, and the rings cross zero. The non-negativity
+% constraint the arms below apply is therefore a regularizer, not a statement of
+% fact -- the truth does not satisfy it either.
+fprintf('   band-limited truth at Lmax %d: peak %+.4f, min %+.4f, negative over %.1f%% of the sphere\n', ...
+        LMAX_GT, max(amp(1,:)), min(amp(1,:)), 100*mean(amp(1,:) < 0));
+fprintf('   isotropic floor 1/(4*pi) = %.4f  (MRtrix iFOD2 default cutoff 0.05)\n\n', 1/(4*pi));
+
+%% Step 3 -- the kernel, and the ONE response every arm is given
+% SMI has no response function, it has a kernel: the compartment vector
+% |[f Da Depar Deperp fw]|, from which the rotational invariants |K_l(b)| follow
+% analytically. CSD has the opposite arrangement, a non-parametric response
+% stored as zonal harmonics. They describe the same object, and the conversion
+% is one line -- for a single fibre along z,
+%
+%  R(theta) = sum_l K_l(b) (2l+1) P_l(cos theta) = sum_l r_l Y_l0(theta)
+%  r_l      = K_l(b) * sqrt((2l+1)*4*pi)
+%
+% and |r_l| is exactly one row of an MRtrix response |.txt|.
+%
+% *This response is handed unchanged to every arm.* That is what makes the
+% comparison answerable: the arms differ in their deconvolution algorithm and in
+% nothing else. It is the DELTA response, so every arm is asked to recover the
+% same object -- the Watson mixture of Step 2 -- and one ceiling is valid for
+% all of them.
+
+fprintf('Step 3: the shared response, normalised to l = 0\n');
+r_shared = RH.zh(K_WM, b_shell, LMAX_GT, D_FW);
+fprintf('        b   ');
+for l = 0:2:LMAX_GT, fprintf('%9s', sprintf('r_%d', l)); end
+fprintf('\n');
+for i = 1:nsh
+    fprintf('     %4.2f   ', b_shell(i));
+    fprintf('%9.4f', r_shared(i,:)/r_shared(i,1)); fprintf('\n');
+end
+
+% CHECK. Build the single-fibre signal two ways: from the zonal profile above,
+% and from SMI's own forward model fed the plm of a delta. In the p_00 = 1
+% convention a delta along z has p_l0 = 1 for every even l.
+Mf = []; for l = 2:2:LMAX_GT, Mf = [Mf, -l:l]; end %#ok<AGROW>
+plm_delta = double(Mf(:)' == 0);
+bsub = bvals(dw); gsub = bvecs(dw,:);
+S_fwd  = H.signal(plm_delta, [K_WM 1 1], bsub, ones(1,sum(dw)), zeros(1,sum(dw)), ...
+                  gsub, LMAX_GT, CS_PHASE, D_FW);
+theta  = acos(max(min(gsub*[0 0 1]', 1), -1));
+r_each = RH.zh(K_WM, bsub, LMAX_GT, D_FW);
+S_zon  = zeros(sum(dw), 1);
+for i = 1:sum(dw), S_zon(i) = RH.profile(r_each(i,:), theta(i)); end
+e_zon = max(abs(S_zon(:) - S_fwd(:)));
+fprintf('   CHECK zonal response == SMI forward model  max|err| = %.2e   %s\n\n', ...
+        e_zon, VERDICT{1+(e_zon < 1e-9)});
+
+%% Step 4 -- forward convolution to a noise-free signal
+% In spherical harmonics convolution is a per-band product:
+%
+%  S(u)/S0 = sum_lm K_l(b) p_lm Y_lm(u) sqrt((2l+1)*4*pi)
+%
+% To confirm the harmonic machinery itself, the same signal is also computed
+% with no spherical harmonics anywhere, by direct numerical convolution over the
+% quadrature grid.
+
+S_clean = zeros(NORIENT, Ndwi);
+for r = 1:NORIENT
+    s = H.signal(plm_gt(r,:), [K_WM 1 1], bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
+                 bvecs, LMAX_GT, CS_PHASE, D_FW);
+    S_clean(r,:) = s(:)';
+end
+
+f_=K_WM(1); Da_=K_WM(2); Dep_=K_WM(3); Dpp_=K_WM(4); fw_=K_WM(5);
+cosang = bvecs*dq';
+Kmat = f_*exp(-bvals'.*(Da_*cosang.^2)) + ...
+       (1-f_-fw_)*exp(-bvals'.*(Dpp_ + (Dep_-Dpp_)*cosang.^2)) + ...
+       fw_*exp(-bvals'*D_FW);
+w = H.watson(dq, AXES{1,1}, KAPPA) + H.watson(dq, AXES{1,2}, KAPPA);
+S_exact = (Kmat*(w/sum(w)))';
+
+fprintf('Step 4: noise-free signal, mean per shell (orientation 1)\n');
+for i = 1:nsh
+    fprintf('     b = %4.2f : %.4f\n', b_shell(i), mean(S_clean(1, shell_id == i)));
+end
+
+% CHECK 1. S(b=0) must be exactly 1, because sigma = 1/SNR only means the
+% requested SNR if S0 = 1. B0_SNAP is what makes this exact.
+e_s0 = max(abs(mean(S_clean(:,~dw), 2) - 1));
+fprintf('   CHECK S(b=0) == 1                max|S-1| = %.2e   %s\n', ...
+        e_s0, VERDICT{1+(e_s0 < 1e-12)});
+
+% CHECK 2. Harmonics against direct convolution. These do NOT agree to machine
+% precision and should not: the harmonic route is band limited at LMAX_GT and
+% the direct sum is not. This residual IS the band-limiting error of the truth.
+e_sh = max(abs(S_clean(1,:) - S_exact));
+fprintf('   CHECK harmonics vs direct convolution  max|err| = %.2e  (band limiting, not an error)\n\n', e_sh);
+
+%% Step 5 -- Rician noise, one contiguous block of voxels per SNR
+% Complex Gaussian noise added to a real signal, magnitude taken:
+%
+%  S_noisy = sqrt( (S + sigma*n1)^2 + (sigma*n2)^2 )
+%
+% with |sigma = 1/SNR| against the b = 0 signal, which Step 4 confirmed is
+% exactly 1. Each SNR is seeded separately so a noise level is reproducible on
+% its own and adding or removing an entry does not change the others; the cost
+% is that blocks do not share common random numbers.
+%
+% Within a block the voxels run orientation-major: all |NREP| realisations of
+% orientation 1, then orientation 2, and so on.
+
+NVOX_SNR = NORIENT*NREP;
+NVOX     = NVOX_SNR*NSNR;
+GRID_SNR = MC.pick_grid(NVOX_SNR);
+GRID_ALL = MC.pick_grid(NVOX);
+orient_id = repmat(repelem((1:NORIENT)', NREP, 1), NSNR, 1);
+snr_id    = repelem((1:NSNR)', NVOX_SNR, 1);
+S_rep     = S_clean(orient_id, :);
+S_noisy   = zeros(NVOX, Ndwi);
+for is = 1:NSNR
+    rows = find(snr_id == is); sg = SIGMA_LIST(is);
+    rand('state', SEED+is); randn('state', SEED+is);
+    Sb = S_rep(rows,:);
+    S_noisy(rows,:) = sqrt((Sb + sg*randn(size(Sb))).^2 + (sg*randn(size(Sb))).^2);
+end
+fprintf('Step 5: %d orientations x %d reps x %d SNR = %d voxels\n', ...
+        NORIENT, NREP, NSNR, NVOX);
+fprintf('   one SMI.fit block is %d voxels, grid %s; the whole sweep is grid %s\n', ...
+        NVOX_SNR, mat2str(GRID_SNR), mat2str(GRID_ALL));
+
+% CHECK 1. Recover sigma from the simulated data rather than trusting the value
+% typed in. Read at b = 0, where the signal is exactly 1 and the residual is
+% clean Gaussian -- a Rician residual only has standard deviation sigma where
+% the signal is well above the noise floor.
+b0v = ~dw;
+for is = 1:NSNR
+    rows = find(snr_id == is);
+    rblk = S_noisy(rows,:) - S_rep(rows,:);
+    rb0  = rblk(:, b0v);
+    sg   = SIGMA_LIST(is);
+    if sg == 0
+        fprintf('   CHECK SNR %-4s noise free, residual exactly zero          %s\n', ...
+                SNR_LABEL{is}, VERDICT{1+(max(abs(rblk(:))) == 0)});
+    else
+        s_hat = std(rb0(:)); rel = abs(s_hat-sg)/sg;
+        fprintf('   CHECK SNR %-4s recovered sigma %.5f vs %.5f, %4.1f%% off   %s\n', ...
+                SNR_LABEL{is}, s_hat, sg, 100*rel, VERDICT{1+(rel < 0.10)});
+    end
+end
+
+% CHECK 2. A magnitude is strictly positive.
+fprintf('   CHECK signal strictly positive   min = %.4f              %s\n\n', ...
+        min(S_noisy(:)), VERDICT{1+(min(S_noisy(:)) > 0)});
+
+%% Step 6a -- ARM 1: fixed-kernel deconvolution
+% |SMI.get_plm_from_S_and_kernel| is given the SAME kernel the CSD arms get as
+% a response, so the kernel is not estimated and is not a variable. This is the
+% fair deconvolution comparison.
+%
+% Three properties of this entry point matter and are the reason it is used:
+%
+% # *It contains no Rician bias correction.* That step lives in |SMI.fit|
+%   (|SMI.m:528-535|) and uses the true sigma, which |dwi2fod| has no analogue
+%   for. Bypassing it puts every arm on the same noise model.
+% # *It enforces p_00 = 1 structurally*, by subtracting the l = 0 column of the
+%   design before solving for l >= 2.
+% # *It is sensitive to S0.* A 2% error in S0 moves plm by ~1e-2. S0 is exactly
+%   1 here by construction (Step 4 CHECK 1), so the noise-free signal is passed
+%   unnormalised. On real data it would have to be divided by a measured S0, and
+%   that estimate's error would enter here.
+
+ARMS = {};
+if RUN_ARM1
+    fprintf('Step 6a: ARM 1, fixed-kernel deconvolution (kernel NOT estimated)\n');
+    kern4 = zeros([GRID_SNR 5]);
+    for j = 1:5, kern4(:,:,:,j) = K_WM(j); end
+    sh_a1 = cell(1, numel(LMAX_LIST));
+    for iL = 1:numel(LMAX_LIST)
+        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+        Lv = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
+        A = zeros(NVOX, nc); t0 = tic;
+        for is = 1:NSNR
+            rows = find(snr_id == is);
+            dwin = reshape(S_noisy(rows,:), [GRID_SNR Ndwi]);
+            plm  = SMI.get_plm_from_S_and_kernel(dwin, [0 Lf Lf Lf], kern4, ...
+                     true(GRID_SNR), bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
+                     bvecs, CS_PHASE, D_FW, REG);
+            p = reshape(plm, [NVOX_SNR nc-1]);
+            s = [ones(NVOX_SNR,1) p].*repmat(sqrt((2*Lv+1)/(4*pi))', NVOX_SNR, 1);
+            s(~isfinite(s)) = 0;
+            A(rows,:) = s;
+        end
+        sh_a1{iL} = A;
+        fprintf('   Lmax %d: %2d coefficients, %.1f s\n', Lf, nc, toc(t0));
+    end
+
+    % CHECK. The premise of this arm: with the true kernel and no constraint,
+    % the deconvolution must INVERT the forward model exactly. Run on a
+    % noise-free signal whose truth is band limited at the SAME Lmax as the fit,
+    % so the band limit cannot contribute. Anything above ~1e-12 means the
+    % kernel-to-response conversion or the design matrix is wrong, and every
+    % number in this file would be untrustworthy.
+    Lc = LMAX_LIST(1); ncc = (Lc/2+1)*(Lc+1);
+    Gc = [2 2 2];
+    k4c = zeros([Gc 5]); for j = 1:5, k4c(:,:,:,j) = K_WM(j); end
+    fc  = H.watson(dq, AXES{1,1}, KAPPA) + H.watson(dq, AXES{1,2}, KAPPA);
+    pc  = H.mixture_plm(fc, dq, Lc, CS_PHASE);
+    Sc  = H.signal(pc(:)', [K_WM 1 1], bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
+                   bvecs, Lc, CS_PHASE, D_FW);
+    plc = SMI.get_plm_from_S_and_kernel(reshape(repmat(Sc(:)',prod(Gc),1),[Gc Ndwi]), ...
+            [0 Lc Lc Lc], k4c, true(Gc), bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
+            bvecs, CS_PHASE, D_FW, struct('flag_nonneg',0,'lambda_tikhonov',0));
+    e_inv = max(abs(squeeze(plc(1,1,1,:))' - pc(:)'));
+    fprintf('   CHECK unconstrained fixed-kernel fit inverts the forward model\n');
+    fprintf('         (truth and fit both Lmax %d)  max|err| = %.2e   %s\n', ...
+            Lc, e_inv, VERDICT{1+(e_inv < 1e-12)});
+
+    % NOT a check, a number worth carrying: what the non-negativity constraint
+    % alone costs, with the exact kernel and no noise. The band-limited truth is
+    % negative over part of the sphere, so a non-negative solution CANNOT equal
+    % it. This is a floor common to every constrained arm here, including both
+    % CSD arms, which is what makes it fair rather than a confound.
+    plc_n = SMI.get_plm_from_S_and_kernel(reshape(repmat(Sc(:)',prod(Gc),1),[Gc Ndwi]), ...
+              [0 Lc Lc Lc], k4c, true(Gc), bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
+              bvecs, CS_PHASE, D_FW, REG);
+    fprintf('   the non-negativity constraint alone displaces plm by %.3f\n', ...
+            max(abs(squeeze(plc_n(1,1,1,:))' - pc(:)')));
+    fprintf('   (exact kernel, zero noise -- a floor shared by every constrained arm)\n\n');
+
+    ARMS{end+1} = struct('name', 'SMI fixed', 'sh', {sh_a1});
+end
+
+%% Step 6b -- ARM 2: SMI.fit, estimating the kernel per voxel
+% What SMI does on real data. The kernel is estimated per voxel by polynomial
+% regression on rotational invariants, and the fODF is then deconvolved with
+% that ESTIMATED kernel rather than the true one.
+%
+% *The difference between this arm and Arm 1 is the cost of kernel estimation.*
+% Everything else is identical -- same data, same regularization, same peak
+% finder. That is the number this file exists to produce.
+%
+% Two things about this arm are not matched to the CSD arms and cannot be:
+%
+% # It is given the true |sigma| and applies a Rician bias correction the CSD
+%   arms have no analogue for.
+% # Its kernel regression is TRAINED at the data's own noise level
+%   (|SMI.m:2222-2302|), which is a second noise-model advantage.
+%
+% Both are real properties of the method rather than artefacts of the setup, but
+% they are why Arm 1 exists: the fair comparison is Arm 1, and Arm 2 measures
+% what SMI gains by doing more.
+
+if RUN_ARM2
+    fprintf('Step 6b: ARM 2, SMI.fit (%d calls, %d voxels each)\n', ...
+            numel(LMAX_LIST)*NSNR, NVOX_SNR);
+    sh_a2 = cell(1, numel(LMAX_LIST));
+    kern_est = cell(1, numel(LMAX_LIST));
+    for iL = 1:numel(LMAX_LIST)
+        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+        Lv = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
+        A = zeros(NVOX, nc); KE = [];
+        for is = 1:NSNR
+            rows = find(snr_id == is);
+            o = struct();
+            o.b = bvals; o.dirs = bvecs;
+            o.sigma = SIGMA_LIST(is)*ones(GRID_SNR);
+            o.mask  = true(GRID_SNR);
+            o.compartments = {'IAS','EAS','FW'};
+            o.NoiseBias = 'Rician';
+            o.Lmax = [0 Lf Lf Lf];
+            o.CS_phase = CS_PHASE; o.D_FW = D_FW;
+            o.flag_fit_fODF = 1;
+            o.fODF_regularization = REG;
+            t0 = tic;
+            out = SMI.fit(reshape(S_noisy(rows,:), [GRID_SNR Ndwi]), o);
+            p = reshape(out.plm, [NVOX_SNR nc-1]);
+            s = [ones(NVOX_SNR,1) p].*repmat(sqrt((2*Lv+1)/(4*pi))', NVOX_SNR, 1);
+            s(~isfinite(s)) = 0;
+            A(rows,:) = s;
+            kb = reshape(out.kernel, [NVOX_SNR size(out.kernel,4)]);
+            if isempty(KE), KE = zeros(NVOX, size(kb,2)); end
+            KE(rows,:) = kb;
+            fprintf('   Lmax %d, SNR %-4s: %6.1f s, converged %.1f%%\n', Lf, SNR_LABEL{is}, ...
+                    toc(t0), 100*mean(out.fODF_regularization.flag_converged(:) == 1));
+        end
+        sh_a2{iL} = A; kern_est{iL} = KE;
+    end
+
+    % The kernel this arm actually recovered. Arm 1 was given the truth, so this
+    % table is the entire difference between the two arms in one place.
+    knm = {'f','Da','Depar','Deperp','fw'};
+    fprintf('   kernel recovery, median over each block (truth in brackets):\n');
+    fprintf('        Lmax  SNR  ');
+    for j = 1:5, fprintf('%16s', sprintf('%s [%.2f]', knm{j}, K_WM(j))); end
+    fprintf('\n');
+    for iL = 1:numel(LMAX_LIST)
+        for k = 1:NSNR
+            is = SNR_ORD(k); rows = find(snr_id == is);
+            fprintf('        %4d %4s  ', LMAX_LIST(iL), SNR_LABEL{is});
+            for j = 1:5
+                c = kern_est{iL}(rows,j); c = c(isfinite(c));
+                fprintf('%16.3f', median(c));
+            end
+            fprintf('\n');
+        end
+    end
+
+    % CHECK. p_00 = 1 must survive the fit at every Lmax.
+    e_l0 = 0;
+    for iL = 1:numel(LMAX_LIST)
+        e_l0 = max(e_l0, max(abs(sh_a2{iL}(:,1) - 1/sqrt(4*pi))));
+    end
+    fprintf('   CHECK p_00 == 1 convention held  max|err| = %.2e   %s\n\n', ...
+            e_l0, VERDICT{1+(e_l0 < 1e-12)});
+
+    ARMS{end+1} = struct('name', 'SMI fitted', 'sh', {sh_a2});
+end
+
+%% Step 6c -- the CSD arms
+% |dwi2fod csd| and |dwi2fod msmt_csd|, the real MRtrix3 binaries, on the SAME
+% |S_noisy| array the SMI arms were given. Nothing here reimplements MRtrix; the
+% only MRtrix behaviour implemented locally is reading and writing its image
+% format, which |mrinfo| checks on every run.
+%
+% |-lmax| is deliberately NOT passed. MRtrix's documented default is the lmax of
+% the corresponding response function based on its coefficient count, and one
+% response is written per Lmax with exactly Lf/2+1 columns, so the file already
+% pins the order. The same mechanism gives msmt_csd's GM and CSF lmax 0.
+
+MDIR = fullfile(pkgdir, 'mrtrix');
+if RUN_MRTRIX
+    if ~exist(MDIR, 'dir'), mkdir(MDIR); end
+    TAG = 'wm60';
+    fprintf('Step 6c: the CSD arms via MRtrix3, in %s\n', MDIR);
+
+    f_dwi  = fullfile(MDIR, [TAG '_dwi']);
+    f_mask = fullfile(MDIR, [TAG '_mask']);
+    MR.write([f_dwi '.mif'], reshape(S_noisy, [GRID_ALL Ndwi]), ...
+             struct('grad', [bvecs bvals(:)*1000]));
+    MR.write([f_mask '.mif'], ones(GRID_ALL), struct('datatype', 'UInt8'));
+
+    % CHECK. mrinfo must agree with what we think we wrote. This is the one
+    % place the locally implemented image writer is checked against MRtrix.
+    [st, txt] = system(sprintf('mrinfo -size "%s.mif" 2>&1', f_dwi));
+    sz_mr = sscanf(txt, '%f')';
+    ok_sz = (st == 0) && numel(sz_mr) == 4 && all(sz_mr == [GRID_ALL Ndwi]);
+    fprintf('   CHECK mrinfo reads back size %s          %s\n', mat2str(sz_mr), VERDICT{1+ok_sz});
+    if ~ok_sz
+        fprintf(2, '%s\n', txt);
+        error('MRtrix could not read the image this file wrote. Is mrtrix3 on the PATH?');
+    end
+
+    % The response is evaluated at MRtrix's OWN per-shell b values, not at the
+    % nominal 0/1/2/3 -- this protocol's shells jitter, so the nominal values
+    % would attach each response row to a b nobody acquired at.
+    [~, txt] = system(sprintf('mrinfo -shell_bvalues "%s.mif" 2>/dev/null', f_dwi));
+    b_mr = sscanf(txt, '%f')';
+    [~, txt] = system(sprintf('mrinfo -shell_sizes "%s.mif" 2>/dev/null', f_dwi));
+    n_mr = sscanf(txt, '%f')';
+    ok_shells = (numel(b_mr) == nsh) && all(n_mr(:)' == n_shell(:)');
+    fprintf('   CHECK MRtrix and SMI agree on the shells (%s)   %s\n', mat2str(n_mr), VERDICT{1+ok_shells});
+
+    f_b3 = fullfile(MDIR, [TAG '_b3']);
+    [st, txt] = system(sprintf('dwiextract "%s.mif" -shells 0,%g "%s.mif" -force -quiet 2>&1', ...
+                               f_dwi, b_mr(end), f_b3));
+    if st ~= 0, fprintf(2, '%s\n', txt); error('dwiextract failed'); end
+    fprintf('   SSST-CSD runs on the top shell alone: %d of %d volumes\n', ...
+            n_shell(1)+n_shell(end), Ndwi);
+
+    sh_csd  = cell(1, numel(LMAX_LIST));
+    sh_msmt = cell(numel(MSMT_VARIANTS), numel(LMAX_LIST));
+    for iL = 1:numel(LMAX_LIST)
+        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+        r_wm  = RH.zh(K_WM, b_mr/1000, Lf, D_FW);
+        r_gm  = exp(-(b_mr(:)/1000)*D_GM)*sqrt(4*pi);
+        r_csf = exp(-(b_mr(:)/1000)*D_FW)*sqrt(4*pi);
+        Rw = fullfile(MDIR, sprintf('%s_wm_lmax%d.txt', TAG, Lf));
+        Rg = fullfile(MDIR, sprintf('%s_gm.txt', TAG));
+        Rc = fullfile(MDIR, sprintf('%s_csf.txt', TAG));
+        Rb = fullfile(MDIR, sprintf('%s_wm_b3_lmax%d.txt', TAG, Lf));
+        RH.write_response(Rw, r_wm);   RH.write_response(Rg, r_gm);
+        RH.write_response(Rc, r_csf);  RH.write_response(Rb, r_wm(end,:));
+
+        % CHECK. The file MRtrix will read must hold the numbers computed here.
+        e_rt = max(max(abs(RH.read_response(Rw) - r_wm)));
+        fprintf('   CHECK Lmax %d response round trip  max|err| = %.2e   %s\n', ...
+                Lf, e_rt, VERDICT{1+(e_rt < 1e-7)});
+
+        fc = fullfile(MDIR, sprintf('%s_csd_lmax%d', TAG, Lf));
+        [st, txt] = system(sprintf( ...
+            'dwi2fod csd "%s.mif" "%s" "%s.mif" -mask "%s.mif" -force -quiet 2>&1', ...
+            f_b3, Rb, fc, f_mask));
+        if st ~= 0, fprintf(2, '%s\n', txt); error('dwi2fod csd failed at Lmax %d', Lf); end
+        V = MR.read([fc '.mif']); sh_csd{iL} = reshape(V, [NVOX size(V,4)]);
+
+        for iv = 1:numel(MSMT_VARIANTS)
+            MV = MSMT_VARIANTS{iv};
+            fw_ = fullfile(MDIR, sprintf('%s_msmt%d_lmax%d', TAG, iv, Lf));
+            fg_ = fullfile(MDIR, sprintf('%s_mgm%d_lmax%d',  TAG, iv, Lf));
+            fk_ = fullfile(MDIR, sprintf('%s_mcsf%d_lmax%d', TAG, iv, Lf));
+            [st, txt] = system(sprintf( ...
+                ['dwi2fod msmt_csd "%s.mif" "%s" "%s.mif" "%s" "%s.mif" "%s" "%s.mif" ' ...
+                 '-mask "%s.mif" -neg_lambda %g -norm_lambda %g -force -quiet 2>&1'], ...
+                f_dwi, Rw, fw_, Rg, fg_, Rc, fk_, f_mask, MV.neg, MV.norm));
+            if st ~= 0, fprintf(2, '%s\n', txt); error('msmt_csd (%s) failed at Lmax %d', MV.name, Lf); end
+            V = MR.read([fw_ '.mif']); sh_msmt{iv,iL} = reshape(V, [NVOX size(V,4)]);
+        end
+        fprintf('   Lmax %d: csd and %d msmt variants done, %d coefficients each\n', ...
+                Lf, numel(MSMT_VARIANTS), nc);
+    end
+    ARMS{end+1} = struct('name', 'SSST-CSD', 'sh', {sh_csd});
+    for iv = 1:numel(MSMT_VARIANTS)
+        ARMS{end+1} = struct('name', MSMT_VARIANTS{iv}.name, 'sh', {sh_msmt(iv,:)});
+    end
+end
+NARM = numel(ARMS);
+fprintf('\n   %d arms to score:', NARM);
+for ia = 1:NARM, fprintf('  %s', ARMS{ia}.name); end
+fprintf('\n\n');
+
+%% Step 7 -- peaks via sh2peaks, and the scoring
+% *Every peak in this file comes from MRtrix's |sh2peaks|*, including the SMI
+% arms'. It performs Newton refinement on the sphere, so a peak direction is not
+% quantised to a sampling grid.
+%
+% That is not a cosmetic choice. The previous version of this work found peaks
+% on a fixed 1500-direction grid, and measured on the noise-free truth that
+% scorer reports the Lmax 6 ceiling as anything between 0.488 and 2.847 deg
+% depending on orientation, where |sh2peaks| reports 1.300 deg at every one.
+% CHECK 2 below re-measures that invariance every run.
+%
+% *Fibre counting is done here rather than by sh2peaks*, so that one identical
+% criterion is applied to every arm: a peak is kept if its ANISOTROPIC amplitude
+% -- the fODF amplitude there minus that voxel's OWN l = 0 term -- is at least
+% |PEAK_REL| of the largest. Each voxel's own l = 0 matters: an SMI fODF has
+% p_00 = 1 so its isotropic part is the constant 1/(4*pi), but an MRtrix FOD is
+% unnormalised and its l = 0 varies per voxel, so subtracting the constant would
+% silently mis-threshold every CSD arm.
+%
+% *Three numbers per cell*, because a sweep is where they stop agreeing:
+% the mean angular error of the primary peak, the fraction of realisations
+% recovering exactly two fibres, and spurious peaks per voxel. A method can hold
+% its angular error while it starts inventing peaks.
+
+edir = fullfile(pkgdir, 'export');
+if ~exist(edir, 'dir'), mkdir(edir); end
+
+% *The sh2peaks call and the scoring are written inline rather than as local
+% functions.* MATLAB requires a script's local functions at the END of the file
+% while Octave cannot call them there at all ("README for Claude", section 4),
+% so a script that must run in both cannot define them. The scoring is done once
+% per arm and stored per voxel, so Figure 3 reuses it rather than repeating it.
+
+fprintf('Step 7: peaks from sh2peaks (-num %d), threshold %.0f%% of the largest anisotropic peak\n', ...
+        PEAK_NUM, 100*PEAK_REL);
+
+bias_all = nan(NARM, numel(LMAX_LIST), NSNR);
+sd_all   = nan(NARM, numel(LMAX_LIST), NSNR);
+res_all  = nan(NARM, numel(LMAX_LIST), NSNR);
+spur_all = nan(NARM, numel(LMAX_LIST), NSNR);
+bias_ori = nan(NARM, numel(LMAX_LIST), NSNR, NORIENT);
+ceil_deg = nan(numel(LMAX_LIST), NORIENT);
+
+% ---- the ceiling: the band-limited truth through the SAME sh2peaks path
+% The grid here is [NORIENT 1 1] rather than a pick_grid factorisation: nothing
+% below goes through SMI.vectorize, so the no-singleton-dimension rule does not
+% apply, and pick_grid cannot factor a prime or semiprime NORIENT anyway.
+for iL = 1:numel(LMAX_LIST)
+    Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+    ftr = fullfile(edir, sprintf('truth_lmax%d', Lf));
+    MR.write([ftr '.mif'], reshape(sh_gt(:,1:nc), [NORIENT 1 1 nc]));
+    [st, txt] = system(sprintf('sh2peaks "%s.mif" "%s_pk.mif" -num %d -force -quiet 2>&1', ...
+                               ftr, ftr, PEAK_NUM));
+    if st ~= 0, fprintf(2, '%s\n', txt); error('sh2peaks failed on the truth'); end
+    P = reshape(MR.read([ftr '_pk.mif']), [NORIENT 3*PEAK_NUM]);
+    for r = 1:NORIENT
+        v = P(r,1:3); nv = norm(v);
+        if nv == 0 || ~isfinite(nv), continue, end
+        v = v/nv;
+        ceil_deg(iL,r) = min([acosd(min(abs(v*AXES{r,1}(:)),1)), ...
+                              acosd(min(abs(v*AXES{r,2}(:)),1))]);
+    end
+end
+
+% CHECK 2. The ceiling is a property of the BAND LIMIT, so it must not depend on
+% where the crossing points. A scorer that quantises peak directions fails this
+% badly -- the previous 1500-direction grid spread the Lmax 6 ceiling over
+% 0.488 to 2.847 deg. This is the check that would have caught it.
+fprintf('   ceiling from sh2peaks on the band-limited truth:\n');
+ok_ceil = true;
+for iL = 1:numel(LMAX_LIST)
+    v = ceil_deg(iL,:); v = v(isfinite(v));
+    spread = max(v) - min(v);
+    ok_ceil = ok_ceil && (spread < 0.05);
+    fprintf('     Lmax %d: median %.3f deg, spread over %d orientations %.3f deg\n', ...
+            LMAX_LIST(iL), median(v), NORIENT, spread);
+end
+fprintf('   CHECK the ceiling is orientation invariant (< 0.05 deg)   %s\n', VERDICT{1+ok_ceil});
+
+% Per-voxel results are kept so Figure 3 can pick a representative realisation
+% by a stated rule rather than re-running anything.
+AE_all = cell(NARM, numel(LMAX_LIST));    % angular error of the primary peak
+NF_all = cell(NARM, numel(LMAX_LIST));    % number of peaks kept
+
+for ia = 1:NARM
+    fprintf('\n   ===== %s =====\n', ARMS{ia}.name);
+    for iL = 1:numel(LMAX_LIST)
+        Lf = LMAX_LIST(iL); nc = (Lf/2+1)*(Lf+1);
+        SH = ARMS{ia}.sh{iL}(:,1:nc);
+        a0 = SH(:,1)/sqrt(4*pi);
+        nm = strrep(strrep(lower(ARMS{ia}.name),' ','_'),'-','');
+        fod = fullfile(edir, sprintf('%s_lmax%d', nm, Lf));
+        MR.write([fod '.mif'], reshape(SH, [GRID_ALL nc]));
+        [st, txt] = system(sprintf('sh2peaks "%s.mif" "%s_pk.mif" -num %d -force -quiet 2>&1', ...
+                                   fod, fod, PEAK_NUM));
+        if st ~= 0, fprintf(2, '%s\n', txt); error('sh2peaks failed on %s', ARMS{ia}.name); end
+        P = reshape(MR.read([fod '_pk.mif']), [NVOX 3*PEAK_NUM]);
+
+        % Peak amplitudes, then the ANISOTROPIC amplitude: subtract each
+        % voxel's OWN l = 0 term, never the constant 1/(4*pi), because an
+        % MRtrix FOD is unnormalised and its l = 0 varies per voxel.
+        ampP = zeros(NVOX, PEAK_NUM);
+        for kk = 1:PEAK_NUM
+            ampP(:,kk) = sqrt(sum(P(:,(kk-1)*3+(1:3)).^2, 2));
+        end
+        ani = ampP - repmat(a0, 1, PEAK_NUM);
+        ani(~isfinite(ani)) = -Inf;
+        keep = (ani >= PEAK_REL*repmat(max(ani,[],2),1,PEAK_NUM)) & isfinite(ampP) & (ampP > 0);
+        nf_v = sum(keep, 2);
+        ae_v = nan(NVOX,1);
+        for q = 1:NVOX
+            if ~keep(q,1), continue, end
+            vv = P(q,1:3); nv = norm(vv);
+            if nv == 0 || ~isfinite(nv), continue, end
+            vv = vv/nv; r = orient_id(q);
+            ae_v(q) = min([acosd(min(abs(vv*AXES{r,1}(:)),1)), ...
+                           acosd(min(abs(vv*AXES{r,2}(:)),1))]);
+        end
+        AE_all{ia,iL} = ae_v; NF_all{ia,iL} = nf_v;
+
+        fprintf('   Lmax %d (ceiling %.2f deg)\n', Lf, median(ceil_deg(iL,:)));
+        fprintf('       SNR   correct count   mean err   std err   spurious\n');
+        for k = 1:NSNR
+            is = SNR_ORD(k);
+            for r = 1:NORIENT
+                sel = (snr_id == is & orient_id == r);
+                bias_ori(ia,iL,is,r) = mean(ae_v(sel & isfinite(ae_v)));
+            end
+            sel = (snr_id == is);
+            ea = ae_v(sel); na = nf_v(sel); fin = isfinite(ea);
+            res_all(ia,iL,is)  = 100*mean(na == 2);
+            spur_all(ia,iL,is) = mean(max(na-2, 0));
+            if any(fin), bias_all(ia,iL,is) = mean(ea(fin)); end
+            if sum(fin) > 1, sd_all(ia,iL,is) = std(ea(fin)); end
+            fprintf('     %5s   %11.1f%%   %8.2f  %8.2f   %8.3f\n', SNR_LABEL{is}, ...
+                    res_all(ia,iL,is), bias_all(ia,iL,is), sd_all(ia,iL,is), spur_all(ia,iL,is));
+        end
+    end
+end
+
+% CHECK 3. The noise-free arm must recover two fibres, since the truth resolves
+% at every Lmax tested here. If it does not, no finite-SNR row above is
+% interpretable.
+i_inf = find(isinf(SNR_LIST), 1);
+if ~isempty(i_inf)
+    ok_nf = true;
+    for ia = 1:NARM
+        for iL = 1:numel(LMAX_LIST)
+            ok_nf = ok_nf && (res_all(ia,iL,i_inf) > 99);
+        end
+    end
+    fprintf('\n   CHECK every arm resolves the noise-free crossing         %s\n', VERDICT{1+ok_nf});
+    if ~ok_nf
+        fprintf('         (MSMT at MRtrix defaults FAILS this at Lmax 4 by design -- see Step 0.1)\n');
+    end
+end
+
+% ---- how much of each arm's error is orientation dependence
+fprintf('\n   spread of the mean error ACROSS orientations (the single-orientation risk):\n');
+fprintf('     %-12s %-6s   orient1    median       min       max\n', 'arm', 'SNR');
+for ia = 1:NARM
+    for iL = 1:numel(LMAX_LIST)
+        if LMAX_LIST(iL) ~= LMAX_FIG && numel(LMAX_LIST) > 1, continue, end
+        for k = 1:NSNR
+            is = SNR_ORD(k);
+            v = squeeze(bias_ori(ia,iL,is,:)); v = v(isfinite(v));
+            if isempty(v), continue, end
+            fprintf('     %-12s %-6s %9.2f %9.2f %9.2f %9.2f\n', ...
+                    ARMS{ia}.name, SNR_LABEL{is}, bias_ori(ia,iL,is,1), ...
+                    median(v), min(v), max(v));
+        end
+    end
+end
+fprintf('\n');
+
+%% Step 8 -- what was exported
+% Every arm's fODFs are already on disk as MRtrix SH images, written in Step 7
+% so |sh2peaks| could read them. They are left there rather than deleted, so the
+% scoring above can be reproduced outside this file:
+%
+%  sh2peaks smi_fixed_lmax6.mif peaks.mif -num 3
+%  mrview   smi_fixed_lmax6.mif -odf.load_sh smi_fixed_lmax6.mif
+%
+% The fit ran at |CS_phase = 0|, where SMI's SH basis IS MRtrix's, so the
+% coefficients need no conversion. A basis error -- the failure mode this guards
+% against -- would show as ~71 deg on every arm at once.
+
+key = zeros(NVOX, 8);
+for v = 1:NVOX
+    r = orient_id(v);
+    key(v,1) = v; key(v,2) = SNR_LIST(snr_id(v));
+    key(v,3:5) = AXES{r,1}; key(v,6:8) = AXES{r,2};
+end
+fid = fopen(fullfile(edir, 'voxel_key.txt'), 'w');
+fprintf(fid, '%% voxel  SNR  axis1_x axis1_y axis1_z  axis2_x axis2_y axis2_z\n');
+fprintf(fid, '%% column-major over the %s grid; %d blocks of %d voxels, one per SNR, order %s\n', ...
+        mat2str(GRID_ALL), NSNR, NVOX_SNR, strjoin(SNR_LABEL, ', '));
+fprintf(fid, '%% within a block, voxels run orientation-major: %d reps of each of %d orientations\n', ...
+        NREP, NORIENT);
+fprintf(fid, '%d %g %.9f %.9f %.9f %.9f %.9f %.9f\n', key');
+fclose(fid);
+fprintf('Step 8: fODFs and voxel_key.txt in %s\n\n', edir);
+
+%% Figures
+%  Fig 1  the ground truth fODF and the shared response, one glyph per shell
+%  Fig 2  the signal on the sphere, b down the rows and SNR across
+%  Fig 3  the arms side by side at LMAX_FIG, truth then one column per SNR
+%  Fig 4  error, spread and spurious peaks against SNR, one row per Lmax
+%
+% All glyphs use the renderer MRtrix's |shview| logic implies: radius is the
+% amplitude, colour is the SIGNED amplitude, and |GLYPH_NEG = 'clamp'| keeps
+% negative lobes from being drawn at positive radius.
+
+if MAKE_FIGURES
+    fprintf('Figures: rendering ...\n');
+    [THg, PHg, dirs_g] = RH.grid(GLYPH_N, GLYPH_N);
+    Yg = SMI.get_even_SH(dirs_g, LMAX_GT, CS_PHASE);
+    th_prof = linspace(0, pi, 361);
+
+    % ---- FIGURE 1: the truth, and the response every arm was given
+    % Every response glyph shares ONE radial scale, so size carries meaning.
+    % That needs two things and only one is obvious: `axis equal` fixes a
+    % panel's aspect RATIO but not its LIMITS, so a glyph drawn at half the
+    % radius otherwise gets an axis range half as wide and lands on the page at
+    % exactly the same size. Scale the glyph AND pin the panel.
+    rmax = 0; r_sh = cell(1, nsh);
+    for i = 1:nsh
+        r_sh{i} = RH.zh(K_WM, b_shell(i), LMAX_GT, D_FW);
+        rmax = max(rmax, max(abs(RH.profile(r_sh{i}, th_prof))));
+    end
+    if rmax <= 0, rmax = 1; end
+    figure('Name', 'Fig 1  ground truth and the shared response');
+    subplot(1, 1+nsh, 1);
+    gt_pk = max(abs(sh_gt(1,:)*Yg')); if gt_pk <= 0, gt_pk = 1; end
+    [X,Y,Z,Cc] = RH.sh_glyph(plm_gt(1,:), LMAX_GT, CS_PHASE, GLYPH_N, GLYPH_N, 1/gt_pk, GLYPH_NEG);
+    surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
+    set(gca,'XLim',GLYPH_LIM,'YLim',GLYPH_LIM,'ZLim',GLYPH_LIM);
+    camlight headlight; lighting gouraud;
+    % Single-line titles throughout. A newline in a title is fine in MATLAB but
+    % breaks Octave's gnuplot backend, which splits the title command at the
+    % newline and reports the remainder as `invalid command`, leaving the panel
+    % labels mangled and the log full of errors that look like real failures.
+    title(sprintf('ground truth, %g deg, kappa %g', CROSS_DEG, KAPPA));
+    for i = 1:nsh
+        subplot(1, 1+nsh, 1+i);
+        [X,Y,Z,Cc] = RH.zh_glyph(r_sh{i}, GLYPH_N, GLYPH_N, 1/rmax, GLYPH_NEG);
+        surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
+        set(gca,'XLim',GLYPH_LIM,'YLim',GLYPH_LIM,'ZLim',GLYPH_LIM);
+        camlight headlight; lighting gouraud;
+        title(sprintf('response, b = %.0f', b_shell(i)));
+    end
+    fprintf('   Fig 1: response peak on the shared scale (max %.3f):', rmax);
+    for i = 1:nsh, fprintf(' b%.0f=%.3f', b_shell(i), max(abs(RH.profile(r_sh{i}, th_prof)))); end
+    fprintf('\n');
+
+    % ---- FIGURE 2: the signal on the sphere
+    % The noise-free column is the model on a dense grid; every other column is
+    % the SH fit of one realisation, which is what the arms actually see.
+    smax = 0; sig = cell(nsh-1, NSNR);
+    for j = 2:nsh
+        for k = 1:NSNR
+            is = SNR_ORD(k);
+            if isinf(SNR_LIST(is))
+                bq = b_shell(j)*ones(1, size(dirs_g,1));
+                s = H.signal(plm_gt(1,:), [K_WM 1 1], bq, ones(size(bq)), zeros(size(bq)), ...
+                             dirs_g, LMAX_GT, CS_PHASE, D_FW);
+                A = reshape(s, size(THg));
+            else
+                v  = find(snr_id == is & orient_id == 1, 1);
+                m  = (shell_id(:)' == j);
+                Ym = SMI.get_even_SH(bvecs(m,:), LMAX_GT, CS_PHASE);
+                A  = reshape(Yg*(Ym\S_noisy(v,m)'), size(THg));
+            end
+            sig{j-1,k} = A; smax = max(smax, max(abs(A(:))));
+        end
+    end
+    figure('Name', 'Fig 2  the signal on the sphere');
+    for j = 2:nsh
+        for k = 1:NSNR
+            subplot(nsh-1, NSNR, (j-2)*NSNR + k);
+            [X,Y,Z,Cc] = RH.glyph(sig{j-1,k}, THg, PHg, 1/smax, GLYPH_NEG);
+            surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
+            camlight headlight; lighting gouraud;
+            title(sprintf('b %.0f, SNR %s', b_shell(j), SNR_LABEL{SNR_ORD(k)}));
+        end
+    end
+
+    % ---- FIGURE 3: the arms side by side
+    % One row per arm at LMAX_FIG, the band-limited truth first, then one column
+    % per SNR. Each MRtrix FOD is put onto SMI's p_00 = 1 convention by dividing
+    % out its own l = 0 term -- a change of SCALE only, which multiplies every
+    % band by the same factor and so preserves peak orientation exactly.
+    %
+    % WHICH realisation each panel draws is GLYPH_PICK, and it is a stated rule
+    % rather than "whichever landed first in the array". At a single SNR the
+    % spread between noise draws can exceed the trend across SNR, so an
+    % arbitrary draw invites reading noise as signal. State the rule in the
+    % caption.
+    iLf = find(LMAX_LIST == LMAX_FIG, 1); if isempty(iLf), iLf = 1; end
+    Lf  = LMAX_LIST(iLf); nc = (Lf/2+1)*(Lf+1);
+    Lv  = repelem(0:2:Lf, 2*(0:2:Lf)+1)';
+    scv = sqrt((2*Lv(2:end)'+1)/(4*pi));
+    figure('Name', sprintf('Fig 3  the arms side by side, Lmax %d, pick %s', Lf, GLYPH_PICK));
+    for ia = 1:NARM
+        subplot(NARM, NSNR+1, (ia-1)*(NSNR+1) + 1);
+        [X,Y,Z,Cc] = RH.sh_glyph(sh_gt(1,2:nc)./scv, Lf, CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
+        surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
+        camlight headlight; lighting gouraud;
+        title(sprintf('%s: truth', ARMS{ia}.name));   % single line, see Fig 1
+        for k = 1:NSNR
+            is = SNR_ORD(k);
+            rows = find(snr_id == is & orient_id == 1);
+            if strcmp(GLYPH_PICK, 'median')
+                % Reuse Step 7's per-voxel scoring: the realisation whose
+                % angular error is the median of this block. A stated rule,
+                % which "whichever landed first in the array" is not.
+                ae_ = AE_all{ia,iLf}(rows);
+                good = find(isfinite(ae_));
+                if isempty(good)
+                    v = rows(1);
+                else
+                    [~, o_] = sort(ae_(good));
+                    v = rows(good(o_(max(1, round(numel(o_)/2)))));
+                end
+            else
+                v = rows(1);
+            end
+            m = ARMS{ia}.sh{iLf}(v, 1:nc);
+            plmv = (m(2:end) * ((1/sqrt(4*pi))/m(1))) ./ scv;
+            subplot(NARM, NSNR+1, (ia-1)*(NSNR+1) + 1 + k);
+            [X,Y,Z,Cc] = RH.sh_glyph(plmv, Lf, CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
+            surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
+            camlight headlight; lighting gouraud;
+            title(sprintf('SNR %s', SNR_LABEL{is}));
+        end
+    end
+
+    % ---- FIGURE 4: the metrics against SNR
+    % Rows are Lmax, columns are the metric, and the lines in every panel are
+    % the arms -- the arms sit on the same axes because they were run on the
+    % same voxels, so there is no Monte Carlo error between them to explain
+    % away. Drawn from exactly the arrays Step 7 printed.
+    mets = {bias_all, sd_all, spur_all, res_all};
+    labs = {'mean err (deg)', 'spread (deg)', 'spurious/vox', 'correct (%)'};
+    figure('Name', 'Fig 4  the arms against SNR');
+    for iL = 1:numel(LMAX_LIST)
+        for im = 1:4
+            subplot(numel(LMAX_LIST), 4, (iL-1)*4 + im);
+            hold on;
+            for ia = 1:NARM
+                plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-o', 'LineWidth', 1.5);
+            end
+            if im == 1
+                plot(1:NSNR, median(ceil_deg(iL,:))*ones(1,NSNR), 'k--');
+            end
+            set(gca, 'XTick', 1:NSNR, 'XTickLabel', SNR_LABEL(SNR_ORD));
+            xlim([0.5 NSNR+0.5]); grid on;
+            if im == 1, ylabel(sprintf('Lmax %d', LMAX_LIST(iL))); end
+            if iL == 1, title(labs{im}); end
+            if iL == numel(LMAX_LIST), xlabel('SNR'); end
+            if iL == 1 && im == 4
+                legend(cellfun(@(a) a.name, ARMS, 'UniformOutput', false), 'Location', 'best');
+            end
+        end
+    end
+    fprintf('   4 figures drawn. Dashed line on the error panels is the band-limit ceiling.\n\n');
+end
+
+%% Summary
+% One block per metric. Read the error rows against the ceiling printed with
+% them, never against zero: the mean angular error is the mean of a non-negative
+% quantity and does not vanish for a perfect estimator.
+
+fprintf('=== summary ===\n');
+if SMOKE_TEST
+    fprintf('*** SMOKE_TEST = true -- %d realisations per cell, INDICATIVE ONLY ***\n', NREP*NORIENT);
+end
+sums = {bias_all, sd_all, res_all, spur_all};
+snames = {'mean angular error (deg)', 'std of angular error (deg)', ...
+          'correct fibre count (%)', 'spurious peaks per voxel'};
+for im = 1:numel(sums)
+    fprintf('\n%s\n', snames{im});
+    for iL = 1:numel(LMAX_LIST)
+        fprintf('  Lmax %d (ceiling %.2f deg)\n', LMAX_LIST(iL), median(ceil_deg(iL,:)));
+        fprintf('   %-12s', 'arm');
+        for k = 1:NSNR, fprintf('%10s', SNR_LABEL{SNR_ORD(k)}); end
+        fprintf('\n');
+        for ia = 1:NARM
+            fprintf('   %-12s', ARMS{ia}.name);
+            for k = 1:NSNR, fprintf('%10.3f', sums{im}(ia,iL,SNR_ORD(k))); end
+            fprintf('\n');
+        end
+    end
+end
+
+% The number this file exists to produce.
+if RUN_ARM1 && RUN_ARM2
+    fprintf('\n=== what estimating the kernel costs ===\n');
+    fprintf('Arm 2 minus Arm 1, same data, same regularization, same peak finder.\n');
+    fprintf('Positive means the fitted-kernel arm is WORSE.\n');
+    fprintf('   %-14s', 'Lmax / SNR');
+    for k = 1:NSNR, fprintf('%10s', SNR_LABEL{SNR_ORD(k)}); end
+    fprintf('\n');
+    for iL = 1:numel(LMAX_LIST)
+        fprintf('   err   Lmax %-4d', LMAX_LIST(iL));
+        for k = 1:NSNR
+            fprintf('%+10.3f', bias_all(2,iL,SNR_ORD(k)) - bias_all(1,iL,SNR_ORD(k)));
+        end
+        fprintf('\n');
+        fprintf('   count Lmax %-4d', LMAX_LIST(iL));
+        for k = 1:NSNR
+            fprintf('%+10.1f', res_all(2,iL,SNR_ORD(k)) - res_all(1,iL,SNR_ORD(k)));
+        end
+        fprintf('\n');
+    end
+end
+fprintf('\n=== done ===\n');
