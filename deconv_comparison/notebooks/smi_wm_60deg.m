@@ -967,7 +967,11 @@ if MAKE_FIGURES
     surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
     set(gca,'XLim',GLYPH_LIM,'YLim',GLYPH_LIM,'ZLim',GLYPH_LIM);
     camlight headlight; lighting gouraud;
-    title(sprintf('ground truth\n%g deg, kappa %g', CROSS_DEG, KAPPA));
+    % Single-line titles throughout. A newline in a title is fine in MATLAB but
+    % breaks Octave's gnuplot backend, which splits the title command at the
+    % newline and reports the remainder as `invalid command`, leaving the panel
+    % labels mangled and the log full of errors that look like real failures.
+    title(sprintf('ground truth, %g deg, kappa %g', CROSS_DEG, KAPPA));
     for i = 1:nsh
         subplot(1, 1+nsh, 1+i);
         [X,Y,Z,Cc] = RH.zh_glyph(r_sh{i}, GLYPH_N, GLYPH_N, 1/rmax, GLYPH_NEG);
@@ -1033,7 +1037,7 @@ if MAKE_FIGURES
         [X,Y,Z,Cc] = RH.sh_glyph(sh_gt(1,2:nc)./scv, Lf, CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
         surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
         camlight headlight; lighting gouraud;
-        title(sprintf('%s\ntruth', ARMS{ia}.name));
+        title(sprintf('%s: truth', ARMS{ia}.name));   % single line, see Fig 1
         for k = 1:NSNR
             is = SNR_ORD(k);
             rows = find(snr_id == is & orient_id == 1);
