@@ -1,15 +1,28 @@
-# Archived learning exercises
+# Archive
 
-This directory indexes exploratory work that helped explain SMI or test a
-possible extension but is not part of the recommended analysis pipeline. The
-implementations and measurement reports remain in their functional directories
-so their history stays reproducible; this file records why they are no longer
-prominent in the main README.
+This directory indexes exploratory work and superseded workflows that are not
+part of the recommended analysis pipeline. Material is retained when it remains
+useful for understanding SMI, reproducing an older result, or explaining why a
+direction was not pursued.
 
 Archive status is not a claim that the work is incorrect. It means that the
 exercise is primarily useful for understanding the model, has not been
 validated enough for routine use, or no longer reflects the direction of the
 main pipeline.
+
+## Superseded workflow: original deconvolution comparison
+
+[`deconv_pipeline/`](deconv_pipeline/) contains the original Octave, MRtrix,
+and Python Monte Carlo campaign. It produced
+[`Reports/deconv_tables.md`](../Reports/deconv_tables.md) and
+[`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`](../Reports/REPORT_SMI_deconvolution_MonteCarlo.md),
+so it remains the provenance for those numbers.
+
+It is not the active comparison and its paths need repair before it can run from
+its archived location. New work should use
+[`deconv_comparison/notebooks/smi_manuscript_60deg.m`](../deconv_comparison/notebooks/smi_manuscript_60deg.m),
+which runs all three arms on the same simulated data in one script. See the
+[`deconv_pipeline` README](deconv_pipeline/README.md) for the exact boundary.
 
 ## Semi-retired: anisotropy modulation of the fODF
 
