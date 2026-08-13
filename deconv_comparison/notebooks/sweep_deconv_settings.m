@@ -99,6 +99,7 @@ NDIR_E   = 4000;    % directions for the SHAPE metrics
 % accumulating across the sweep. Point this outside any synced folder.
 SCRATCH_DIR = '';
 KEEP_FILES  = false;
+MAKE_FIGURES = true;   % Figures 1-3, drawn from the arrays Step 4 prints
 
 %% The sweep
 % Every knob is a field of SMI.fODF_RegularizationDefaults. One-at-a-time
@@ -373,6 +374,96 @@ for iL = 1:numel(LMAX_LIST)
     end
     fprintf('\n');
   end
+end
+
+%% Figures
+%  Fig 1  the trade-off: every setting as one point, peak accuracy against
+%         shape fidelity. If the cloud runs along a diagonal there is no single
+%         best setting, only a frontier -- which is the whole finding.
+%  Fig 2  one-at-a-time: each metric against each swept parameter
+%  Fig 3  the lambda_nonneg x tau grid as heatmaps, one per metric
+%
+% Drawn from exactly the arrays Step 4 printed, so the figures and the tables
+% cannot disagree. Single-line titles throughout: a newline in a title is fine
+% in MATLAB but breaks Octave's gnuplot backend.
+
+if MAKE_FIGURES
+    fprintf('\nFigures: rendering ...\n');
+    isf = find(isinf(SNR_LIST),1); if isempty(isf), isf = NSNR; end
+
+    % ---- FIGURE 1: the peak/shape trade-off
+    figure('Name','Fig 1  peak accuracy vs shape fidelity');
+    for iL = 1:numel(LMAX_LIST)
+        for is = 1:NSNR
+            subplot(numel(LMAX_LIST), NSNR, (iL-1)*NSNR + is); hold on;
+            for k = 1:numel(JOB)
+                if JOB{k}.Lmax ~= LMAX_LIST(iL), continue, end
+                unc = ~isempty(strfind(JOB{k}.name,'flag_nonneg=0'));
+                if unc, mk = 'rs'; else, mk = 'bo'; end
+                plot(ERR(k,is), REL(k,is), mk, 'MarkerSize', 5);
+            end
+            grid on;
+            xlabel('mean angular error (deg)'); ylabel('relative L2');
+            title(sprintf('Lmax %d, SNR %s', LMAX_LIST(iL), SNRLAB{is}));
+        end
+    end
+    fprintf('   Fig 1: blue = constrained, red = unconstrained reference.\n');
+    fprintf('          A point down-and-left is better on both. A diagonal cloud\n');
+    fprintf('          means no setting is best on both and you must choose.\n');
+
+    % ---- FIGURE 2: one-at-a-time curves
+    mets = {ERR, COR, REL, NEG};
+    mlab = {'angular err (deg)','correct (%)','relative L2','negative fraction'};
+    nk   = numel(SMI_OAT);
+    figure('Name','Fig 2  each metric against each swept parameter');
+    for io = 1:nk
+        fld = SMI_OAT{io}{1};
+        for im = 1:numel(mets)
+            subplot(nk, numel(mets), (io-1)*numel(mets) + im); hold on;
+            for iL = 1:numel(LMAX_LIST)
+                xv = []; yv = [];
+                for k = 1:numel(JOB)
+                    if JOB{k}.Lmax ~= LMAX_LIST(iL), continue, end
+                    tok = sscanf(JOB{k}.name, [fld '=%f']);
+                    % only the rows that vary THIS field alone
+                    if isempty(tok) || ~isempty(strfind(JOB{k}.name,' ')), continue, end
+                    xv(end+1) = tok(1); yv(end+1) = mets{im}(k,isf); %#ok<AGROW>
+                end
+                if isempty(xv), continue, end
+                [xv,o] = sort(xv); yv = yv(o);
+                plot(xv, yv, '-o', 'LineWidth', 1.2);
+            end
+            grid on; set(gca,'XScale','log');
+            if im == 1, ylabel(fld, 'Interpreter','none'); end
+            if io == 1, title(mlab{im}); end
+        end
+    end
+    fprintf('   Fig 2: rows are knobs, columns are metrics, one line per Lmax,\n');
+    fprintf('          at SNR %s. Log x axis.\n', SNRLAB{isf});
+
+    % ---- FIGURE 3: the 2-D grid as heatmaps
+    gA = SMI_GRID{1}; vA = SMI_GRID{2}; gB = SMI_GRID{3}; vB = SMI_GRID{4};
+    figure('Name', sprintf('Fig 3  %s x %s grid', gA, gB));
+    for im = 1:numel(mets)
+        Mgrid = nan(numel(vA), numel(vB));
+        for ia = 1:numel(vA)
+            for ib = 1:numel(vB)
+                nm = sprintf('%s=%g %s=%g', gA, vA(ia), gB, vB(ib));
+                for k = 1:numel(JOB)
+                    if strcmp(JOB{k}.name,nm) && JOB{k}.Lmax == LMAX_LIST(1)
+                        Mgrid(ia,ib) = mets{im}(k,isf);
+                    end
+                end
+            end
+        end
+        subplot(1, numel(mets), im);
+        imagesc(Mgrid); colorbar; axis xy;
+        set(gca,'XTick',1:numel(vB),'XTickLabel',vB, ...
+                'YTick',1:numel(vA),'YTickLabel',vA);
+        xlabel(gB,'Interpreter','none'); ylabel(gA,'Interpreter','none');
+        title(mlab{im});
+    end
+    fprintf('   Fig 3: Lmax %d, SNR %s.\n\n', LMAX_LIST(1), SNRLAB{isf});
 end
 
 if ~KEEP_FILES && exist(WDIR,'dir')
