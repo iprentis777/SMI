@@ -2,11 +2,17 @@
 
 Handoff for the next agent working on SMI fODF tractography through edema.
 
-This is the **third** version of this file. Each version corrects conclusions the
-previous one stated as settled, so treat section 2 as the most important thing
-here: it is the list of things a confident-sounding earlier handoff got wrong,
-including things *this* session's agent got wrong and then measured properly.
-Earlier versions are at `409e3ca` and `900a8b6~1` in git history.
+This is the **third** version of this file, amended after PR #29-#33. Each
+version corrects conclusions the previous one stated as settled, so treat
+section 2 as the most important thing here: it is the list of things a
+confident-sounding earlier handoff got wrong, including things *this* session's
+agent got wrong and then measured properly. Earlier versions are at `409e3ca`
+and `900a8b6~1` in git history.
+
+The amendment touches four places, all of them corrections rather than new
+claims: the merged-work table and the merge-order trap in section 1, the real
+data status in section 1, one more of this agent's own wrong calls in section
+2.2, and the closure of free `p_00` in section 7.
 
 **Read sections 1 and 2 before proposing anything.**
 
@@ -35,6 +41,23 @@ The shview-style response viewer, the `deconv_comparison/` Monte Carlo package,
 `lambda_nonneg` default change from 10 to 1 were merged in PR #7. The shared
 Monte Carlo configuration was merged in PR #9. Section 6.4 justifies the
 default change.
+
+**Merged since (PR #29 onward), none of which changes a shipped default:**
+
+| PR | what landed |
+|---|---|
+| #29 | `deconv_comparison/notebooks/smi_wm_60deg.m`, the healthy-WM 60 degree rework with a **two-arm SMI design** (fixed kernel via `get_plm_from_S_and_kernel`, and full `SMI.fit`), SSST + MSMT at two `-neg_lambda` settings, `sh2peaks` peaks, 18 orientations, `lambda_tikhonov = 0`. Plus `Reports/REPORT_WM_simulation_rework.md` and `Patches/0025whitemattersimulationrework.patch` |
+| #30 | `deconv_comparison/notebooks/sweep_deconv_settings.m`, an **SMI-only** sweep of every deconvolution knob with the kernel known and held fixed, scored by two independent metric families (peak and shape) |
+| #31 | three figure panels for that sweep — trade-off scatter, one-at-a-time curves, `lambda_nonneg` x `tau` heatmaps |
+| #33 | carries #31 forward to master (see below) and this handoff update |
+
+**A merge-order trap, for the record.** PR #31 was opened against
+`claude/deconv-parameter-sweep` rather than master, so merging it landed the
+figures on that branch only. Master had already merged #30 at `dfc117b`, whose
+second parent is the pre-figures commit, so `sweep_deconv_settings.m` on master
+had no figures block even after both PRs showed as merged. If a stacked PR ever
+looks merged but its content is missing, check what the merge commit's second
+parent actually points at before re-doing the work.
 
 **Current pipeline posture:** keep anisotropy modulation available for
 reproducibility, but do not present it as an active pipeline recommendation.
@@ -233,6 +256,15 @@ evaluated at MRtrix's own per-shell b rather than the nominal 0/1/2/3.
 
 ### Still on a branch, not merged
 
+**`claude/free-l0-deconvolution` (PR #32) — ABANDONED BY DECISION, do not
+revive.** Free `p_00` deconvolution: `SMI_freeL0.m` (a copy of the toolbox with
+`free_l0` and `p00_bounds` options), `helpers/fODF_free_l0_deconv.m`, and
+`deconv_comparison/notebooks/smi_free_l0_experiment.m`. Purely additive —
+`SMI.m` was never touched and remains the running default. Section 7 records
+why it was dropped and what it measured first. **Close the PR rather than
+merging it**; the branch is worth keeping only as the record of a tested
+negative.
+
 **`claude/freewater-simulations` (`1be06ea`, 3 commits)** — the free-water
 comparison package, `REPORT_fODF_freewater.md`,
 `REPORT_fODF_compartment_split.md`, two figures. **Still no PR, still unmerged,
@@ -241,9 +273,20 @@ now three sessions old.** Every measured number quoted in
 land or those numbers lose their provenance. `deconv_comparison/binio.{m,py}`
 and `kernel.py` are *copies* of files on that branch — de-duplicate if it lands.
 
-### Never run on real data
+### Real data: no longer "never", but still not in any report
 
-Everything. No result in any report has touched a patient scan — including the
+**This changed.** `run_smi_batch_mod.m` has now been run on the 5-subject edema
+batch and the outputs inspected in mrview — that is where the `p_00` saturation
+in section 7 was observed. Two things follow. First, the driver scripts are
+live, so changes to them are changes to something that runs: the batch now has
+the **pre-fit mask erosion removed** at the user's request, which means the
+partial-volume rim at the brain edge reaches kernel estimation and the outlier
+cap is the only remaining defence — and it detects isolated spikes, not a
+contiguous shell. A rim of flagged voxels in `SMI_fODFcap_flagged.nii` is the
+expected signature and the argument for putting erosion back. Second, everything
+below still holds for the *reports*.
+
+No result in any report has touched a patient scan — including the
 "real data" that the Monte Carlo response functions are estimated from, which is
 a synthetic phantom (`deconv_comparison/gen_phantom.m`). Two driver scripts live
 only on the user's machine and arrive as file uploads: `run_smi_hcp.m` (single
@@ -315,6 +358,21 @@ mistake is more instructive than either answer.
    computing that trend from a **retyped, wrong edema kernel** rather than the
    one the manuscript file defines. With the real kernel MSMT-CSD's amplitude
    moves 7.15x, not 1.8x — the approximation had hidden the effect entirely.
+
+5. **"The `p_00` map's ceiling at 0.2821 is a units bug in the free solver."**
+   Wrong, and the wrong answer sent the user toward a code fix instead of the
+   real finding. The user showed an mrview screenshot whose colorbar topped out
+   at `0.282094806` and asked whether `p_00` was simply insensitive to WM
+   microstructure. That number is the float32 of `1/sqrt(4*pi)` — which is not
+   `p_00` at all, it is the **SH basis conversion factor** that the l = 0 volume
+   of the written fODF carries by construction (`f_00 = p_00/sqrt(4*pi)`, and in
+   the unmodified script the hardcoded constant `1/sqrt(4*pi)`). The giveaway
+   was in the screenshot the whole time: `voxel index: [ 34 49 28 0 ]`, four
+   components, so a 4D file — the fODF, not the 3D `p_00` map. Divide the factor
+   out and the bulk sits at `p_00 = 1.0000`: **saturation at the `p00_bounds`
+   upper bound**, not a bug and not insensitivity. The lesson is narrow and
+   worth keeping: when a map's extremum lands on a famous constant, check which
+   volume is being displayed before theorising about the solver.
 
 ### 2.3 Still standing from the previous handoff
 
@@ -790,6 +848,37 @@ Do not re-walk these.
   raw `p` exceeds the clip so the voxel gets weight exactly 1.0, the maximum in
   the volume. `'reject'` exists. Still not changed.
 - **`lambda_tikhonov` is inert.** Section 2.3, item 1. Stop sweeping it.
+- **Freeing `p_00` is closed, and closed on principle, not just on results.**
+  The `p_00 = 1` convention was treated for a while as an inherited constraint
+  worth relaxing, on the theory that letting the fODF carry density would let it
+  dim in CSF and edema instead of being held up by the `1/(4*pi)` isotropic
+  floor. It was built (PR #32), it worked, and it is not wanted. **The user's
+  reasoning, which supersedes the measurements below: `p_00 = 1` is a feature of
+  this approach, because it reflects that we are not trying to estimate a
+  white-matter-specific kernel — and a WM-specific kernel is exactly what could
+  be counterproductive for fibre tracking through edema.** Freeing `p_00` makes
+  the written fODF amplitude a function of how well the kernel explains the
+  spherical mean, which pipes kernel misfit straight into the quantity
+  tractography thresholds on, and it does so hardest in the voxels where the
+  kernel is least trustworthy. Fixing `p_00` insulates the orientation estimate
+  from kernel amplitude error. That is an argument about what the method is for,
+  and no simulation result would overturn it.
+
+  What it measured before being dropped, kept so nobody re-derives it:
+  noise-free, a matched healthy control recovered `p_00 = 1.0008`; an edema
+  signal deconvolved with a healthy kernel improved from 6.59 to 4.36 degrees;
+  free water dropped from 0.1374 to 0.0487, below MRtrix's `iFOD2 -cutoff 0.05`,
+  though marginally and noise-free. On **real** edema data (5-subject batch,
+  `p00_bounds = [0 1]`) `p_00` was **pinned at its upper bound of 1 across most
+  of white matter** — the deconvolution wanted *more* fODF mass than unity, not
+  less, so the fixed convention was already at the constrained optimum where it
+  matters. Anything revisiting this must widen the bound to `[0 Inf]` first,
+  because a map clipped at 1 says nothing about sensitivity either way.
+
+  Note also that `lambda_nonneg` was tuned entirely under the *inhomogeneous*
+  constraint (`p_00` fixed, so the fODF rests on a floor and the penalty only
+  pushes upward). The free path's constraint is homogeneous and can shrink
+  toward zero everywhere, so none of the tuned regularisation transfers.
 
 The one thing that has ever satisfied every constraint at once, still unshipped:
 **noise-floor-subtracted anisotropic power over `l = 2,4`**, using `sigma` and
@@ -926,6 +1015,34 @@ it has never touched real data.
    `Reports/REPORT_fODF_outlier_cap.md` have no reproducible source.
 8. Spatial context beyond the cap — a neighbour-agreement *weight* rather than
    just an outlier test — is the remaining unexplored axis.
+9. **Close PR #32 without merging** (section 7, free `p_00`). Decided, not
+   pending.
+
+**Carried over and still open, from the response-function work:**
+
+- **Fit the WM kernel under SMI's own training prior.** The kernel that
+  reproduces the real group-averaged HCP response lands *outside*
+  `MLTraining.bounds` (`f [0.05,0.95]`, `Da [1,3]`, `Depar [1,3]`,
+  `Deperp [0.1,1.2]`, `fw [0,0.2]`). Until it is refitted inside the prior, the
+  generative kernel and the estimator disagree about what is possible. The
+  simulated kernel is too sharp: `r_2/r_0` is -0.75 against a real -0.48, and
+  **dispersion is ruled out as the explanation** — the required correction is
+  b-dependent and dispersion is not.
+- **MSMT's Lmax 8 bias is still unexplained** (1.35 deg against a 0.88 deg
+  ceiling, while SSST manages 0.56). The tissue basis is **exonerated**:
+  WM-only is identical to all three-tissue variants at defaults. It is entirely
+  `-neg_lambda`, and it is Lmax-dependent — Lmax 4 defaults fail, Lmax 6/8
+  defaults are the best low-SNR arm. **The untested variable is the shell set,
+  not the tissue count.**
+- **Citation edits to `Reports/REPORT_WM_simulation_rework.md`.** Equation 3
+  (the spherical convolution theorem) should cite **Driscoll & Healy 1994** as
+  primary, with a note that the constant depends on the convolution definition;
+  Tournier 2004/2007 is an *application*, not the source. Add the MRtrix docs
+  for the storage convention, and note that Novikov's `K_l` carries no
+  prefactor. The theorem and its constant were verified numerically; only the
+  attribution was wrong.
+- **Archive move**, deferred by the user until after merge: `smi_manuscript_60deg.m`
+  to `Archive/`, repointing `check_manuscript_static.m` and `test_csd_arms.m`.
 
 ---
 
