@@ -206,6 +206,14 @@ PEAK_NUM  = 3;      % peaks sh2peaks is asked for. 3 so a spurious third is
 
 % ------------------------------------------------------------- the figures
 MAKE_FIGURES = true;
+MARKER_SIZE  = 3;      % Figure 4 marker size, in points. Set to 0 for lines
+                       % only. The markers were sized for a six-point SNR
+                       % grid; at sixteen they run together into a chain of
+                       % circles that reads as thickness rather than as data,
+                       % so the default is small rather than absent -- the
+                       % dots still show WHERE the curve was actually sampled,
+                       % which matters now that the spacing is uneven (one
+                       % unit apart from SNR 5 to 10, then 2, 5, 10).
 ISO_VIEW  = [1 1 1];
 GLYPH_N   = 121;
 GLYPH_NEG = 'clamp';   % 'clamp' draws radius = max(amplitude,0). A band-limited
@@ -1117,7 +1125,13 @@ if MAKE_FIGURES
             subplot(numel(LMAX_LIST), 4, (iL-1)*4 + im);
             hold on;
             for ia = 1:NARM
-                plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-o', 'LineWidth', 1.5);
+                if MARKER_SIZE > 0
+                    plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-o', ...
+                         'LineWidth', 1.5, 'MarkerSize', MARKER_SIZE);
+                else
+                    plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-', ...
+                         'LineWidth', 1.5);
+                end
             end
             if im == 1
                 plot(1:NSNR, median(ceil_deg(iL,:))*ones(1,NSNR), 'k--');
