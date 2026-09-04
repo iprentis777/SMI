@@ -183,9 +183,25 @@ NDIR_Q   = 3000;    % quadrature directions for projecting a sampled fODF
 SEED     = 31415;   % noise seed, offset per SNR block
 
 RUN_ARM1 = 1;       % fixed-kernel SMI deconvolution
-RUN_ARM2 = 1;       % SMI.fit, estimating the kernel per voxel. THIS IS THE
+RUN_ARM2 = 0;       % SMI.fit, estimating the kernel per voxel. THIS IS THE
                     % EXPENSIVE ONE: one SMI.fit call per Lmax per SNR.
 RUN_MRTRIX = 1;     % the CSD arms
+
+% TEMPORARILY OFF, not removed: RUN_ARM2 = 0 above, and the 'MSMT def'
+% variant is commented out below. What is left -- SMI fixed, SSST-CSD and
+% MSMT tuned -- is a comparison of DECONVOLUTIONS with the kernel/response
+% held fixed and known, which is the question being asked at the moment.
+%
+% Arm 2 is the one that also estimates the kernel per voxel, so including it
+% mixes two effects in one panel: how the deconvolution behaves, and what
+% estimating the kernel costs on top. Set RUN_ARM2 = 1 to bring it back; the
+% "what estimating the kernel costs" table at the end is already guarded by
+% |RUN_ARM1 && RUN_ARM2| and simply does not print while it is off, so
+% nothing silently reindexes onto the wrong arm.
+%
+% NOTE the runtime cut is large: arm 2 is one SMI.fit per Lmax per SNR, so
+% turning it off removes 48 fits from the full-size sweep and leaves the
+% MRtrix arms, which cost seconds.
 
 % ----------------------------------------------- the constrained deconvolution
 % flag_nonneg = 1 is the arm being studied; it is OFF in the shipped defaults.
@@ -195,8 +211,13 @@ REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0);
 % ------------------------------------------------------------- the CSD arms
 % MSMT is run twice, at MRtrix's defaults and at values matched to the SSST
 % arm's constraint strength. See Step 0.1: the difference is order dependent.
-MSMT_VARIANTS = { struct('name','MSMT def',   'neg',1e-10, 'norm',1e-10), ...
-                  struct('name','MSMT tuned', 'neg',1,     'norm',1e-3) };
+% 'MSMT def' is commented out for now. To restore the pair, put its entry
+% back as the first element of the cell below:
+%     struct('name','MSMT def',   'neg',1e-10, 'norm',1e-10), ...
+% Kept here rather than deleted because Step 0.1's finding -- that the
+% difference between the two settings is order dependent -- is only
+% reproducible with both present.
+MSMT_VARIANTS = { struct('name','MSMT tuned', 'neg',1,     'norm',1e-3) };
 
 % ------------------------------------------------------------ the scoring
 PEAK_REL  = 0.30;   % keep peaks at >= this fraction of the largest ANISOTROPIC
