@@ -187,10 +187,10 @@ RUN_ARM2 = 0;       % SMI.fit, estimating the kernel per voxel. THIS IS THE
                     % EXPENSIVE ONE: one SMI.fit call per Lmax per SNR.
 RUN_MRTRIX = 1;     % the CSD arms
 
-% TEMPORARILY OFF, not removed: RUN_ARM2 = 0 above, and the 'MSMT def'
-% variant is commented out below. What is left -- SMI fixed, SSST-CSD and
-% MSMT tuned -- is a comparison of DECONVOLUTIONS with the kernel/response
-% held fixed and known, which is the question being asked at the moment.
+% TEMPORARILY OFF, not removed: RUN_ARM2 = 0 above. What is left -- SMI
+% fixed, SSST-CSD and both MSMT settings -- is a comparison of
+% DECONVOLUTIONS with the kernel/response held fixed and known, which is the
+% question being asked at the moment.
 %
 % Arm 2 is the one that also estimates the kernel per voxel, so including it
 % mixes two effects in one panel: how the deconvolution behaves, and what
@@ -211,13 +211,11 @@ REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0);
 % ------------------------------------------------------------- the CSD arms
 % MSMT is run twice, at MRtrix's defaults and at values matched to the SSST
 % arm's constraint strength. See Step 0.1: the difference is order dependent.
-% 'MSMT def' is commented out for now. To restore the pair, put its entry
-% back as the first element of the cell below:
-%     struct('name','MSMT def',   'neg',1e-10, 'norm',1e-10), ...
-% Kept here rather than deleted because Step 0.1's finding -- that the
-% difference between the two settings is order dependent -- is only
-% reproducible with both present.
-MSMT_VARIANTS = { struct('name','MSMT tuned', 'neg',1,     'norm',1e-3) };
+% Both MSMT settings run. Step 0.1: the difference between them is order
+% dependent, so the pair has to be present for that finding to reproduce --
+% which is why 'MSMT def' is back rather than left commented out.
+MSMT_VARIANTS = { struct('name','MSMT def',   'neg',1e-10, 'norm',1e-10), ...
+                  struct('name','MSMT tuned', 'neg',1,     'norm',1e-3) };
 
 % ------------------------------------------------------------ the scoring
 PEAK_REL  = 0.30;   % keep peaks at >= this fraction of the largest ANISOTROPIC
