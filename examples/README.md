@@ -27,12 +27,14 @@ These scripts generate their own synthetic inputs and need no downloaded data:
 
 | file | purpose |
 |---|---|
-| [`example_fODF_regularization.m`](example_fODF_regularization.m) | compare unregularized, Tikhonov, and non-negativity-constrained fODFs |
+| [`example_fODF_regularization.m`](example_fODF_regularization.m) | compare unregularized against non-negativity-constrained fODFs at two weights |
 | [`example_fODF_regularization_sweep.m`](example_fODF_regularization_sweep.m) | sweep regularization settings and produce comparison figures |
 
-The modulation and response-kernel viewers are retained as learning exercises,
-not recommended pipeline steps. Their status and limitations are indexed in
-[`Archive/README.md`](../Archive/README.md).
+The response-kernel viewer is retained as a learning exercise, not a
+recommended pipeline step. The anisotropy modulation example has been retired
+along with the feature and now lives in
+[`Archive/patch_history/fODF_modulation/`](../Archive/patch_history/fODF_modulation/).
+Both are indexed in [`Archive/README.md`](../Archive/README.md).
 
 [`example_SMI_SSM.m`](example_SMI_SSM.m) is a specialized SSM example and is
 not the primary first-run path for the toolbox.

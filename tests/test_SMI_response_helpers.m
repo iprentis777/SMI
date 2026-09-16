@@ -26,7 +26,7 @@ if exist('OCTAVE_VERSION','builtin'), pkg load statistics; end
 TF = {'FAIL','PASS'};
 
 H  = SMI_response_helpers();
-HF = fODF_modulation_helpers();
+HF = fODF_sim_helpers();
 CS = 1; D_FW = 3; LMAX = 8; LMAX_F = 6;
 kernel = [0.60 2.0 2.0 0.50 0.05];
 bvals  = [0 1 2 3];

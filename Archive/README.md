@@ -20,47 +20,73 @@ so it remains the provenance for those numbers.
 
 It is not the active comparison and its paths need repair before it can run from
 its archived location. New work should use
-[`deconv_comparison/notebooks/smi_manuscript_60deg.m`](../deconv_comparison/notebooks/smi_manuscript_60deg.m),
-which runs all three arms on the same simulated data in one script. See the
+[`deconv_comparison/notebooks/smi_wm_60deg.m`](../deconv_comparison/notebooks/smi_wm_60deg.m),
+which runs every arm on the same simulated data in one script. See the
 [`deconv_pipeline` README](deconv_pipeline/README.md) for the exact boundary.
 
-## Semi-retired: anisotropy modulation of the fODF
+## Retired: anisotropy modulation of the fODF
 
-SMI stores a normalized fODF with `p_00 = 1`, so every voxel has the same total
-fODF mass. Anisotropy modulation explored multiplying that fODF by a per-voxel
-coherence weight so amplitude could help distinguish coherent white matter from
-isotropic tissue during tractography.
+[`patch_history/fODF_modulation/`](patch_history/fODF_modulation/) holds the
+removed implementation, its measurement report and its example.
 
-The implementation remains available through `options.fODF_modulation` and
-`SMI.modulate_fODF`, but it is off by default and is not part of the recommended
-pipeline. Treat it as semi-retired because:
+SMI stores a normalized fODF with `p_00 = 1`, so its isotropic floor is a fixed
+`1/(4*pi) = 0.0796` — **above** MRtrix's default iFOD2 `-cutoff` of 0.05. An
+unmodulated fODF therefore passes the tractography termination test everywhere
+in the brain, CSF included. Anisotropy modulation multiplied the fODF by a
+per-voxel coherence weight to restore that amplitude information without keying
+on tissue type, which would delete edema.
 
-- its evidence is simulation-only and has not been validated in real edema;
-- its preferred `p2product` weight fails for some symmetric fibre geometries;
-- it changes the coefficient convention in density mode by including and
-  rescaling the `l=0` term;
-- its output basis and downstream MRtrix use require explicit convention checks;
-- modulation cannot stabilize an ill-conditioned deconvolution and does not
-  replace regularization;
-- a reviewer would reasonably ask why this additional weighting belongs in the
-  pipeline instead of a more conventional CSD-style treatment.
+This was previously *semi-retired* — off by default but still shipped. It is now
+removed: `options.fODF_modulation` is no longer read by any code path.
 
-The exercise did establish several useful negative results: `p4` is not a
-reliable modulation weight, tissue-fraction weights can suppress the edema
-class they were intended to preserve, and the original high-order loss was not
-caused by Tikhonov damping.
+It is retired because its evidence is simulation-only and was never validated on
+real edema, its preferred `p2product` weight fails for some symmetric fibre
+geometries, it changes the coefficient convention in density mode, and it cannot
+stabilize an ill-conditioned deconvolution — the weight is clipped at 1, so
+`w * 1e13` is still `1e13`. Regularization is what prevents that.
 
-Artifacts:
+The exercise established several useful negative results, which are the reason
+it is archived rather than deleted: `p4` is not a reliable modulation weight and
+is *worse than no weighting at all*; tissue-fraction weights suppress the edema
+class they were intended to preserve; the original high-order loss was not
+caused by Tikhonov damping but by the non-negativity constraint; and
+`degenerate = 'clip'` was a bad default that gave blown-up voxels the maximum
+weight in the volume.
 
-- `examples/example_fODF_modulation.m` — seven-class simulation
-- `helpers/fODF_modulation_helpers.m` — reusable simulation helpers
-- `Reports/REPORT_fODF_modulation.md` — measurements and limitations
-- `SMI.m` — retained opt-in implementation
+Two things deliberately stayed behind. `SMI.grab_pl` and `SMI.grab_kernel_pl`
+are kept — modulation was their only caller, but they are generic public
+accessors. And `helpers/fODF_modulation_helpers.m` was **renamed** to
+[`helpers/fODF_sim_helpers.m`](../helpers/fODF_sim_helpers.m) rather than
+archived: despite the old name it contains no modulation code, only the generic
+forward-simulation toolkit that eleven active files depend on.
 
-Revisit this work only if a concrete real-data or manuscript question requires
-it. Any reactivation should begin with a known edema ROI, explicit MRtrix basis
-validation, and a reviewer-facing justification for departing from established
-regularization and tractography conventions.
+## Retired: Tikhonov damping of the fODF deconvolution
+
+[`patch_history/fODF_tikhonov/`](patch_history/fODF_tikhonov/) holds the removed
+implementation and the measurements that removed it.
+
+The fODF deconvolution is ill-conditioned, and Tikhonov damping added a penalty
+`lambda_tikhonov^2*||Gamma*plm||^2` intended to suppress the high-order
+coefficients the kernel attenuates most. It was off by default and is now gone
+entirely.
+
+It is retired because two independent measurements found it inert: swept from 0
+to 0.8 at three noise levels the high-`l` bands were identical to three
+decimals, and `0.3` against `0` moved a 45 degree error from 21.28 to 21.27
+degrees. The first of those was made while investigating why `l = 4` power was
+being lost, and it overturned the explanation then in the code — the cause is
+the non-negativity constraint together with error in the estimated kernel, not
+damping.
+
+The useful negative result is that **non-negativity is the only fODF regularizer
+in SMI that demonstrably changes a result**, so it is the only one worth tuning.
+Note also that removing this leaves SMI less regularized than the CSD arms it is
+compared against, since `dwi2fod csd` ships `-norm_lambda 1` — Tikhonov with
+`Gamma = I`.
+
+A caller that still sets `lambda_tikhonov` is **silently ignored**, not
+rejected. See the directory README before re-running an old analysis against
+old numbers.
 
 ## Learning exercise: viewing the response kernel as zonal harmonics
 
@@ -90,6 +116,45 @@ Artifacts:
 The example accepts a kernel from a real fit through
 `SMI_response_helpers().kernel_from_out`. It also checks its zonal
 reconstruction against SMI's own forward model before drawing anything.
+
+## Superseded simulations
+
+[`old_simulations/`](old_simulations/) holds every simulation built before
+`smi_wm_60deg.m`, including the previous manuscript source and the step-by-step
+walkthrough. Its README records the three measured defects that forced the
+rewrite: a fixed-grid peak finder that added +/-1.5 deg of orientation-dependent
+noise and inverted an arm ranking, a single crossing orientation that nearly
+doubled an apparent gap between methods, and arms that were recovering
+*different objects* because only one of them got a dispersion-matched response.
+
+## Experimental: free `l = 0` deconvolution
+
+[`free_l0/`](free_l0/) holds a fork of `SMI.m` that estimates `p_00` from the
+data instead of fixing it at 1, its single-solver comparison harness, and the
+experiment that drives them.
+
+SMI's `p_00 = 1` convention means the fODF carries **no density information** —
+a CSF voxel and a coherent white matter voxel have equal mass — and its
+isotropic floor of `1/(4*pi) = 0.0796` sits above MRtrix's default `iFOD2`
+cutoff of 0.05, so an SMI fODF survives tractography termination everywhere in
+the brain. This attacked that problem by lifting the constraint; anisotropy
+modulation attacked the same problem by reweighting the result instead. Neither
+shipped, and the problem is still open.
+
+It is archived because `SMI_freeL0.m` is a whole-file fork of a megabyte-scale
+solver — two copies of a solver is how a fix lands in one and not the other —
+and because nothing in the repository exercised it but a single experiment
+script. It never graduated from the "additive files only" status it landed
+with. The single-solver design of `fODF_free_l0_deconv.m`, which implements both
+conventions in one function with an exactness check against the shipped path, is
+the part worth reviving.
+
+## Patch history
+
+[`patch_history/`](patch_history/) holds the raw development history as patches,
+plus one subfolder per removed feature. New contributors do not need it; it
+exists so every number in the reports has a provenance and so a removed feature
+can be recovered rather than only described.
 
 ## Adding future exercises
 

@@ -9,7 +9,7 @@
 % below are publish-style.
 %
 % *Nothing here is a reimplementation.* The forward model comes from
-% |helpers/fODF_modulation_helpers.m|, the fit is the real |SMI.fit|, and the
+% |helpers/fODF_sim_helpers.m|, the fit is the real |SMI.fit|, and the
 % experiment's constants come from |mc_config.m| -- the same file
 % |gen_montecarlo.m| reads. If a number here disagrees with the pipeline, the
 % pipeline is what is wrong.
@@ -55,7 +55,7 @@ LMAX_LIST = [4 6 8];            % angular orders to fit at -- see the next secti
                                 % the protocol itself is named in mc_config.m
 
 C = mc_config();                % conditions, kernel, dispersion, seeds
-H = fODF_modulation_helpers();
+H = fODF_sim_helpers();
 VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
 
 %% Which Lmax, and why the ground truth is stuck at 8
@@ -440,7 +440,7 @@ for iL = 1:numel(LMAX_LIST)
     options.CS_phase      = C.CS_PHASE;
     options.D_FW          = C.D_FW;
     options.flag_fit_fODF = 1;
-    options.fODF_regularization = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
+    options.fODF_regularization = struct('flag_nonneg', 1);
 
     t0  = tic;
     out = SMI.fit(dwi, options);
@@ -456,9 +456,8 @@ for iL = 1:numel(LMAX_LIST)
                       'kernel', reshape(out.kernel, [NVOX size(out.kernel,4)]), ...
                       'converged', out.fODF_regularization.flag_converged(:), ...
                       'seconds', el);
-    fprintf('   Lmax %d: %2d coefficients, %5.1f s  (lambda_nonneg = %g, lambda_tikhonov = %g)\n', ...
-            Lf, numel(Lv), el, out.fODF_regularization.lambda_nonneg, ...
-            out.fODF_regularization.lambda_tikhonov);
+    fprintf('   Lmax %d: %2d coefficients, %5.1f s  (lambda_nonneg = %g)\n', ...
+            Lf, numel(Lv), el, out.fODF_regularization.lambda_nonneg);
 end
 
 % The kernel is estimated from rotational invariants, which do not depend on

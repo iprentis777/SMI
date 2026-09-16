@@ -18,7 +18,7 @@ function H = SMI_response_helpers()
 %                                     an SMI.fit output struct
 %
 % CONVENTIONS. SMI's forward model (SMI.m:818-820, and
-% helpers/fODF_modulation_helpers.m) is
+% helpers/fODF_sim_helpers.m) is
 %
 %     S(u)/S0 = sum_{lm} K_l(b) p_lm Y_lm(u) sqrt((2l+1)*4*pi)
 %
@@ -37,7 +37,7 @@ function H = SMI_response_helpers()
 % These live in their own file rather than as local functions at the end of the
 % example because MATLAB requires local functions at the END of a script while
 % Octave cannot call them there at all. Same reasoning as
-% helpers/fODF_modulation_helpers.m.
+% helpers/fODF_sim_helpers.m.
 H = struct();
 H.Kell           = @kernel_Kell;
 H.zh             = @kernel_zh;

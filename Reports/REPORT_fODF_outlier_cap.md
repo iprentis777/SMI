@@ -1,5 +1,18 @@
 # Post hoc outlier cap on the fODF
 
+> **Note on `lambda_tikhonov`.** Tikhonov damping of the fODF deconvolution has
+> since been **removed from the toolbox**. Numbers and discussion below that
+> involve it are retained as the measured record that retired it -- read the
+> `lambda_tikhonov = 0` case as current behaviour. See
+> [`Archive/patch_history/fODF_tikhonov/`](../Archive/patch_history/fODF_tikhonov/).
+
+> **Note on anisotropy modulation.** The fODF modulation this report compares
+> against and orders itself relative to has also been **removed**. Its
+> report and implementation are in
+> [`Archive/patch_history/fODF_modulation/`](../Archive/patch_history/fODF_modulation/).
+> The cap itself is unaffected: it ran *before* modulation, so nothing it
+> does depended on modulation running afterwards.
+
 Measurement report for `SMI.fODF_OutlierDefaults`, `SMI.cap_fODF_outliers` and
 `SMI.neighbour_median`. Everything below is measured; the test harnesses are
 `tests/test_fODF_outlier_cap.m` (the method in isolation) and `tests/test_SMI_outlier_cap.m`

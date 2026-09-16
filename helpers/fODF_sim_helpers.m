@@ -1,7 +1,8 @@
-function H = fODF_modulation_helpers()
-% H = fODF_modulation_helpers()
+function H = fODF_sim_helpers()
+% H = fODF_sim_helpers()
 %
-% Returns a struct of function handles used by examples/example_fODF_modulation.m:
+% Returns a struct of function handles for forward-simulating an fODF and its
+% signal. Used by the simulations in deconv_comparison/ and by tests/:
 %
 %   H.dirs(N)                              N nearly uniform directions on the sphere
 %   H.watson_plm(dirs_q,n,kappa,Lmax,CS)   normalized plm of a Watson fODF about n

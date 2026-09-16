@@ -28,7 +28,7 @@
 % below are publish-style.
 %
 % *Nothing here is a reimplementation.* The forward model comes from
-% |helpers/fODF_modulation_helpers.m| and the fit is the real |SMI.fit|. The
+% |helpers/fODF_sim_helpers.m| and the fit is the real |SMI.fit|. The
 % experiment's settings are in the Configuration block below rather than in
 % |mc_config.m|, so this file can be retuned on its own; the geometry and
 % protocol *utilities* are still shared with |gen_montecarlo.m| so those
@@ -85,7 +85,7 @@ end
 run(fullfile(pkgdir, 'oct_path.m'));
 
 MC   = mc_config();                          % utilities only, see above
-H    = fODF_modulation_helpers();
+H    = fODF_sim_helpers();
 RH   = SMI_response_helpers();
 VERDICT = {'** FAILED **', 'ok'};            % VERDICT{1+condition}
 
@@ -201,7 +201,7 @@ SEED      = 31415;                % RNG seed
 % ---------------------------------------------- the constrained deconvolution
 % Passed straight through to options.fODF_regularization. flag_nonneg = 1 is the
 % arm being studied; it is OFF in the shipped toolbox defaults.
-REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
+REG = struct('flag_nonneg', 1);
 
 % ------------------------------------------------------------ the CSD arms
 % SSST-CSD and MSMT-CSD run inside this file, on the SAME |S_noisy| the SMI arm
@@ -976,10 +976,9 @@ for iL = 1:numel(LMAX_LIST)
         kern_all(rows,:) = kb;
         conv_all(rows)   = (out.fODF_regularization.flag_converged(:) == 1);
 
-        fprintf('   Lmax %d, SNR %-4s: %2d coefficients, %6.1f s  (lambda_nonneg = %g, lambda_tikhonov = %g)\n', ...
+        fprintf('   Lmax %d, SNR %-4s: %2d coefficients, %6.1f s  (lambda_nonneg = %g)\n', ...
                 Lf, SNR_LABEL{is}, ncoef, el, ...
-                out.fODF_regularization.lambda_nonneg, ...
-                out.fODF_regularization.lambda_tikhonov);
+                out.fODF_regularization.lambda_nonneg);
     end
 
     fits{iL} = struct('Lmax', Lf, 'sh', sh_all, 'nonfinite', nonfinite, ...

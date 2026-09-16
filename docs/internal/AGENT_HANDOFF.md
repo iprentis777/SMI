@@ -1,5 +1,29 @@
 # README for Claude
 
+> **Two features referenced throughout this document have been REMOVED.**
+> Tikhonov damping of the fODF deconvolution and anisotropy modulation of
+> the fODF are both archived, in
+> [`Archive/patch_history/fODF_tikhonov/`](../../Archive/patch_history/fODF_tikhonov/)
+> and
+> [`Archive/patch_history/fODF_modulation/`](../../Archive/patch_history/fODF_modulation/).
+> Findings about them below still stand as measurements -- several of them
+> are *why* the features were removed -- but `options.fODF_regularization.lambda_tikhonov`,
+> `options.fODF_modulation`, `SMI.modulate_fODF`, `SMI.fODF_ModulationWeight`
+> and `SMI.fODF_ModulationDefaults` no longer exist. `helpers/fODF_modulation_helpers.m`
+> is now `helpers/fODF_sim_helpers.m`.
+>
+> **Files have also moved.** `Patches/` is now
+> [`Archive/patch_history/`](../../Archive/patch_history/). Every simulation
+> except `smi_wm_60deg.m` is now in
+> [`Archive/old_simulations/`](../../Archive/old_simulations/), including
+> `smi_manuscript_60deg.m`, `smi_simulation_walkthrough.m`,
+> `sweep_deconv_settings.m`,
+> `check_manuscript_static.m` and `measure_glyph_spread.m`. The free `l = 0`
+> work -- `SMI_freeL0.m`, `helpers/fODF_free_l0_deconv.m` and
+> `smi_free_l0_experiment.m` -- is now in
+> [`Archive/free_l0/`](../../Archive/free_l0/). Paths below that name any of
+> these files are stale; the findings attached to them still stand.
+
 Handoff for the next agent working on SMI fODF tractography through edema.
 
 This is the **third** version of this file. Each version corrects conclusions the
@@ -318,9 +342,13 @@ mistake is more instructive than either answer.
 
 ### 2.3 Still standing from the previous handoff
 
-1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do much
-   of anything.**[^regularization-review-posture] Re-confirmed this session: 0.3 vs 0 moves the 45 degree error
-   from 21.28 to 21.27 deg. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
+1. **`lambda_tikhonov` did not damage the high `l` bands, and did not do much
+   of anything. IT HAS NOW BEEN REMOVED**[^regularization-review-posture] --
+   see `Archive/patch_history/fODF_tikhonov/`. Re-confirmed before removal: 0.3
+   vs 0 moves the 45 degree error from 21.28 to 21.27 deg. Note it was *not*
+   inert at every weight: above 1 it flattened the fODF hard (peaks at 55% of
+   true height at 3, 27% at 10), so there was no weight at which it helped.
+   A caller that still sets the field is **silently ignored**, not rejected. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
    loss to it and is **still wrong** and still unfixed. The real cause is the
    non-negativity constraint plus error in the estimated kernel, whose `K_l` at
    high `l` is tiny and very sensitive.
@@ -450,7 +478,7 @@ Other traps, all hit at least once:
 
 - **Octave cannot call functions defined at the end of a script**, MATLAB
   requires them there. That is why `helpers/SMI_response_helpers.m` and
-  `helpers/fODF_modulation_helpers.m` are separate files returning function-handle
+  `helpers/fODF_sim_helpers.m` are separate files returning function-handle
   structs rather than local functions.
 - **`SMI.vectorize` takes a different branch if any spatial dimension is a
   singleton.** Always build simulation volumes with all three dims > 1.
@@ -523,10 +551,10 @@ force-pushed.
 | `Archive/README.md` | learning exercises and semi-retired exploratory work; modulation and the zonal-harmonics viewer are indexed here |
 | `examples/example.m`, `examples/example_SMI_SSM.m` | the original data-fit and sensitivity-specificity examples |
 | `Reports/REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
-| `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
+| `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3**; Tikhonov has since been removed |
 | `Reports/REPORT_fODF_outlier_cap.md` | the cap measurement |
 | `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
-| `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
+| `examples/example_fODF_modulation.m` + `helpers/fODF_sim_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
 | `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
 | `Patches/0001`-`Patches/0010*.patch` | one patch per measured change, `git am --3way`-able |
 
@@ -789,7 +817,9 @@ Do not re-walk these.
 - **`degenerate = 'clip'` is a bad modulation default.** In a blown-up voxel the
   raw `p` exceeds the clip so the voxel gets weight exactly 1.0, the maximum in
   the volume. `'reject'` exists. Still not changed.
-- **`lambda_tikhonov` is inert.** Section 2.3, item 1. Stop sweeping it.
+- ~~**`lambda_tikhonov` is inert.** Section 2.3, item 1. Stop sweeping it.~~
+  **DONE** -- removed from the toolbox entirely, along with its sweep axes.
+  `Archive/patch_history/fODF_tikhonov/`.
 
 The one thing that has ever satisfied every constraint at once, still unshipped:
 **noise-floor-subtracted anisotropic power over `l = 2,4`**, using `sigma` and
@@ -892,8 +922,9 @@ it has never touched real data.
 3. **Revisit `examples/example_fODF_regularization_sweep.m`.** The user asked
    for this explicitly and it was deferred to its own patch: audit it for hidden
    bugs, and add 3D isometric panels of the reconstructed fODFs as
-   `lambda_nonneg`, `lambda_tikhonov` and `tau` vary, in the style of the 2007
-   CSD paper. Two things to settle with the user first: whether those panels
+   `lambda_nonneg` and `tau` vary, in the style of the 2007 CSD paper. (The
+   `lambda_tikhonov` axis is gone; the script is one dimensional in the weight
+   now, and its stage 4 was deleted.) Two things to settle with the user first: whether those panels
    sweep at one SNR or several, and whether they use the manuscript's 60 degree
    crossing or that script's existing 40/60/90 set.
 4. **Regenerate the `Reports/` tables on the real HCP protocol.** Every number

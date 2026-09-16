@@ -1,5 +1,11 @@
 # Modulating the SMI fODF by anisotropy
 
+> **Note on `lambda_tikhonov`.** Tikhonov damping of the fODF deconvolution has
+> since been **removed from the toolbox**. Numbers and discussion below that
+> involve it are retained as the measured record that retired it -- read the
+> `lambda_tikhonov = 0` case as current behaviour. See
+> [`Archive/patch_history/fODF_tikhonov/`](../fODF_tikhonov/).
+
 Measurement report for `SMI.fODF_ModulationWeight` and `SMI.modulate_fODF`.
 Everything below is measured, not assumed; the simulation is
 `examples/example_fODF_modulation.m`.
@@ -283,7 +289,7 @@ basis before feeding it to `tckgen`** — this has not been checked here.
 |---|---|
 | `SMI.m` | the five new static methods and the `SMI.fit` integration, see the map below |
 | `examples/example_fODF_modulation.m` | the simulation and scoring above |
-| `helpers/fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
+| `helpers/fODF_sim_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
 | `Reports/REPORT_fODF_modulation.md` | this file |
 | `0004fODFmodulation.patch` | the exact diff of the two commits, applies with `git am` |
 

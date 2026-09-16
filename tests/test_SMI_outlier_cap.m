@@ -24,7 +24,7 @@ if exist('OCTAVE_VERSION','builtin'), pkg load statistics; pkg load image; end
 TF = {'FAIL','PASS'};
 
 LMAX = 6; CS = 1; D_FW = 3; SNR = 30;
-H  = fODF_modulation_helpers();
+H  = fODF_sim_helpers();
 dq = H.dirs(2000);
 
 % ---- protocol, generated here so the test needs no data
@@ -62,7 +62,7 @@ opts.b = bvals; opts.dirs = bvecs; opts.sigma = sigma*ones(sz);
 opts.mask = true(sz); opts.compartments = {'IAS','EAS','FW'};
 opts.NoiseBias = 'Rician'; opts.Lmax = [0 LMAX LMAX LMAX];
 opts.CS_phase = CS; opts.D_FW = D_FW; opts.flag_fit_fODF = 1;
-opts.fODF_regularization = struct('flag_nonneg',1,'lambda_nonneg',10,'lambda_tikhonov',0.3);
+opts.fODF_regularization = struct('flag_nonneg',1,'lambda_nonneg',10);
 
 out_off  = SMI.fit(dwi, opts);                        % option never set
 o2 = opts; o2.fODF_outlier = struct('flag_cap',0);
@@ -126,8 +126,13 @@ fprintf('[%s] peak lands on the identical sphere vertex (angle %.3g deg)\n', ...
 fprintf('[%s] nothing left above the ceiling 1.0 (max after %.4f)\n', ...
         TF{(ci.peak_max_after <= 1+1e-9)+1}, ci.peak_max_after);
 
-% ---- flag on through SMI.fit, and cap + modulation together. The ceiling is
-% deliberately set low here so the cap is forced to act on ordinary voxels.
+% ---- flag on through SMI.fit. The ceiling is deliberately set low here so
+% the cap is forced to act on ordinary voxels.
+%
+% This block used to continue into a cap + modulation interaction check,
+% verifying that modulation was applied to the CAPPED fODF rather than the raw
+% one. Anisotropy modulation has been removed from the toolbox, so that check
+% is gone with it -- see Archive/patch_history/fODF_modulation/.
 o4 = opts; o4.fODF_outlier = struct('flag_cap',1,'ceiling',0.30);
 out_on = SMI.fit(dwi, o4);
 fprintf('\n[%s] flag on leaves out.plm identical to flag off\n', ...
@@ -136,10 +141,3 @@ fprintf('[%s] flag on adds out.plm_capped and out.fODF_outlier\n', ...
         TF{(isfield(out_on,'plm_capped') && isfield(out_on,'fODF_outlier'))+1});
 fprintf('     ceiling 0.30 forced %d caps of %d voxels\n', out_on.fODF_outlier.Ncap, NV);
 
-o5 = o4; o5.fODF_modulation = struct('flag_modulate',1);
-out_both = SMI.fit(dwi, o5);
-tmp = out_both; tmp.plm = out_both.plm_capped;    % exactly what SMI.fit does
-sh_expect = SMI.modulate_fODF(tmp, o5.fODF_modulation);
-fprintf('[%s] modulation was applied to the CAPPED fODF (max|d| = %.3g)\n', ...
-        TF{(max(abs(sh_expect(:)-out_both.fODF_modulated(:))) < 1e-12)+1}, ...
-        max(abs(sh_expect(:)-out_both.fODF_modulated(:))));

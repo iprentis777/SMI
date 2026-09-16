@@ -47,7 +47,7 @@ SETTINGS = { 'nonneg off, tik 0.3',   0, 0.3
              'nonneg 10,  tik 0',    10, 0.0
              'nonneg 3,   tik 0',     3, 0.0 };
 
-H  = fODF_modulation_helpers();
+H  = fODF_sim_helpers();
 dq = H.dirs(C.NDIR_Q);
 
 NCOND = numel(ANGLES);
