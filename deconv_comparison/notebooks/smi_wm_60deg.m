@@ -56,12 +56,13 @@
 %   measured at SNR 10, the old file's orientation was simultaneously near-best
 %   for SMI and exactly worst for SSST-CSD, nearly doubling the apparent gap
 %   between them.
-% # *|lambda_tikhonov| is 0.* It is SMI's own shipped default, and 0.3 was
-%   measured inert (0.3 vs 0 moved a 45 deg error from 21.28 to 21.27 deg). An
-%   unmotivated deviation from a default is a question a reviewer will ask for
-%   no measured benefit. Note that this makes SMI *less* regularized than CSD,
-%   not equally: |dwi2fod csd| ships |-norm_lambda 1|, which is a penalty on the
-%   norm of the solution, i.e. Tikhonov with Gamma = I.
+% # *There is no Tikhonov damping.* SMI once offered it and it was removed as
+%   inert: 0.3 vs 0 moved a 45 deg error from 21.28 to 21.27 deg, and a sweep
+%   from 0 to 0.8 at three noise levels left the high l bands identical to
+%   three decimals. Note that this leaves SMI *less* regularized than CSD, not
+%   equally: |dwi2fod csd| ships |-norm_lambda 1|, which is a penalty on the
+%   norm of the solution, i.e. Tikhonov with Gamma = I. The non-negativity
+%   constraint below is the whole of SMI's regularization here.
 % # *Every arm is handed the SAME response, built from the SAME kernel.* The old
 %   file gave the CSD arms a dispersion-matched response while SMI deconvolved
 %   with the delta kernel, so the two were recovering DIFFERENT objects -- SMI
@@ -205,8 +206,8 @@ RUN_MRTRIX = 1;     % the CSD arms
 
 % ----------------------------------------------- the constrained deconvolution
 % flag_nonneg = 1 is the arm being studied; it is OFF in the shipped defaults.
-% lambda_tikhonov = 0 is SMI's own default -- see Step 0, item 3.
-REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0);
+% It is now the only fODF regularizer SMI has -- see Step 0, item 3.
+REG = struct('flag_nonneg', 1);
 
 % ------------------------------------------------------------- the CSD arms
 % MSMT is run twice, at MRtrix's defaults and at values matched to the SSST
@@ -258,8 +259,8 @@ fprintf('kernel [f Da Depar Deperp fw] = %s, extra-axonal = %.2f\n', ...
         mat2str(K_WM), 1-K_WM(1)-K_WM(5));
 fprintf('kappa %g, %d orientations x %d reps x %d SNR, Lmax %s\n', ...
         KAPPA, NORIENT, NREP, numel(SNR_LIST), mat2str(LMAX_LIST));
-fprintf('tikhonov %g, CS_phase %d, truth at Lmax %d\n\n', ...
-        REG.lambda_tikhonov, CS_PHASE, LMAX_GT);
+fprintf('nonneg %d, CS_phase %d, truth at Lmax %d\n\n', ...
+        REG.flag_nonneg, CS_PHASE, LMAX_GT);
 
 NSNR       = numel(SNR_LIST);
 SIGMA_LIST = 1./SNR_LIST;
@@ -585,7 +586,7 @@ if RUN_ARM1
                    bvecs, Lc, CS_PHASE, D_FW);
     plc = SMI.get_plm_from_S_and_kernel(reshape(repmat(Sc(:)',prod(Gc),1),[Gc Ndwi]), ...
             [0 Lc Lc Lc], k4c, true(Gc), bvals, ones(1,Ndwi), zeros(1,Ndwi), ...
-            bvecs, CS_PHASE, D_FW, struct('flag_nonneg',0,'lambda_tikhonov',0));
+            bvecs, CS_PHASE, D_FW, struct('flag_nonneg',0));
     e_inv = max(abs(squeeze(plc(1,1,1,:))' - pc(:)'));
     fprintf('   CHECK unconstrained fixed-kernel fit inverts the forward model\n');
     fprintf('         (truth and fit both Lmax %d)  max|err| = %.2e   %s\n', ...

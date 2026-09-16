@@ -187,19 +187,26 @@ The code provides some additional flexibility:
 - Variable number of compartments: 'IAS', 'EAS', 'FW'. _This will be extended but at the moment the only two options are {'IAS', 'EAS'} (default) or {'IAS', 'EAS', 'FW'}._
 - User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
-- Regularization (non-negativity and Tikhonov) of the fODF deconvolution, see below.
+- Regularization (a non-negativity constraint) of the fODF deconvolution, see below.
 - Semi-retired anisotropy modulation of the fODF, retained for reproducibility
   and targeted experiments; see the [archive index](Archive/README.md).
 - Post hoc outlier capping of the fODF, removing isolated pathologically bright glyphs without touching orientation, see below.
 
 
 ### Regularized fODF deconvolution
-Once the kernel is known, the fODF spherical harmonic coefficients `plm` are obtained by deconvolving the kernel from the DWI. This is an ill-conditioned problem: the kernel rotational invariants `Kl` decay quickly with `l`, so the high order `plm` are dominated by noise and the estimated fODF usually has large negative lobes. Two optional regularizers are available (both are disabled by default, in which case the deconvolution is the usual unregularized least squares fit):
+Once the kernel is known, the fODF spherical harmonic coefficients `plm` are obtained by deconvolving the kernel from the DWI. This is an ill-conditioned problem: the kernel rotational invariants `Kl` decay quickly with `l`, so the high order `plm` are dominated by noise and the estimated fODF usually has large negative lobes. One optional regularizer is available (disabled by default, in which case the deconvolution is the usual unregularized least squares fit):
 
 - **Non-negativity**, as in constrained spherical deconvolution ([Tournier et al., NeuroImage 2007](https://doi.org/10.1016/j.neuroimage.2007.02.016)). The fODF is first estimated with a low order unconstrained fit and then refined: at every iteration the directions where the fODF falls below `tau*mean(fODF)` are collected and a penalty on their amplitude is added to the least squares problem, until that set of directions stops changing (typically 4-6 iterations).
-- **Tikhonov**, which adds `lambda_tikhonov^2*||Gamma*plm||^2` and damps the coefficients that the kernel attenuates the most. `Gamma` is either the identity or the Laplace-Beltrami matrix `diag(l(l+1))` (normalized by its maximum value), which penalizes high orders more strongly.
 
-Both weights are dimensionless (the regularization blocks are rescaled by the norm of the rows of the design matrix of each voxel), so the same value is meaningful across voxels and protocols. Weights below ~0.1 have a negligible effect.
+`lambda_nonneg` is dimensionless (the regularization block is rescaled by the norm of the rows of the design matrix of each voxel), so the same value is meaningful across voxels and protocols.
+
+> **Tikhonov damping was removed.** SMI once also offered
+> `lambda_tikhonov^2*||Gamma*plm||^2`. It was measured inert at the weights it
+> shipped with and actively harmful above them, and has been retired — see
+> [`Archive/patch_history/fODF_tikhonov/`](Archive/patch_history/fODF_tikhonov/).
+> A script that still sets `lambda_tikhonov` is **silently ignored**, not
+> rejected, so check that before comparing against old numbers.
+
 
 ```
 options.flag_fit_fODF = 1;
@@ -212,21 +219,24 @@ options.fODF_regularization.Ndirs           = 300;  % default 300
 options.fODF_regularization.Niter           = 50;   % default 50 (max)
 options.fODF_regularization.Lmax_init       = 4;    % default 4
 
-% Tikhonov damping
-options.fODF_regularization.lambda_tikhonov = 1;                  % default 0 (off)
-options.fODF_regularization.TikhonovMatrix  = 'laplacebeltrami';  % or 'identity'
-
 [out] = SMI.fit(dwi,options);
 ```
 `out.fODF_regularization` returns the options that were used together with the number of iterations, the number of constrained directions, and a convergence flag for each voxel.
 
-The script `examples/example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.27 (Tikhonov), 0.10 (non-negativity), and 0.10 (both), while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
+The script `examples/example_fODF_regularization.m` compares these options on a synthetic two-fiber voxel (no data needed). On that example, at SNR=30 with three shells and Lmax=6, the relative error of the fODF drops from 0.60 (unregularized) to 0.10 with the non-negativity constraint, while the negative mass of the fODF drops from 0.16 to 0.004, which is the negative mass of the ground truth fODF itself (0.0034).
 
 The script also plots the resulting fODFs. In 2D it shows the amplitude along the plane containing both fibers, both as a signed profile (where the spurious negative lobes are easiest to see) and as a polar shape. In 3D it draws one glyph per deconvolution, with the radius equal to the fODF amplitude, the surface coloured by orientation, and the negative part of the fODF overlaid as a translucent red surface at radius `|fODF|` instead of being clipped away, so that what the non-negativity constraint removes is visible. All glyphs share a common radial scale, so they can be compared directly.
 
 
 #### Choosing the regularization parameters
-The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `examples/example_fODF_regularization_sweep.m` (which also needs no data, and uses `helpers/fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg` against `lambda_tikhonov` jointly, then `tau`, then `Lmax_init`, then the two Tikhonov matrices. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
+The weights, `tau` and `Lmax_init` suggested above are not guesses, they are the optimum of a sweep (`Ndirs` and `Niter` were not swept: they control cost and the iteration limit, not the quality of the solution). `examples/example_fODF_regularization_sweep.m` (which also needs no data, and uses `helpers/fODF_regularization_score.m`) estimates the fODF of synthetic two-fiber voxels whose ground truth `plm` are known exactly, over crossing angles of 40, 60 and 90 degrees and SNR of 20, 30 and 50, with 30 noise realizations each, and scores the result against that ground truth. It sweeps `lambda_nonneg`, then `tau`, then `Lmax_init`. The score being minimized is the relative L2 error of the fODF over the sphere; the RMSE of the `plm`, the negative mass, and the mean angle between the true fiber directions and the closest peak of the estimated fODF are reported alongside it.
+
+> **The tables in this subsection were measured while Tikhonov damping still
+> existed**, and their `lambda_tikhonov` columns are kept because they are the
+> evidence that retired it — see
+> [`Archive/patch_history/fODF_tikhonov/`](Archive/patch_history/fODF_tikhonov/).
+> Read the `lambda_tikhonov = 0` column as the current behaviour. The sweep
+> script no longer has that axis, so re-running it reproduces that column only.
 
 On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directions each, Lmax = 6):
 
@@ -237,7 +247,7 @@ On the protocol of that script (3 shells at b = 1, 2, 3 ms/um^2 with 64 directio
 | `lambda_nonneg=10`, `lambda_tikhonov=0.3` (identity) | 0.105 | 0.064 | 0.004 | 8.2 deg |
 | `lambda_nonneg=10`, `lambda_tikhonov=1` (Laplace-Beltrami) | **0.103** | 0.062 | 0.004 | 8.2 deg |
 
-On this score the non-negativity weight wants to be considerably larger than 1: the error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum of *this* metric. `tau` = 0.1 and `Lmax_init` = 4, the original defaults, are both confirmed as optima and are unchanged. The Laplace-Beltrami matrix is slightly better than the identity (0.103 vs 0.105) once its `lambda_tikhonov` is re-optimized, which it needs since it is normalized by `max(l(l+1))` and therefore damps much more weakly at the same weight; the default matrix is left at `identity` so that a given `lambda_tikhonov` keeps meaning what it used to.
+On this score the non-negativity weight wants to be considerably larger than 1: the error falls monotonically from `lambda_nonneg` = 1 to 10 and then rises again (0.105 at 10, 0.133 at 30, 0.417 at 100), so 10 is a genuine interior optimum of *this* metric. `tau` = 0.1 and `Lmax_init` = 4, the original defaults, are both confirmed as optima and are unchanged. The two Tikhonov matrices differed by 0.002 in relative fODF error (0.103 Laplace-Beltrami vs 0.105 identity), a gap that is part of why the whole term was retired rather than tuned.
 
 ##### The default is 1, and the two sweeps disagree about that
 **`lambda_nonneg` defaults to 1.** It was briefly changed to 10 on the strength of the sweep above, and then changed back, because a second and much larger measurement disagrees: the historical Monte Carlo campaign now preserved in [`Archive/deconv_pipeline/`](Archive/deconv_pipeline/) (10,000 realisations per condition, peaks from MRtrix's `sh2peaks`, section 6 of [`Reports/REPORT_SMI_deconvolution_MonteCarlo.md`](Reports/REPORT_SMI_deconvolution_MonteCarlo.md)) finds that
@@ -248,9 +258,11 @@ On this score the non-negativity weight wants to be considerably larger than 1: 
 
 The two scores are not measuring the same thing. The sweep above minimizes the relative L2 error of the fODF over the sphere, which is dominated by the isotropic part and by negative mass, and is therefore happy to trade angular resolution for smoothness. The archived Monte Carlo campaign in [`Archive/deconv_pipeline/`](Archive/deconv_pipeline/) scores peak orientation, fibre count and the angular correlation of the `l >= 2` part, which is what a tractography algorithm consumes. **Since nothing above 1 buys any further spurious-peak suppression and everything above 1 costs angular resolution, 1 is the default.** Raise it towards 10 if smoothness of the whole fODF matters more to you than resolving crossings.
 
-Changing this default does not affect anyone who has not opted in: `flag_nonneg` and `lambda_tikhonov` still default to 0, so a fit that does not set `options.fODF_regularization` is bit-identical to before (verified, difference exactly 0).
+Changing this default does not affect anyone who has not opted in: `flag_nonneg` still defaults to 0, so a fit that does not set `options.fODF_regularization` is bit-identical to before (verified, difference exactly 0).
 
-The best amount of Tikhonov damping depends on the noise, as expected: at SNR 20 the sweep prefers `lambda_tikhonov` = 0 (the non-negativity constraint alone), while at SNR 30 and 50 it prefers 0.3. On this score the non-negativity weight stays at 10 across all three; on the Monte Carlo's score it does not, see above. Tikhonov itself is close to inert either way — 0.3 versus 0 moves the Monte Carlo's 45 degree error from 21.28 to 21.27 degrees. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
+On this score the non-negativity weight stays at 10 across all three SNRs; on the Monte Carlo's score it does not, see above. If your protocol differs substantially from the one above, rerun the sweep with the protocol block edited rather than reusing these numbers.
+
+The same sweep is also what retired Tikhonov damping: it preferred `lambda_tikhonov` = 0 at SNR 20 and 0.3 at SNR 30 and 50, and 0.3 versus 0 moved the Monte Carlo's 45 degree error from 21.28 to 21.27 degrees — a knob whose best value depended on the noise and whose effect was nil either way.
 
 ##### Does regularization flatten the fODF?
 The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground truth)`, so that what the regularizers cost in fODF height can be read next to what they buy in accuracy. The answer is not the obvious one:
@@ -263,7 +275,7 @@ The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground tru
 | **100** | 1.302 | 1.304 | 1.305 | 1.292 | 1.080 | 0.270 |
 
 - The **unregularized** fODF is not the reference height: its peaks are **inflated by 12%**. The peak is a maximum over directions, so noise biases it upward.
-- **Tikhonov damping is what flattens the fODF**, strongly and monotonically: at `lambda_tikhonov` = 3 the peaks retain 55% of their true height, and at 10 only 27%. That is the mechanism behind the large errors in the right hand columns of the accuracy table.
+- **Tikhonov damping was what flattened the fODF**, strongly and monotonically: at `lambda_tikhonov` = 3 the peaks retained 55% of their true height, and at 10 only 27%. That is the mechanism behind the large errors in the right hand columns of the accuracy table, and — together with its measured inertness below 1 — the reason the term was retired. Only the leftmost column is reachable now.
 - **The non-negativity constraint does not flatten it.** Going from off to `lambda_nonneg` = 10 moves the ratio from 1.116 to 1.005, i.e. it removes the noise-driven inflation rather than shrinking the fODF below the truth. Only when it is pushed far past its optimum (100) does the ratio rise again to 1.30, because a constraint that strong forces the fODF to zero over most of the sphere and concentrates the remaining mass into narrow spikes.
 - At the recommended settings the peak height is preserved to **0.2%** (ratio 0.998), so the accuracy gain documented above is not being bought by flattening.
 
@@ -272,10 +284,12 @@ The sweep also reports the peak amplitude ratio, `peak(estimate)/peak(ground tru
 ##### Figures
 `examples/example_fODF_regularization_sweep.m` produces four figures, saved by default to `figures_fODF_sweep/` as both PNG and EPS at 300 dpi (set `saveFigures = false` to only display them):
 
-1. **The regularization landscape** — the `lambda_nonneg` x `lambda_tikhonov` grid as four heat maps: relative fODF error, negative mass, peak angular error, and peak amplitude ratio, with the optimum marked.
-2. **Peak amplitude shrinkage** — the ratio against each weight separately, plus the accuracy against shrinkage trade-off as a scatter over the whole grid.
-3. **Secondary parameters** — `tau`, `Lmax_init` and the two Tikhonov matrices.
+1. **The regularization curves** — `lambda_nonneg` against four scores: relative fODF error, negative mass, peak angular error, and peak amplitude ratio, with the optimum marked.
+2. **Peak amplitude shrinkage** — the ratio against `lambda_nonneg`, plus the accuracy against shrinkage trade-off as a scatter.
+3. **Secondary parameters** — `tau` and `Lmax_init`.
 4. **SNR dependence** — how the optimum moves with noise.
+
+These were four two-dimensional figures when the sweep had a `lambda_tikhonov` axis; they are one dimensional now.
 
 Panels are lettered and styled for direct use in a manuscript.
 

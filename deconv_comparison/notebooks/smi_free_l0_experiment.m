@@ -82,7 +82,7 @@ else
     NORIENT = 8; NREP = 25; SNR_LIST = [10 30 Inf];
 end
 
-REG = struct('flag_nonneg',1, 'lambda_nonneg',1, 'tau',0.1, 'lambda_tikhonov',0);
+REG = struct('flag_nonneg',1, 'lambda_nonneg',1, 'tau',0.1);
 IFOD2_CUTOFF = 0.05;        % MRtrix's default tractography termination threshold
 
 fprintf('\n=== EXPERIMENTAL: free l = 0 deconvolution ===\n');

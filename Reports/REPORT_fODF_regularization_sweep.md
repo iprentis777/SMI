@@ -1,5 +1,11 @@
 # fODF deconvolution regularization: parameter sweep report
 
+> **Note on `lambda_tikhonov`.** Tikhonov damping of the fODF deconvolution has
+> since been **removed from the toolbox**. Numbers and discussion below that
+> involve it are retained as the measured record that retired it -- read the
+> `lambda_tikhonov = 0` case as current behaviour. See
+> [`Archive/patch_history/fODF_tikhonov/`](../Archive/patch_history/fODF_tikhonov/).
+
 Measurement of the regularization parameters of the SMI fODF deconvolution against a
 synthetic ground truth, and the resulting change of defaults.
 

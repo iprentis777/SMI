@@ -6,13 +6,15 @@
 % quickly with l, so the high order plm are dominated by noise and the
 % resulting fODF typically has large negative lobes.
 %
-% Two regularizers can be added to the deconvolution:
+% One regularizer can be added to the deconvolution:
 %
 %   - Non-negativity, as in constrained spherical deconvolution
 %     (Tournier et al., NeuroImage 2007). The fODF amplitude is iteratively
 %     penalized on the directions where it becomes negative.
-%   - Tikhonov damping of the plm, which suppresses the coefficients that
-%     the kernel attenuates the most.
+%
+% An earlier version also offered Tikhonov damping of the plm. It was
+% measured inert and removed -- see Archive/patch_history/fODF_tikhonov/.
+% The arms below therefore vary lambda_nonneg instead.
 %
 % This script builds a synthetic two-fiber voxel, generates its signal with
 % the SM forward model, and compares the deconvolution with and without
@@ -75,11 +77,10 @@ rng(1)
 noise = randn(Nrep,Ndwi)/SNR;
 
 % Options of each deconvolution that is compared
-reg_tikhonov.lambda_tikhonov = 1;
 reg_nonneg.flag_nonneg = 1;
-reg_both.flag_nonneg = 1; reg_both.lambda_tikhonov = 0.3; reg_both.TikhonovMatrix = 'laplacebeltrami';
-configs = {[],reg_tikhonov,reg_nonneg,reg_both};
-names = {'unregularized  ','tikhonov       ','non-negativity ','nonneg+tikhonov'};
+reg_nonneg10.flag_nonneg = 1; reg_nonneg10.lambda_nonneg = 10;
+configs = {[],reg_nonneg,reg_nonneg10};
+names = {'unregularized  ','nonneg (lam 1) ','nonneg (lam 10)'};
 
 fprintf('SNR = %d, %d noise realizations, Lmax = %d\n',SNR,Nrep,Lmax)
 fprintf('(negative mass is the fraction of the fODF absolute mass that is negative,\n')
@@ -117,9 +118,8 @@ end
 % =========================================================================
 labels = cellfun(@strtrim,names,'UniformOutput',false);
 cols = [0.85 0.33 0.10;   % unregularized
-        0.00 0.45 0.74;   % tikhonov
-        0.47 0.67 0.19;   % non-negativity
-        0.49 0.18 0.56];  % nonneg+tikhonov
+        0.47 0.67 0.19;   % non-negativity, lambda_nonneg = 1
+        0.49 0.18 0.56];  % non-negativity, lambda_nonneg = 10
 
 % ---- 2D: profile in the plane containing both fibers -------------------
 phi = linspace(0,2*pi,721)';
@@ -197,7 +197,6 @@ text(0,0.5,{'Glyph radius = fODF amplitude,','all panels share the same scale.',
 %
 % options.flag_fit_fODF = 1;
 % options.fODF_regularization.flag_nonneg = 1;
-% options.fODF_regularization.lambda_tikhonov = 0.3;
 % [out] = SMI.fit(dwi,options);
 %
 % out.fODF_regularization keeps the options that were used together with the

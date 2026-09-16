@@ -440,7 +440,7 @@ for iL = 1:numel(LMAX_LIST)
     options.CS_phase      = C.CS_PHASE;
     options.D_FW          = C.D_FW;
     options.flag_fit_fODF = 1;
-    options.fODF_regularization = struct('flag_nonneg', 1, 'lambda_tikhonov', 0.3);
+    options.fODF_regularization = struct('flag_nonneg', 1);
 
     t0  = tic;
     out = SMI.fit(dwi, options);
@@ -456,9 +456,8 @@ for iL = 1:numel(LMAX_LIST)
                       'kernel', reshape(out.kernel, [NVOX size(out.kernel,4)]), ...
                       'converged', out.fODF_regularization.flag_converged(:), ...
                       'seconds', el);
-    fprintf('   Lmax %d: %2d coefficients, %5.1f s  (lambda_nonneg = %g, lambda_tikhonov = %g)\n', ...
-            Lf, numel(Lv), el, out.fODF_regularization.lambda_nonneg, ...
-            out.fODF_regularization.lambda_tikhonov);
+    fprintf('   Lmax %d: %2d coefficients, %5.1f s  (lambda_nonneg = %g)\n', ...
+            Lf, numel(Lv), el, out.fODF_regularization.lambda_nonneg);
 end
 
 % The kernel is estimated from rotational invariants, which do not depend on

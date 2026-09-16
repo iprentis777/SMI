@@ -62,7 +62,7 @@ opts.b = bvals; opts.dirs = bvecs; opts.sigma = sigma*ones(sz);
 opts.mask = true(sz); opts.compartments = {'IAS','EAS','FW'};
 opts.NoiseBias = 'Rician'; opts.Lmax = [0 LMAX LMAX LMAX];
 opts.CS_phase = CS; opts.D_FW = D_FW; opts.flag_fit_fODF = 1;
-opts.fODF_regularization = struct('flag_nonneg',1,'lambda_nonneg',10,'lambda_tikhonov',0.3);
+opts.fODF_regularization = struct('flag_nonneg',1,'lambda_nonneg',10);
 
 out_off  = SMI.fit(dwi, opts);                        % option never set
 o2 = opts; o2.fODF_outlier = struct('flag_cap',0);
