@@ -26,7 +26,7 @@
 % wanted; a weight that suppresses it too is a tissue type criterion in
 % disguise and must be rejected.
 %
-% Helper functions live in helpers/fODF_modulation_helpers.m rather than at the end of
+% Helper functions live in helpers/fODF_sim_helpers.m rather than at the end of
 % this script, so that this example runs under Octave as well as MATLAB.
 %
 % Runtime is a few minutes per arm. Set QUICK = 1 for a smaller version.
@@ -39,7 +39,7 @@ addpath(fullfile(repo_root, 'helpers'));
 
 QUICK = 0;
 
-H = fODF_modulation_helpers();
+H = fODF_sim_helpers();
 
 CS_phase = 1; D_FW = 3; Lmax_fod = 4;
 Nreal = 200; if QUICK, Nreal = 20; end

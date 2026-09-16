@@ -30,7 +30,7 @@ bvecs = IO.load('bvecs');
 Ndwi  = numel(bvals);
 LMAX_GT = 8; CS = 0; D_FW = 3;
 
-H  = fODF_modulation_helpers();
+H  = fODF_sim_helpers();
 dq = H.dirs(2000);
 
 GRID = [24 24 16];

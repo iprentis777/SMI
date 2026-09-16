@@ -188,8 +188,6 @@ The code provides some additional flexibility:
 - User-defined parameter distributions for the training data (for the machine learning estimator that performs RotInvs -> kernel).
 - Output spherical harmonic decomposition of the ODF for fiber tracking (normalized for using it with [MRtrix3](https://mrtrix.readthedocs.io/en/0.3.16/workflows/global_tractography.html)).
 - Regularization (a non-negativity constraint) of the fODF deconvolution, see below.
-- Semi-retired anisotropy modulation of the fODF, retained for reproducibility
-  and targeted experiments; see the [archive index](Archive/README.md).
 - Post hoc outlier capping of the fODF, removing isolated pathologically bright glyphs without touching orientation, see below.
 
 
@@ -294,19 +292,26 @@ These were four two-dimensional figures when the sweep had a `lambda_tikhonov` a
 Panels are lettered and styled for direct use in a manuscript.
 
 
-### Semi-retired: anisotropy modulation of the fODF
+### Retired: anisotropy modulation of the fODF
 
-Anisotropy modulation remains implemented as an opt-in, post-deconvolution
-operation, but it is **not part of the recommended pipeline**. It was useful for
-exploring whether a normalized SMI fODF could be given an amplitude-like
-coherence weight for tractography. Its evidence is simulation-only, several
-geometry and convention questions remain, and modulation cannot replace a
-well-motivated regularized deconvolution.
+Anisotropy modulation has been **removed**. `options.fODF_modulation` is no
+longer read by any code path, and `SMI.modulate_fODF` no longer exists.
 
-The implementation is retained for reproducibility and targeted experiments.
-See the [archive index](Archive/README.md) for its status, findings, limitations,
-and artifacts, and `Reports/REPORT_fODF_modulation.md` for the original
-measurements.
+It explored whether a normalized SMI fODF could be given an amplitude-like
+coherence weight for tractography — a real problem, since a `p_00 = 1` fODF has
+an isotropic floor of `1/(4*pi) = 0.0796`, above MRtrix's default iFOD2 cutoff
+of 0.05, so an unmodulated fODF passes the termination test everywhere including
+CSF. But its evidence was simulation-only, several geometry and convention
+questions were never settled, and it cannot replace a well-motivated regularized
+deconvolution.
+
+The implementation, its measurement report and its example are preserved in
+[`Archive/patch_history/fODF_modulation/`](Archive/patch_history/fODF_modulation/),
+together with the negative results that are the most useful part of the exercise.
+
+Note that `helpers/fODF_sim_helpers.m` was **not** archived with it. Despite its
+former name (`fODF_modulation_helpers.m`) it contains no modulation code — it is
+the generic forward-simulation toolkit the active simulations and tests depend on.
 
 
 ### fODF outlier capping
@@ -331,7 +336,7 @@ out.fODF_outlier.peak_before  % peak amplitude map before the cap
 
 A voxel is flagged when its peak exceeds `10^orders` times the **median** peak of its in-mask neighbours, **or** exceeds `ceiling`, and is then scaled **down** to `min(neighbourhood median, ceiling)`. The operation is strictly one sided: a voxel is never raised, so this can remove spurious amplitude but can never invent fibre density.
 
-`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or off** (verified, difference exactly 0), as with the modulation. The same operation is available post hoc as `SMI.cap_fODF_outliers(out,options)`.
+`out.plm`, `out.pl` and `out.kernel` are **identical whether the flag is on or off** (verified, difference exactly 0). The same operation is available post hoc as `SMI.cap_fODF_outliers(out,options)`.
 
 #### Why the neighbourhood test is not a tissue-type criterion
 The test is **relative**, and edema is spatially **contiguous**: an edematous voxel's neighbours are edematous too, so the local median moves with it and the ratio does not. A whole region being uniformly bright or dim never trips this; only isolated spikes do. That is a structural property of the statistic rather than a well-tuned threshold, and it is verified directly — a contiguous block raised by a uniform factor is never flagged, while isolated spikes in the same volume always are.
@@ -358,7 +363,7 @@ A ceiling of 0.4-0.5 sits in the **middle** of the white matter distribution and
 With the shipped regularization the simulation has no outlier population at all: at SNR 15 the worst CSF voxel is 1.7x the median WM peak. Blow-ups only appear once the non-negativity constraint is off (max/median 11.0x). So `Ncap = 0` is the expected result, and a non-zero count on real data is itself the finding — it would mean the regularization is not behaving there as it does in simulation.
 
 #### Order of operations
-If both the cap and the modulation are enabled, **the cap runs first** and the modulation is applied to the corrected fODF. That ordering is forced: the cap works on absolute amplitudes and modulation rescales them, the same reason peak truncation has to precede modulation.
+The cap works on **absolute amplitudes**, so anything downstream that rescales the fODF has to run after it, not before. (This is what forced the cap to precede the now-retired anisotropy modulation, and it applies equally to any peak truncation you add yourself.)
 
 Full methodology, all result tables and verification are in `Reports/REPORT_fODF_outlier_cap.md`.
 

@@ -56,7 +56,7 @@ pkgdir = fileparts(here);                    % deconv_comparison/
 run(fullfile(pkgdir, 'oct_path.m'));
 if exist('OCTAVE_VERSION', 'builtin'), warning('off', 'all'); end
 
-H  = fODF_modulation_helpers();
+H  = fODF_sim_helpers();
 MC = mc_config();
 MR = mrtrix_io();
 VERDICT = {'** FAILED **', 'ok'};

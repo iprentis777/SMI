@@ -28,7 +28,7 @@
 % below are publish-style.
 %
 % *Nothing here is a reimplementation.* The forward model comes from
-% |helpers/fODF_modulation_helpers.m| and the fit is the real |SMI.fit|. The
+% |helpers/fODF_sim_helpers.m| and the fit is the real |SMI.fit|. The
 % experiment's settings are in the Configuration block below rather than in
 % |mc_config.m|, so this file can be retuned on its own; the geometry and
 % protocol *utilities* are still shared with |gen_montecarlo.m| so those
@@ -85,7 +85,7 @@ end
 run(fullfile(pkgdir, 'oct_path.m'));
 
 MC   = mc_config();                          % utilities only, see above
-H    = fODF_modulation_helpers();
+H    = fODF_sim_helpers();
 RH   = SMI_response_helpers();
 VERDICT = {'** FAILED **', 'ok'};            % VERDICT{1+condition}
 

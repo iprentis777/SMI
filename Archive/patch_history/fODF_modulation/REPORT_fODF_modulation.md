@@ -289,7 +289,7 @@ basis before feeding it to `tckgen`** — this has not been checked here.
 |---|---|
 | `SMI.m` | the five new static methods and the `SMI.fit` integration, see the map below |
 | `examples/example_fODF_modulation.m` | the simulation and scoring above |
-| `helpers/fODF_modulation_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
+| `helpers/fODF_sim_helpers.m` | simulation helpers, in their own file so the example runs under Octave as well as MATLAB |
 | `Reports/REPORT_fODF_modulation.md` | this file |
 | `0004fODFmodulation.patch` | the exact diff of the two commits, applies with `git am` |
 

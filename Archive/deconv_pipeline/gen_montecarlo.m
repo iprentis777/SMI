@@ -53,7 +53,7 @@ KAPPA    = C.KAPPA;
 ANGLES   = C.ANGLES;
 K_WM     = C.K_WM;
 
-H  = fODF_modulation_helpers();
+H  = fODF_sim_helpers();
 dq = H.dirs(C.NDIR_Q);
 
 NCOND = numel(ANGLES);

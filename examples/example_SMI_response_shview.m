@@ -45,7 +45,7 @@ addpath(repo_root);
 addpath(fullfile(repo_root, 'helpers'));
 
 H  = SMI_response_helpers();
-HF = fODF_modulation_helpers();
+HF = fODF_sim_helpers();
 
 % ------------------------------------------------------------------ inputs
 % A typical healthy white matter kernel [f Da Depar Deperp fw], diffusivities

@@ -111,7 +111,7 @@ end
 run(fullfile(pkgdir, 'oct_path.m'));
 
 MC = mc_config();
-H  = fODF_modulation_helpers();
+H  = fODF_sim_helpers();
 RH = SMI_response_helpers();
 MR = mrtrix_io();
 VERDICT = {'** FAILED **', 'ok'};

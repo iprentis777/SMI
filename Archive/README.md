@@ -24,43 +24,41 @@ its archived location. New work should use
 which runs all three arms on the same simulated data in one script. See the
 [`deconv_pipeline` README](deconv_pipeline/README.md) for the exact boundary.
 
-## Semi-retired: anisotropy modulation of the fODF
+## Retired: anisotropy modulation of the fODF
 
-SMI stores a normalized fODF with `p_00 = 1`, so every voxel has the same total
-fODF mass. Anisotropy modulation explored multiplying that fODF by a per-voxel
-coherence weight so amplitude could help distinguish coherent white matter from
-isotropic tissue during tractography.
+[`patch_history/fODF_modulation/`](patch_history/fODF_modulation/) holds the
+removed implementation, its measurement report and its example.
 
-The implementation remains available through `options.fODF_modulation` and
-`SMI.modulate_fODF`, but it is off by default and is not part of the recommended
-pipeline. Treat it as semi-retired because:
+SMI stores a normalized fODF with `p_00 = 1`, so its isotropic floor is a fixed
+`1/(4*pi) = 0.0796` — **above** MRtrix's default iFOD2 `-cutoff` of 0.05. An
+unmodulated fODF therefore passes the tractography termination test everywhere
+in the brain, CSF included. Anisotropy modulation multiplied the fODF by a
+per-voxel coherence weight to restore that amplitude information without keying
+on tissue type, which would delete edema.
 
-- its evidence is simulation-only and has not been validated in real edema;
-- its preferred `p2product` weight fails for some symmetric fibre geometries;
-- it changes the coefficient convention in density mode by including and
-  rescaling the `l=0` term;
-- its output basis and downstream MRtrix use require explicit convention checks;
-- modulation cannot stabilize an ill-conditioned deconvolution and does not
-  replace regularization;
-- a reviewer would reasonably ask why this additional weighting belongs in the
-  pipeline instead of a more conventional CSD-style treatment.
+This was previously *semi-retired* — off by default but still shipped. It is now
+removed: `options.fODF_modulation` is no longer read by any code path.
 
-The exercise did establish several useful negative results: `p4` is not a
-reliable modulation weight, tissue-fraction weights can suppress the edema
-class they were intended to preserve, and the original high-order loss was not
-caused by Tikhonov damping.
+It is retired because its evidence is simulation-only and was never validated on
+real edema, its preferred `p2product` weight fails for some symmetric fibre
+geometries, it changes the coefficient convention in density mode, and it cannot
+stabilize an ill-conditioned deconvolution — the weight is clipped at 1, so
+`w * 1e13` is still `1e13`. Regularization is what prevents that.
 
-Artifacts:
+The exercise established several useful negative results, which are the reason
+it is archived rather than deleted: `p4` is not a reliable modulation weight and
+is *worse than no weighting at all*; tissue-fraction weights suppress the edema
+class they were intended to preserve; the original high-order loss was not
+caused by Tikhonov damping but by the non-negativity constraint; and
+`degenerate = 'clip'` was a bad default that gave blown-up voxels the maximum
+weight in the volume.
 
-- `examples/example_fODF_modulation.m` — seven-class simulation
-- `helpers/fODF_modulation_helpers.m` — reusable simulation helpers
-- `Reports/REPORT_fODF_modulation.md` — measurements and limitations
-- `SMI.m` — retained opt-in implementation
-
-Revisit this work only if a concrete real-data or manuscript question requires
-it. Any reactivation should begin with a known edema ROI, explicit MRtrix basis
-validation, and a reviewer-facing justification for departing from established
-regularization and tractography conventions.
+Two things deliberately stayed behind. `SMI.grab_pl` and `SMI.grab_kernel_pl`
+are kept — modulation was their only caller, but they are generic public
+accessors. And `helpers/fODF_modulation_helpers.m` was **renamed** to
+[`helpers/fODF_sim_helpers.m`](../helpers/fODF_sim_helpers.m) rather than
+archived: despite the old name it contains no modulation code, only the generic
+forward-simulation toolkit that eleven active files depend on.
 
 ## Retired: Tikhonov damping of the fODF deconvolution
 

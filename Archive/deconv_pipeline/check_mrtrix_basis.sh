@@ -18,7 +18,7 @@ mkdir -p $W
 
 octave-cli --no-gui -q --eval "
 run('$(pwd)/oct_path.m');
-M = mrtrix_io(); IO = binio(); HF = fODF_modulation_helpers();
+M = mrtrix_io(); IO = binio(); HF = fODF_sim_helpers();
 ev = IO.load('eval_dirs'); ev = ev(1:200,:);
 IO.save('basischeck_dirs', ev);
 E = zeros(28,1,1,28); for k=1:28, E(k,1,1,k) = 1; end
