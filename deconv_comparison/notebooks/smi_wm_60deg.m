@@ -137,16 +137,40 @@ AXIS1     = [0.30 -0.50 0.81]; AXIS1 = AXIS1/norm(AXIS1);
 SEED_ORI  = 101;    % seed for the random orientations
 
 % ---------------------------------------------------------- the experiment
-SMOKE_TEST = true;  % true: minutes, indicative numbers only, every CHECK runs
+SMOKE_TEST = false;  % true: minutes, indicative numbers only, every CHECK runs
 if SMOKE_TEST
     NORIENT   = 6;  NREP = 8;
-    SNR_LIST  = [10 30 Inf];
+    SNR_LIST  = [10 20 30 Inf];
     LMAX_LIST = 6;
 else
     NORIENT   = 18; NREP = 50;
-    SNR_LIST  = [5 10 20 30 50 Inf];
+    % Dense where the arms actually disagree. Every level of the old
+    % [5 10 20 30 50 Inf] grid is still here; the additions sit between them,
+    % weighted to SNR 5-20 because that is the range where the crossover
+    % happens (Step 0: MSMT Lmax 6 defaults 83.9% correct at SNR 5 against
+    % SMI's 44.1%, an ordering that reverses by SNR 30). Above 30 the arms
+    % have converged and a fine grid buys nothing.
+    %
+    % COST IS LINEAR IN THIS LIST. Arm 2 is one SMI.fit per Lmax per SNR, so
+    % 3 x 16 = 48 fits rather than the 18 the old grid needed.
+    %
+    % STATISTICAL RESOLUTION. correct(%) is a proportion over NORIENT*NREP =
+    % 900 voxels per SNR, so its worst-case standard error is
+    % sqrt(0.25/900) = 1.7 percentage points. Steps in the curve smaller than
+    % roughly 3.4 pp are sampling noise, not structure -- which is what makes
+    % this grid worth sampling finely at NREP = 50 and NOT worth it under
+    % SMOKE_TEST, where 6 x 8 = 48 voxels give a 7.2 pp standard error.
+    SNR_LIST  = [5 6 7 8 9 10 12 14 16 18 20 25 30 40 50 Inf];
     LMAX_LIST = [4 6 8];
 end
+
+% Which SNRs the GLYPH and SIGNAL figures draw as COLUMNS. Figures 2 and 3
+% are one 3D surface per column and stop being readable past about six;
+% Figure 4 is line plots and reads fine with sixteen points, so the two are
+% driven separately rather than both by SNR_LIST. Entries not present in
+% SNR_LIST are dropped with a warning, so a SMOKE_TEST run that lacks some
+% of them still produces figures instead of erroring.
+SNR_FIG = [5 10 20 50 Inf];
 LMAX_GT  = 8;       % ground truth angular order. A CEILING, not a choice: SMI's
                     % kernel invariants K_l are undefined above l = 8.
 CS_PHASE = 0;       % 0 == MRtrix's SH basis exactly. At SMI's default of 1 the
@@ -159,9 +183,25 @@ NDIR_Q   = 3000;    % quadrature directions for projecting a sampled fODF
 SEED     = 31415;   % noise seed, offset per SNR block
 
 RUN_ARM1 = 1;       % fixed-kernel SMI deconvolution
-RUN_ARM2 = 1;       % SMI.fit, estimating the kernel per voxel. THIS IS THE
+RUN_ARM2 = 0;       % SMI.fit, estimating the kernel per voxel. THIS IS THE
                     % EXPENSIVE ONE: one SMI.fit call per Lmax per SNR.
 RUN_MRTRIX = 1;     % the CSD arms
+
+% TEMPORARILY OFF, not removed: RUN_ARM2 = 0 above. What is left -- SMI
+% fixed, SSST-CSD and both MSMT settings -- is a comparison of
+% DECONVOLUTIONS with the kernel/response held fixed and known, which is the
+% question being asked at the moment.
+%
+% Arm 2 is the one that also estimates the kernel per voxel, so including it
+% mixes two effects in one panel: how the deconvolution behaves, and what
+% estimating the kernel costs on top. Set RUN_ARM2 = 1 to bring it back; the
+% "what estimating the kernel costs" table at the end is already guarded by
+% |RUN_ARM1 && RUN_ARM2| and simply does not print while it is off, so
+% nothing silently reindexes onto the wrong arm.
+%
+% NOTE the runtime cut is large: arm 2 is one SMI.fit per Lmax per SNR, so
+% turning it off removes 48 fits from the full-size sweep and leaves the
+% MRtrix arms, which cost seconds.
 
 % ----------------------------------------------- the constrained deconvolution
 % flag_nonneg = 1 is the arm being studied; it is OFF in the shipped defaults.
@@ -171,6 +211,9 @@ REG = struct('flag_nonneg', 1, 'lambda_tikhonov', 0);
 % ------------------------------------------------------------- the CSD arms
 % MSMT is run twice, at MRtrix's defaults and at values matched to the SSST
 % arm's constraint strength. See Step 0.1: the difference is order dependent.
+% Both MSMT settings run. Step 0.1: the difference between them is order
+% dependent, so the pair has to be present for that finding to reproduce --
+% which is why 'MSMT def' is back rather than left commented out.
 MSMT_VARIANTS = { struct('name','MSMT def',   'neg',1e-10, 'norm',1e-10), ...
                   struct('name','MSMT tuned', 'neg',1,     'norm',1e-3) };
 
@@ -182,6 +225,14 @@ PEAK_NUM  = 3;      % peaks sh2peaks is asked for. 3 so a spurious third is
 
 % ------------------------------------------------------------- the figures
 MAKE_FIGURES = true;
+MARKER_SIZE  = 3;      % Figure 4 marker size, in points. Set to 0 for lines
+                       % only. The markers were sized for a six-point SNR
+                       % grid; at sixteen they run together into a chain of
+                       % circles that reads as thickness rather than as data,
+                       % so the default is small rather than absent -- the
+                       % dots still show WHERE the curve was actually sampled,
+                       % which matters now that the spacing is uneven (one
+                       % unit apart from SNR 5 to 10, then 2, 5, 10).
 ISO_VIEW  = [1 1 1];
 GLYPH_N   = 121;
 GLYPH_NEG = 'clamp';   % 'clamp' draws radius = max(amplitude,0). A band-limited
@@ -217,6 +268,20 @@ for is = 1:NSNR
     if isinf(SNR_LIST(is)), SNR_LABEL{is} = 'inf';
     else, SNR_LABEL{is} = sprintf('%g', SNR_LIST(is)); end
 end
+% Indices into SNR_LIST for the figure columns, ascending, Inf last.
+FIG_ORD = [];
+for q = 1:numel(SNR_FIG)
+    hit = find(SNR_LIST == SNR_FIG(q) | (isinf(SNR_FIG(q)) & isinf(SNR_LIST)), 1);
+    if isempty(hit)
+        warning('SNR_FIG entry %g is not in SNR_LIST -- dropped from the figures.', SNR_FIG(q));
+    else
+        FIG_ORD(end+1) = hit; %#ok<AGROW>
+    end
+end
+if isempty(FIG_ORD), FIG_ORD = 1:numel(SNR_LIST); end
+[~, of_] = sort(SNR_LIST(FIG_ORD)); FIG_ORD = FIG_ORD(of_);
+NFIG = numel(FIG_ORD);
+
 [~, SNR_ORD] = sort(SNR_LIST);
 
 %% Step 1 -- the acquisition protocol
@@ -987,10 +1052,10 @@ if MAKE_FIGURES
     % ---- FIGURE 2: the signal on the sphere
     % The noise-free column is the model on a dense grid; every other column is
     % the SH fit of one realisation, which is what the arms actually see.
-    smax = 0; sig = cell(nsh-1, NSNR);
+    smax = 0; sig = cell(nsh-1, NFIG);
     for j = 2:nsh
-        for k = 1:NSNR
-            is = SNR_ORD(k);
+        for k = 1:NFIG
+            is = FIG_ORD(k);
             if isinf(SNR_LIST(is))
                 bq = b_shell(j)*ones(1, size(dirs_g,1));
                 s = H.signal(plm_gt(1,:), [K_WM 1 1], bq, ones(size(bq)), zeros(size(bq)), ...
@@ -1007,8 +1072,8 @@ if MAKE_FIGURES
     end
     figure('Name', 'Fig 2  the signal on the sphere');
     for j = 2:nsh
-        for k = 1:NSNR
-            subplot(nsh-1, NSNR, (j-2)*NSNR + k);
+        for k = 1:NFIG
+            subplot(nsh-1, NFIG, (j-2)*NFIG + k);
             [X,Y,Z,Cc] = RH.glyph(sig{j-1,k}, THg, PHg, 1/smax, GLYPH_NEG);
             surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
@@ -1033,13 +1098,13 @@ if MAKE_FIGURES
     scv = sqrt((2*Lv(2:end)'+1)/(4*pi));
     figure('Name', sprintf('Fig 3  the arms side by side, Lmax %d, pick %s', Lf, GLYPH_PICK));
     for ia = 1:NARM
-        subplot(NARM, NSNR+1, (ia-1)*(NSNR+1) + 1);
+        subplot(NARM, NFIG+1, (ia-1)*(NFIG+1) + 1);
         [X,Y,Z,Cc] = RH.sh_glyph(sh_gt(1,2:nc)./scv, Lf, CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
         surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
         camlight headlight; lighting gouraud;
         title(sprintf('%s: truth', ARMS{ia}.name));   % single line, see Fig 1
-        for k = 1:NSNR
-            is = SNR_ORD(k);
+        for k = 1:NFIG
+            is = FIG_ORD(k);
             rows = find(snr_id == is & orient_id == 1);
             if strcmp(GLYPH_PICK, 'median')
                 % Reuse Step 7's per-voxel scoring: the realisation whose
@@ -1058,7 +1123,7 @@ if MAKE_FIGURES
             end
             m = ARMS{ia}.sh{iLf}(v, 1:nc);
             plmv = (m(2:end) * ((1/sqrt(4*pi))/m(1))) ./ scv;
-            subplot(NARM, NSNR+1, (ia-1)*(NSNR+1) + 1 + k);
+            subplot(NARM, NFIG+1, (ia-1)*(NFIG+1) + 1 + k);
             [X,Y,Z,Cc] = RH.sh_glyph(plmv, Lf, CS_PHASE, GLYPH_N, GLYPH_N, 1, GLYPH_NEG);
             surf(X,Y,Z,Cc); shading interp; axis equal off vis3d; view(ISO_VIEW);
             camlight headlight; lighting gouraud;
@@ -1079,12 +1144,23 @@ if MAKE_FIGURES
             subplot(numel(LMAX_LIST), 4, (iL-1)*4 + im);
             hold on;
             for ia = 1:NARM
-                plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-o', 'LineWidth', 1.5);
+                if MARKER_SIZE > 0
+                    plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-o', ...
+                         'LineWidth', 1.5, 'MarkerSize', MARKER_SIZE);
+                else
+                    plot(1:NSNR, squeeze(mets{im}(ia,iL,SNR_ORD)), '-', ...
+                         'LineWidth', 1.5);
+                end
             end
             if im == 1
                 plot(1:NSNR, median(ceil_deg(iL,:))*ones(1,NSNR), 'k--');
             end
-            set(gca, 'XTick', 1:NSNR, 'XTickLabel', SNR_LABEL(SNR_ORD));
+            % Label every tick while the grid is short, and thin them once
+            % it is dense, so sixteen SNRs do not overlap into a smear. The
+            % data is still plotted at every point; only the labels thin.
+            tk = 1:NSNR;
+            if NSNR > 8, tk = unique([1:2:NSNR, NSNR]); end
+            set(gca, 'XTick', tk, 'XTickLabel', SNR_LABEL(SNR_ORD(tk)));
             xlim([0.5 NSNR+0.5]); grid on;
             if im == 1, ylabel(sprintf('Lmax %d', LMAX_LIST(iL))); end
             if iL == 1, title(labs{im}); end
