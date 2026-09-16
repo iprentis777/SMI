@@ -10,10 +10,15 @@
 % plm are known exactly, over a range of crossing angles and SNRs, and the
 % estimate is scored against that ground truth. The sweep is staged:
 %
-%   1. joint grid over lambda_nonneg x lambda_tikhonov
-%   2. tau, at the best point of that grid
-%   3. Lmax_init, at the best point of that grid
-%   4. identity vs Laplace-Beltrami Tikhonov matrix
+%   1. lambda_nonneg
+%   2. tau, at the best point of that sweep
+%   3. Lmax_init, at the best point of that sweep
+%
+% Stages 1 and 4 were once a joint lambda_nonneg x lambda_tikhonov grid and a
+% choice of Tikhonov matrix. Tikhonov damping has been removed from the
+% toolbox as inert (Archive/patch_history/fODF_tikhonov/), so stage 1 is one
+% dimensional and stage 4 is gone. Nothing else about the sweep changed --
+% lambda_nonneg has NOT been re-optimized here.
 %
 % Scores (all averaged over crossing angles, SNRs and noise realizations):
 %
@@ -132,51 +137,39 @@ pk_true_mean = mean(max(AMP_T,[],1));
 fprintf('  ground truth mean peak fODF amplitude: %.4f\n\n', pk_true_mean);
 
 % =========================================================================
-%  STAGE 1: joint grid, lambda_nonneg x lambda_tikhonov
+%  STAGE 1: lambda_nonneg
 % =========================================================================
+% This was a joint lambda_nonneg x lambda_tikhonov grid. Tikhonov damping has
+% been removed from the toolbox as inert, so the sweep is one dimensional and
+% lambda_nonneg is the only weight left to choose.
 lam_nn  = [0 0.3 1 3 10 30 100]; % 0 = non-negativity constraint disabled
-lam_tik = [0 0.1 0.3 1 3 10];    % 0 = Tikhonov disabled
 
-sz    = [numel(lam_nn) numel(lam_tik)];
+sz    = [1 numel(lam_nn)];
 E_odf = nan(sz); E_plm = nan(sz); E_neg = nan(sz);
 E_pk  = nan(sz); E_amp = nan(sz); E_rat = nan(sz); E_npk = nan(sz);
 
-fprintf('STAGE 1: lambda_nonneg x lambda_tikhonov  (primary score: rel err fODF)\n');
-fprintf('%12s','lam_nn\lam_tik'); fprintf('%9.3g',lam_tik); fprintf('\n');
+fprintf('STAGE 1: lambda_nonneg  (primary score: rel err fODF)\n');
+fprintf('%12s%12s%12s\n','lambda_nonneg','rel err fODF','peak ratio');
 for in = 1:numel(lam_nn)
-    fprintf('%12.3g',lam_nn(in));
-    for it = 1:numel(lam_tik)
-        reg = struct();
-        reg.flag_nonneg = double(lam_nn(in) > 0);
-        if reg.flag_nonneg, reg.lambda_nonneg = lam_nn(in); end
-        reg.lambda_tikhonov = lam_tik(it);
-        [E_odf(in,it),E_plm(in,it),E_neg(in,it),E_amp(in,it),E_rat(in,it),E_pk(in,it),E_npk(in,it)] = ...
-            fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
-                          PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
-        fprintf('%9.4f',E_odf(in,it));
-    end
-    fprintf('\n');
+    reg = struct();
+    reg.flag_nonneg = double(lam_nn(in) > 0);
+    if reg.flag_nonneg, reg.lambda_nonneg = lam_nn(in); end
+    [E_odf(in),E_plm(in),E_neg(in),E_amp(in),E_rat(in),E_pk(in),E_npk(in)] = ...
+        fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
+                      PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
+    fprintf('%12.3g%12.4f%12.3f\n',lam_nn(in),E_odf(in),E_rat(in));
 end
+fprintf('\n  peak amplitude ratio is peak(estimate)/peak(truth). 1 = no shrinkage\n');
 
-% Same grid, peak amplitude ratio: does more regularization flatten the fODF?
-fprintf('\n  peak amplitude ratio, peak(estimate)/peak(truth). 1 = no shrinkage\n');
-fprintf('%12s','lam_nn\lam_tik'); fprintf('%9.3g',lam_tik); fprintf('\n');
-for in = 1:numel(lam_nn)
-    fprintf('%12.3g',lam_nn(in)); fprintf('%9.3f',E_rat(in,:)); fprintf('\n');
-end
-
-[bestE,ix] = min(E_odf(:));
-[in_b,it_b] = ind2sub(sz,ix);
-fprintf('\n  best: lambda_nonneg = %g, lambda_tikhonov = %g  -> rel err fODF %.4f\n', ...
-    lam_nn(in_b), lam_tik(it_b), bestE);
+[bestE,in_b] = min(E_odf);
+fprintf('\n  best: lambda_nonneg = %g  -> rel err fODF %.4f\n', lam_nn(in_b), bestE);
 fprintf('  at that point: RMSE(plm) %.4f | negative mass %.4f | peak error %.2f deg\n', ...
-    E_plm(in_b,it_b), E_neg(in_b,it_b), E_pk(in_b,it_b));
+    E_plm(in_b), E_neg(in_b), E_pk(in_b));
 fprintf('                 peak amplitude %.4f (%.1f%% of ground truth) | %.2f peaks/voxel\n\n', ...
-    E_amp(in_b,it_b), 100*E_rat(in_b,it_b), E_npk(in_b,it_b));
+    E_amp(in_b), 100*E_rat(in_b), E_npk(in_b));
 
 best.flag_nonneg     = double(lam_nn(in_b) > 0);
 best.lambda_nonneg   = max(lam_nn(in_b),1);
-best.lambda_tikhonov = lam_tik(it_b);
 
 % =========================================================================
 %  STAGE 2: tau
@@ -209,48 +202,24 @@ end
 fprintf('  best Lmax_init = %d\n\n', best.Lmax_init);
 
 % =========================================================================
-%  STAGE 4: Tikhonov matrix
-% =========================================================================
-mats = {'identity','laplacebeltrami'};
-E_mat = nan(numel(mats),numel(lam_tik)); R_mat = nan(numel(mats),numel(lam_tik));
-fprintf('STAGE 4: Tikhonov matrix (at the optimum, re-optimizing lambda_tikhonov)\n');
-for m = 1:numel(mats)
-    for it = 1:numel(lam_tik)
-        reg = best; reg.TikhonovMatrix = mats{m}; reg.lambda_tikhonov = lam_tik(it);
-        [E_mat(m,it),~,~,~,R_mat(m,it)] = fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
-                                    PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB);
-    end
-    [em,ib] = min(E_mat(m,:));
-    fprintf('  %-16s best lambda_tikhonov = %-5g -> rel err fODF %.4f | peak ratio %.3f\n', ...
-        mats{m}, lam_tik(ib), em, R_mat(m,ib));
-end
-[~,m_b] = min(min(E_mat,[],2));
-[~,it_b2] = min(E_mat(m_b,:));
-best.TikhonovMatrix = mats{m_b}; best.lambda_tikhonov = lam_tik(it_b2);
-
-% =========================================================================
 %  Per SNR
 % =========================================================================
 fprintf('\nPer-SNR optimum over the stage 1 grid\n');
-E_snr = nan(numel(SNRs),numel(lam_nn),numel(lam_tik));
+E_snr = nan(numel(SNRs),numel(lam_nn));
 R_snr = nan(size(E_snr));
 for is = 1:numel(SNRs)
     sel = COND(:,2)==is;
     for in = 1:numel(lam_nn)
-        for it = 1:numel(lam_tik)
-            reg = struct();
-            reg.flag_nonneg = double(lam_nn(in) > 0);
-            if reg.flag_nonneg, reg.lambda_nonneg = lam_nn(in); end
-            reg.lambda_tikhonov = lam_tik(it);
-            [E_snr(is,in,it),~,~,~,R_snr(is,in,it)] = ...
-                fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
-                                      PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB,sel);
-        end
+        reg = struct();
+        reg.flag_nonneg = double(lam_nn(in) > 0);
+        if reg.flag_nonneg, reg.lambda_nonneg = lam_nn(in); end
+        [E_snr(is,in),~,~,~,R_snr(is,in)] = ...
+            fODF_regularization_score(reg,dwi4,Lmax_shells,kernel,mask,b,beta,TE,dirs,CS_phase,D_FW, ...
+                                  PLM_T,Y_odf,AMP_T,nrm_T,dirs_odf,NB,COND,FIB,sel);
     end
-    Es = squeeze(E_snr(is,:,:));
-    [e,ix] = min(Es(:)); [ii,jj] = ind2sub(size(Es),ix);
-    fprintf('  SNR %2d: lambda_nonneg = %-4g lambda_tikhonov = %-4g -> %.4f (peak ratio %.3f)\n', ...
-        SNRs(is), lam_nn(ii), lam_tik(jj), e, R_snr(is,ii,jj));
+    [e,ii] = min(E_snr(is,:));
+    fprintf('  SNR %2d: lambda_nonneg = %-4g -> %.4f (peak ratio %.3f)\n', ...
+        SNRs(is), lam_nn(ii), e, R_snr(is,ii));
 end
 
 % =========================================================================
@@ -261,8 +230,6 @@ fprintf('options.fODF_regularization.flag_nonneg      = %d;\n', best.flag_nonneg
 fprintf('options.fODF_regularization.lambda_nonneg    = %g;\n', best.lambda_nonneg);
 fprintf('options.fODF_regularization.tau              = %g;\n', best.tau);
 fprintf('options.fODF_regularization.Lmax_init        = %d;\n', best.Lmax_init);
-fprintf('options.fODF_regularization.lambda_tikhonov  = %g;\n', best.lambda_tikhonov);
-fprintf('options.fODF_regularization.TikhonovMatrix   = ''%s'';\n', best.TikhonovMatrix);
 fprintf('=====================================================\n');
 
 % =========================================================================
@@ -279,91 +246,63 @@ figRes      = '-r300';
 if saveFigures && ~exist(figDir,'dir'), mkdir(figDir); end
 
 set(0,'DefaultAxesFontSize',10,'DefaultTextFontSize',10)
-xt = 1:numel(lam_tik); yt = 1:numel(lam_nn);
+yt = 1:numel(lam_nn);
 lamNNlab = arrayfun(@(v) num2str(v),lam_nn,'UniformOutput',false); lamNNlab{1} = 'off';
-lamTKlab = arrayfun(@(v) num2str(v),lam_tik,'UniformOutput',false); lamTKlab{1} = 'off';
 panel = @(s) text(-0.16,1.06,s,'Units','normalized','FontWeight','bold','FontSize',12);
 
-% ---- Figure 1: the regularization landscape, all four scores -----------
-f1 = figure('Color','w','Name','F1 regularization landscape','Position',[60 60 1000 760]);
+% ---- Figure 1: the regularization curves, all four scores --------------
+f1 = figure('Color','w','Name','F1 regularization curves','Position',[60 60 1000 760]);
 maps = {E_odf,'relative fODF error','a'; E_neg,'negative mass','b'; ...
         E_pk,'peak angular error [deg]','c'; E_rat,'peak amplitude ratio','d'};
 for k = 1:4
-    subplot(2,2,k)
-    imagesc(maps{k,1}), colorbar, hold on
-    plot(it_b,in_b,'w*','MarkerSize',12,'LineWidth',1.5)
-    set(gca,'XTick',xt,'XTickLabel',lamTKlab,'YTick',yt,'YTickLabel',lamNNlab)
-    xlabel('\lambda_{tikhonov}'), ylabel('\lambda_{nonneg}')
+    subplot(2,2,k), hold on
+    plot(1:numel(lam_nn),maps{k,1},'o-','LineWidth',1.4)
+    plot(in_b,maps{k,1}(in_b),'r*','MarkerSize',13,'LineWidth',1.5)
+    set(gca,'XTick',yt,'XTickLabel',lamNNlab), box on, grid on
+    xlabel('\lambda_{nonneg}')
     title(maps{k,2}), panel(maps{k,3})
 end
 
 % ---- Figure 2: does more regularization shrink the peaks? --------------
-f2 = figure('Color','w','Name','F2 peak amplitude shrinkage','Position',[60 60 1300 400]);
-subplot(1,3,1), hold on
-for it = 1:numel(lam_tik)
-    plot(1:numel(lam_nn),E_rat(:,it),'o-','LineWidth',1.3,'DisplayName',['\lambda_{tik}=' lamTKlab{it}])
-end
+f2 = figure('Color','w','Name','F2 peak amplitude shrinkage','Position',[60 60 900 400]);
+subplot(1,2,1), hold on
+plot(1:numel(lam_nn),E_rat,'o-','LineWidth',1.3)
 plot([1 numel(lam_nn)],[1 1],'k--','HandleVisibility','off')
 set(gca,'XTick',yt,'XTickLabel',lamNNlab), box on, grid on
 xlabel('\lambda_{nonneg}'), ylabel('peak(estimate) / peak(truth)')
-title('shrinkage vs non-negativity weight'), legend('Location','best'), panel('a')
+title('shrinkage vs non-negativity weight'), panel('a')
 
-subplot(1,3,2), hold on
-for in = 1:numel(lam_nn)
-    plot(1:numel(lam_tik),E_rat(in,:),'o-','LineWidth',1.3,'DisplayName',['\lambda_{nn}=' lamNNlab{in}])
-end
-plot([1 numel(lam_tik)],[1 1],'k--','HandleVisibility','off')
-set(gca,'XTick',xt,'XTickLabel',lamTKlab), box on, grid on
-xlabel('\lambda_{tikhonov}'), ylabel('peak(estimate) / peak(truth)')
-title('shrinkage vs Tikhonov weight'), legend('Location','best'), panel('b')
-
-subplot(1,3,3), hold on
+subplot(1,2,2), hold on
 scatter(E_rat(:),E_odf(:),28,'filled')
-plot(E_rat(in_b,it_b),E_odf(in_b,it_b),'r*','MarkerSize',14,'LineWidth',1.5)
+plot(E_rat(in_b),E_odf(in_b),'r*','MarkerSize',14,'LineWidth',1.5)
 yl = get(gca,'YLim'); plot([1 1],yl,'k--'), ylim(yl)
 box on, grid on
 xlabel('peak amplitude ratio'), ylabel('relative fODF error')
-title('accuracy vs shrinkage trade-off'), panel('c')
+title('accuracy vs shrinkage trade-off'), panel('b')
 
 % ---- Figure 3: the secondary parameters --------------------------------
-f3 = figure('Color','w','Name','F3 secondary parameters','Position',[60 60 1300 400]);
-subplot(1,3,1), hold on
+f3 = figure('Color','w','Name','F3 secondary parameters','Position',[60 60 900 400]);
+subplot(1,2,1), hold on
 plot(taus,E_tau,'o-','LineWidth',1.4)
 plot(best.tau,min(E_tau),'r*','MarkerSize',13,'LineWidth',1.5)
 xlabel('\tau'), ylabel('relative fODF error'), box on, grid on
 title('threshold \tau'), panel('a')
 
-subplot(1,3,2), hold on
+subplot(1,2,2), hold on
 bar(Lin,E_lin,0.5)
 xlabel('L_{max,init}'), ylabel('relative fODF error'), box on
 set(gca,'XTick',Lin), title('initialization order'), panel('b')
 
-subplot(1,3,3), hold on
-plot(lam_tik,E_mat(1,:),'o-','LineWidth',1.4)
-plot(lam_tik,E_mat(2,:),'s-','LineWidth',1.4)
-set(gca,'XScale','log'), box on, grid on
-xlabel('\lambda_{tikhonov}'), ylabel('relative fODF error')
-legend(mats,'Location','best'), title('Tikhonov matrix'), panel('c')
-
 % ---- Figure 4: SNR dependence ------------------------------------------
-f4 = figure('Color','w','Name','F4 SNR dependence','Position',[60 60 1000 400]);
-subplot(1,2,1), hold on
+f4 = figure('Color','w','Name','F4 SNR dependence','Position',[60 60 560 400]);
+hold on
 for is = 1:numel(SNRs)
-    plot(1:numel(lam_nn),min(squeeze(E_snr(is,:,:)),[],2),'o-','LineWidth',1.3, ...
+    plot(1:numel(lam_nn),E_snr(is,:),'o-','LineWidth',1.3, ...
          'DisplayName',sprintf('SNR %d',SNRs(is)))
 end
 set(gca,'XTick',yt,'XTickLabel',lamNNlab), box on, grid on
-xlabel('\lambda_{nonneg}'), ylabel('relative fODF error (best \lambda_{tik})')
-legend('Location','best'), title('error vs non-negativity weight'), panel('a')
-
-subplot(1,2,2), hold on
-for is = 1:numel(SNRs)
-    plot(1:numel(lam_tik),squeeze(E_snr(is,in_b,:)),'o-','LineWidth',1.3, ...
-         'DisplayName',sprintf('SNR %d',SNRs(is)))
-end
-set(gca,'XTick',xt,'XTickLabel',lamTKlab), box on, grid on
-xlabel('\lambda_{tikhonov}'), ylabel('relative fODF error')
-legend('Location','best'), title(sprintf('at \\lambda_{nonneg} = %s',lamNNlab{in_b})), panel('b')
+xlabel('\lambda_{nonneg}'), ylabel('relative fODF error')
+legend('Location','best'), title('error vs non-negativity weight')
 
 if saveFigures
     figs  = [f1 f2 f3 f4];

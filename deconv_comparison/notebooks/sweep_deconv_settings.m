@@ -113,19 +113,17 @@ MAKE_FIGURES = true;   % Figures 1-3, drawn from the arrays Step 4 prints
 %   Ndirs             directions on which non-negativity is imposed
 %   Lmax_init         Lmax of the initial unconstrained solution
 %   max_neg_fraction  bail out if more than this fraction is negative
-%   lambda_tikhonov   weight of the Tikhonov block
 
 SMI_BASE = struct('flag_nonneg',1, 'lambda_nonneg',1, 'tau',0.1, ...
                   'Niter',50, 'Ndirs',300, 'Lmax_init',4, ...
-                  'max_neg_fraction',0.9, 'lambda_tikhonov',0);
+                  'max_neg_fraction',0.9);
 
 if SMOKE_TEST
-    SMI_OAT  = { {'lambda_nonneg',[0.3 3]}, {'lambda_tikhonov',[0.3]} };
+    SMI_OAT  = { {'lambda_nonneg',[0.3 3]} };
     SMI_GRID = {'lambda_nonneg',[0.3 1 3], 'tau',[0.05 0.1]};
 else
     SMI_OAT  = { {'lambda_nonneg',   [0.03 0.1 0.3 3 10 30]}, ...
                  {'tau',             [0.01 0.02 0.05 0.2 0.4]}, ...
-                 {'lambda_tikhonov', [0.01 0.03 0.1 0.3 1]}, ...
                  {'Ndirs',           [100 200 600 1000]}, ...
                  {'Lmax_init',       [2 6 8]}, ...
                  {'Niter',           [10 25 100 200]}, ...
@@ -133,11 +131,12 @@ else
     SMI_GRID = {'lambda_nonneg',[0.1 0.3 1 3 10], 'tau',[0.01 0.02 0.05 0.1 0.2]};
 end
 
-% The unconstrained reference, with and without Tikhonov. These are the only
-% rows that are not constrained deconvolutions, and at high SNR they are the
-% shape-fidelity benchmark every constrained setting is measured against.
-SMI_EXTRA = { struct('flag_nonneg',0, 'lambda_tikhonov',0), ...
-              struct('flag_nonneg',0, 'lambda_tikhonov',0.3) };
+% The unconstrained reference. This is the only row that is not a constrained
+% deconvolution, and at high SNR it is the shape-fidelity benchmark every
+% constrained setting is measured against. It was a pair -- with and without
+% Tikhonov damping -- until that damping was removed as inert, which made the
+% two identical.
+SMI_EXTRA = { struct('flag_nonneg',0) };
 
 fprintf('\n=== SMI deconvolution parameter sweep ===\n');
 if SMOKE_TEST, fprintf('*** SMOKE_TEST = true: reduced grids, INDICATIVE ONLY ***\n'); end

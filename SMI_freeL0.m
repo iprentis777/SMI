@@ -147,10 +147,6 @@ classdef SMI_freeL0
     % options.fODF_regularization.Niter maximum number of iterations (default 50)
     % options.fODF_regularization.Lmax_init Lmax of the initial unconstrained
     %                     solution (default 4)
-    % options.fODF_regularization.lambda_tikhonov weight of the Tikhonov
-    %                     penalty lambda^2*||Gamma*plm||^2 (default 0, off)
-    % options.fODF_regularization.TikhonovMatrix 'identity' (default) or
-    %                     'laplacebeltrami' (Gamma=diag(l(l+1))/max(l(l+1)))
     %
     % fODF post hoc outlier cap (OFF by default, see Reports/REPORT_fODF_outlier_cap.md)
     %
@@ -730,11 +726,6 @@ classdef SMI_freeL0
             file_log = [file_log sprintf('- Degree used for kernel polynomial regression: %d \n',Degree_Kernel_PR)];
             file_log = [file_log sprintf('- Free water diffusivity used: %.2f um^2/ms \n',D_FW)];
             if flag_fit_fODF && isstruct(fODF_regularization)
-                if fODF_regularization.lambda_tikhonov>0
-                    file_log = [file_log sprintf('- fODF Tikhonov regularization: lambda = %.3g (%s) \n',fODF_regularization.lambda_tikhonov,fODF_regularization.TikhonovMatrix)];
-                else
-                    file_log = [file_log '- fODF Tikhonov regularization: none \n'];
-                end
                 if fODF_regularization.flag_nonneg
                     file_log = [file_log sprintf('- fODF non-negativity constraint: lambda = %.3g, tau = %.3g, %d directions, up to %d iterations \n',...
                         fODF_regularization.lambda_nonneg,fODF_regularization.tau,fODF_regularization.Ndirs,fODF_regularization.Niter)];
@@ -801,7 +792,7 @@ classdef SMI_freeL0
             % is empty or omitted the deconvolution is an unregularized LLS fit
             % (default). Setting fODF_reg.flag_nonneg=1 adds the non-negativity
             % constraint of constrained spherical deconvolution (Tournier et
-            % al., 2007) and fODF_reg.lambda_tikhonov>0 adds Tikhonov damping.
+            % al., 2007).
             %
             if ~exist('beta', 'var') || isempty(beta)
                 beta = ones(size(b));
@@ -867,7 +858,7 @@ classdef SMI_freeL0
 
                 % Regularization of the deconvolution (default is none)
                 fODF_reg = SMI_freeL0.fODF_RegularizationDefaults(fODF_reg,LMAX);
-                flag_reg = fODF_reg.flag_nonneg || fODF_reg.lambda_tikhonov>0;
+                flag_reg = fODF_reg.flag_nonneg;
                 if flag_reg
                     % fODF amplitudes on a dense set of directions per unit plm.
                     % plm are normalized (p_00=1), thus the SH coefficients of
@@ -937,9 +928,9 @@ classdef SMI_freeL0
             % reg = fODF_RegularizationDefaults(reg,Lmax)
             %
             % Fills in the default values of the options controlling the
-            % regularization of the fODF deconvolution and precomputes the
-            % Tikhonov matrix. Both regularizers are disabled by default, so
-            % the deconvolution reduces to the unregularized LLS fit.
+            % regularization of the fODF deconvolution. The constraint is
+            % disabled by default, so the deconvolution reduces to the
+            % unregularized LLS fit.
             %
             % NON-NEGATIVITY (constrained spherical deconvolution, Tournier et
             % al., NeuroImage 2007). The fODF is first estimated with an
@@ -974,18 +965,16 @@ classdef SMI_freeL0
             % reg.max_neg_fraction  if a larger fraction of the directions is
             %                       negative the iterations are stopped (default 0.9)
             %
-            % TIKHONOV. Adds lambda_tikhonov^2*||Gamma*plm||^2 to the least
-            % squares problem, which damps the high order coefficients that the
-            % kernel attenuates the most (Kell decays with ell).
-            %
-            % reg.lambda_tikhonov   weight of the Tikhonov block (default 0, off)
-            % reg.TikhonovMatrix    'identity' (default) or 'laplacebeltrami',
-            %                       the latter uses Gamma=diag(l(l+1)) normalized
-            %                       by its maximum value
-            %
-            % Both lambdas are dimensionless: the regularization blocks are
+            % lambda_nonneg is dimensionless: the regularization block is
             % rescaled by the root mean squared norm of the rows of the design
             % matrix of each voxel.
+            %
+            % REMOVED. Earlier versions also offered Tikhonov damping,
+            % lambda_tikhonov^2*||Gamma*plm||^2, on the reasoning that it would
+            % damp the high order coefficients the kernel attenuates most. Two
+            % measurements found it inert and it was removed; the option is no
+            % longer read, so a caller that still sets it is silently ignored.
+            % See Archive/patch_history/fODF_tikhonov/README.md.
             %
             if ~exist('reg', 'var') || isempty(reg)
                 reg = struct();
@@ -995,7 +984,6 @@ classdef SMI_freeL0
             end
             default_reg = struct('flag_nonneg',0,'lambda_nonneg',1,'tau',0.1,'Niter',50,...
                                  'Ndirs',300,'Lmax_init',4,'max_neg_fraction',0.9,...
-                                 'lambda_tikhonov',0,'TikhonovMatrix','identity',...
                                  'free_l0',0,'p00_bounds',[0 1]);
             fields = fieldnames(default_reg);
             for ii=1:length(fields)
@@ -1003,41 +991,21 @@ classdef SMI_freeL0
                     reg.(fields{ii}) = default_reg.(fields{ii});
                 end
             end
-            if reg.lambda_nonneg<0 || reg.lambda_tikhonov<0
+            if reg.lambda_nonneg<0
                 error('Regularization weights must be non-negative')
             end
             if reg.Ndirs<10
                 error('At least 10 directions are needed for the non-negativity constraint')
             end
 
-            % Precompute the Tikhonov matrix (only for ell>0, p_00 is fixed)
+            % Which coefficients the initial unconstrained fit estimates
+            % (only ell>0, p_00 is fixed)
             L_all = repelem(0:2:Lmax,2*(0:2:Lmax)+1);
             L_rest = L_all(2:end);
-            switch lower(reg.TikhonovMatrix)
-                case 'identity'
-                    gamma_l = ones(size(L_rest));
-                case {'laplacebeltrami','laplace-beltrami','lb'}
-                    gamma_l = L_rest.*(L_rest+1);
-                    gamma_l = gamma_l/max(gamma_l);
-                otherwise
-                    error('TikhonovMatrix must be ''identity'' or ''laplacebeltrami''')
-            end
-            reg.Gamma = diag(gamma_l);
             reg.init_mask = L_rest<=reg.Lmax_init;
-            % EXPERIMENTAL free_l0: Gamma and the initial-solution mask have to
-            % cover l = 0 as well. Its Tikhonov entry is always zero -- damping
-            % exists to suppress the high orders the kernel attenuates most, and
-            % shrinking p_00 would shrink the density estimate itself, which is
-            % the quantity free_l0 exists to measure.
+            % EXPERIMENTAL free_l0: the initial-solution mask has to cover
+            % l = 0 as well.
             if reg.free_l0
-                switch lower(reg.TikhonovMatrix)
-                    case 'identity'
-                        g_full = ones(size(L_all));
-                    otherwise
-                        g_full = L_all.*(L_all+1); g_full = g_full/max(g_full);
-                end
-                g_full(L_all==0) = 0;
-                reg.Gamma_full = diag(g_full);
                 reg.init_full  = L_all<=reg.Lmax_init;
             end
             if ~any(reg.init_mask)
@@ -1050,7 +1018,7 @@ classdef SMI_freeL0
             %
             % Regularized spherical deconvolution for a single voxel. It solves
             %
-            %   min_p ||A*p-y||^2 + lambda_t^2*||Gamma*p||^2 + lambda_n^2*||L*p+c||^2
+            %   min_p ||A*p-y||^2 + lambda_n^2*||L*p+c||^2
             %
             % where the last term penalizes the fODF amplitude on the subset of
             % directions where the fODF is negative (or below a small threshold),
@@ -1079,13 +1047,6 @@ classdef SMI_freeL0
                 info(3) = 0;
                 return
             end
-            if reg.lambda_tikhonov>0
-                Tik = (reg.lambda_tikhonov*scale_A)*reg.Gamma;
-            else
-                Tik = zeros(0,Ncoeff);
-            end
-            rhs_tik = zeros(size(Tik,1),1);
-
             % Initial solution. If the non-negativity constraint is used, this
             % is the low order unconstrained fit of Tournier et al. (2007),
             % otherwise all the coefficients are estimated at once
@@ -1095,11 +1056,7 @@ classdef SMI_freeL0
                 id = true(1,Ncoeff);
             end
             p = zeros(Ncoeff,1);
-            Tik_init = Tik(:,id);
-            if size(Tik,1)>0
-                Tik_init = Tik(id,id);
-            end
-            p(id) = [A(:,id); Tik_init]\[y; zeros(size(Tik_init,1),1)];
+            p(id) = A(:,id)\y;
 
             if ~reg.flag_nonneg
                 return
@@ -1125,7 +1082,7 @@ classdef SMI_freeL0
                     break
                 end
                 L = weight_nonneg*Ylm_nonneg(neg,:);
-                p = [A; L; Tik]\[y; -weight_nonneg*fODF_isotropic(neg); rhs_tik];
+                p = [A; L]\[y; -weight_nonneg*fODF_isotropic(neg)];
                 neg_prev = neg;
                 info(1) = it;
             end
@@ -1169,17 +1126,9 @@ classdef SMI_freeL0
             if ~isfinite(scale_A) || scale_A<eps
                 p = zeros(Nlm,1); info(3) = 0; return
             end
-            if reg.lambda_tikhonov>0
-                Tik = (reg.lambda_tikhonov*scale_A)*reg.Gamma_full;
-            else
-                Tik = zeros(0,Nlm);
-            end
-            rhs_tik = zeros(size(Tik,1),1);
-
             if reg.flag_nonneg, id = reg.init_full; else, id = true(1,Nlm); end
             p = zeros(Nlm,1);
-            if size(Tik,1)>0, Ti = Tik(id,id); else, Ti = zeros(0,sum(id)); end
-            p(id) = [A(:,id); Ti]\[y; zeros(size(Ti,1),1)];
+            p(id) = A(:,id)\y;
 
             if reg.flag_nonneg
                 scale_Y = norm(Ylm,'fro')/sqrt(size(Ylm,1));
@@ -1194,7 +1143,7 @@ classdef SMI_freeL0
                     end
                     if sum(neg) > reg.max_neg_fraction*Ndirs, break, end
                     L = w*Ylm(neg,:);
-                    p = [A; L; Tik]\[y; zeros(sum(neg),1); rhs_tik];
+                    p = [A; L]\[y; zeros(sum(neg),1)];
                     thr = reg.tau*mean(Ylm*p);
                     neg_prev = neg; info(1) = it;
                 end
@@ -1207,20 +1156,19 @@ classdef SMI_freeL0
                 pin = min(max(p(1),lo),hi);
                 yp  = y - A(:,1)*pin;
                 q   = zeros(Nlm-1,1);
-                if size(Tik,1)>0, Tr = Tik(2:end,2:end); else, Tr = zeros(0,Nlm-1); end
                 if reg.flag_nonneg
                     c0 = Ylm(:,1)*pin;
                     scale_Y = norm(Ylm(:,2:end),'fro')/sqrt(size(Ylm,1));
                     w  = reg.lambda_nonneg*scale_A/scale_Y;
-                    q  = [A(:,2:end); Tr]\[yp; zeros(size(Tr,1),1)];
+                    q  = A(:,2:end)\yp;
                     for it = 1:reg.Niter
                         neg = (c0 + Ylm(:,2:end)*q) < reg.tau*mean(c0 + Ylm(:,2:end)*q);
                         if ~any(neg) || sum(neg) > reg.max_neg_fraction*size(Ylm,1), break, end
                         L = w*Ylm(neg,2:end);
-                        q = [A(:,2:end); L; Tr]\[yp; -w*c0(neg); zeros(size(Tr,1),1)];
+                        q = [A(:,2:end); L]\[yp; -w*c0(neg)];
                     end
                 else
-                    q = [A(:,2:end); Tr]\[yp; zeros(size(Tr,1),1)];
+                    q = A(:,2:end)\yp;
                 end
                 p = [pin; q];
             end
@@ -1420,13 +1368,15 @@ classdef SMI_freeL0
             % regularized fit leaves 84% of CSF above cutoff -- worse than not
             % weighting at all. It measures the regularizer, not the tissue.
             %
-            % NOTE an earlier version of this comment blamed the Tikhonov term
-            % for the lost l=4 power. That was measured to be wrong:
-            % lambda_tikhonov has no effect on the high l bands (swept 0 to 0.8
-            % at three noise levels, identical to three decimals). The cause is
-            % the non-negativity constraint together with error in the estimated
-            % kernel, whose K_l at high l is small and very sensitive. See
-            % "README for Claude.md" section 2.
+            % NOTE an earlier version of this comment blamed Tikhonov damping
+            % for the lost l=4 power. That was measured to be wrong: the damping
+            % had no effect on the high l bands (swept 0 to 0.8 at three noise
+            % levels, identical to three decimals), which is one of the two
+            % measurements that got it removed entirely. The cause is the
+            % non-negativity constraint together with error in the estimated
+            % kernel, whose K_l at high l is small and very sensitive -- so the
+            % removal does not change this paragraph's conclusion, it confirms
+            % it. See Archive/patch_history/fODF_tikhonov/README.md.
             %
             % Anisotropy weights, unlike tissue fraction weights, preserve
             % edema. Under the cutoff that retains 95% of white matter, the
@@ -1507,8 +1457,7 @@ classdef SMI_freeL0
             %              unchanged, total mass becomes w. This is the
             %              AFD-like operation and the one tractography needs.
             %   'shape'    scale only l>0, leaving mass at 1 and making the
-            %              fODF sharper or flatter. This is what the Tikhonov
-            %              term of the deconvolution already does implicitly.
+            %              fODF sharper or flatter.
             %
             % OUTPUT. sh is [X Y Z Nlm] real even order SH coefficients in
             % SMI's own basis (SMI_freeL0.get_even_SH with out.CS_phase), INCLUDING

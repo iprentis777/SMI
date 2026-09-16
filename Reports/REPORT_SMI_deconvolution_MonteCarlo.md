@@ -1,5 +1,11 @@
 # Constrained SMI deconvolution vs MSMT-CSD and SSST-CSD
 
+> **Note on `lambda_tikhonov`.** Tikhonov damping of the fODF deconvolution has
+> since been **removed from the toolbox**. Numbers and discussion below that
+> involve it are retained as the measured record that retired it -- read the
+> `lambda_tikhonov = 0` case as current behaviour. See
+> [`Archive/patch_history/fODF_tikhonov/`](../Archive/patch_history/fODF_tikhonov/).
+
 Monte Carlo comparison of spherical deconvolutions on crossing white matter
 fibres, in the design of Jeurissen et al. (2014).
 

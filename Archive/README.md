@@ -62,6 +62,34 @@ it. Any reactivation should begin with a known edema ROI, explicit MRtrix basis
 validation, and a reviewer-facing justification for departing from established
 regularization and tractography conventions.
 
+## Retired: Tikhonov damping of the fODF deconvolution
+
+[`patch_history/fODF_tikhonov/`](patch_history/fODF_tikhonov/) holds the removed
+implementation and the measurements that removed it.
+
+The fODF deconvolution is ill-conditioned, and Tikhonov damping added a penalty
+`lambda_tikhonov^2*||Gamma*plm||^2` intended to suppress the high-order
+coefficients the kernel attenuates most. It was off by default and is now gone
+entirely.
+
+It is retired because two independent measurements found it inert: swept from 0
+to 0.8 at three noise levels the high-`l` bands were identical to three
+decimals, and `0.3` against `0` moved a 45 degree error from 21.28 to 21.27
+degrees. The first of those was made while investigating why `l = 4` power was
+being lost, and it overturned the explanation then in the code — the cause is
+the non-negativity constraint together with error in the estimated kernel, not
+damping.
+
+The useful negative result is that **non-negativity is the only fODF regularizer
+in SMI that demonstrably changes a result**, so it is the only one worth tuning.
+Note also that removing this leaves SMI less regularized than the CSD arms it is
+compared against, since `dwi2fod csd` ships `-norm_lambda 1` — Tikhonov with
+`Gamma = I`.
+
+A caller that still sets `lambda_tikhonov` is **silently ignored**, not
+rejected. See the directory README before re-running an old analysis against
+old numbers.
+
 ## Learning exercise: viewing the response kernel as zonal harmonics
 
 This exercise expresses the fitted SMI kernel as the zonal harmonic response

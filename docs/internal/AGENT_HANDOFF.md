@@ -318,9 +318,13 @@ mistake is more instructive than either answer.
 
 ### 2.3 Still standing from the previous handoff
 
-1. **`lambda_tikhonov` does not damage the high `l` bands, and does not do much
-   of anything.**[^regularization-review-posture] Re-confirmed this session: 0.3 vs 0 moves the 45 degree error
-   from 21.28 to 21.27 deg. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
+1. **`lambda_tikhonov` did not damage the high `l` bands, and did not do much
+   of anything. IT HAS NOW BEEN REMOVED**[^regularization-review-posture] --
+   see `Archive/patch_history/fODF_tikhonov/`. Re-confirmed before removal: 0.3
+   vs 0 moves the 45 degree error from 21.28 to 21.27 deg. Note it was *not*
+   inert at every weight: above 1 it flattened the fODF hard (peaks at 55% of
+   true height at 3, 27% at 10), so there was no weight at which it helped.
+   A caller that still sets the field is **silently ignored**, not rejected. `Reports/REPORT_fODF_modulation.md` §3 attributes the `pl4`
    loss to it and is **still wrong** and still unfixed. The real cause is the
    non-negativity constraint plus error in the estimated kernel, whose `K_l` at
    high `l` is tiny and very sensitive.
@@ -523,7 +527,7 @@ force-pushed.
 | `Archive/README.md` | learning exercises and semi-retired exploratory work; modulation and the zonal-harmonics viewer are indexed here |
 | `examples/example.m`, `examples/example_SMI_SSM.m` | the original data-fit and sensitivity-specificity examples |
 | `Reports/REPORT_fODF_regularization_sweep.md` | the original `lambda_nonneg` measurement (now superseded on the default; see section 2.1) |
-| `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3** |
+| `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3**; Tikhonov has since been removed |
 | `Reports/REPORT_fODF_outlier_cap.md` | the cap measurement |
 | `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
 | `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
@@ -789,7 +793,9 @@ Do not re-walk these.
 - **`degenerate = 'clip'` is a bad modulation default.** In a blown-up voxel the
   raw `p` exceeds the clip so the voxel gets weight exactly 1.0, the maximum in
   the volume. `'reject'` exists. Still not changed.
-- **`lambda_tikhonov` is inert.** Section 2.3, item 1. Stop sweeping it.
+- ~~**`lambda_tikhonov` is inert.** Section 2.3, item 1. Stop sweeping it.~~
+  **DONE** -- removed from the toolbox entirely, along with its sweep axes.
+  `Archive/patch_history/fODF_tikhonov/`.
 
 The one thing that has ever satisfied every constraint at once, still unshipped:
 **noise-floor-subtracted anisotropic power over `l = 2,4`**, using `sigma` and
@@ -892,8 +898,9 @@ it has never touched real data.
 3. **Revisit `examples/example_fODF_regularization_sweep.m`.** The user asked
    for this explicitly and it was deferred to its own patch: audit it for hidden
    bugs, and add 3D isometric panels of the reconstructed fODFs as
-   `lambda_nonneg`, `lambda_tikhonov` and `tau` vary, in the style of the 2007
-   CSD paper. Two things to settle with the user first: whether those panels
+   `lambda_nonneg` and `tau` vary, in the style of the 2007 CSD paper. (The
+   `lambda_tikhonov` axis is gone; the script is one dimensional in the weight
+   now, and its stage 4 was deleted.) Two things to settle with the user first: whether those panels
    sweep at one SNR or several, and whether they use the manuscript's 60 degree
    crossing or that script's existing 40/60/90 set.
 4. **Regenerate the `Reports/` tables on the real HCP protocol.** Every number

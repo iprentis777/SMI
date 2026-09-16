@@ -27,7 +27,7 @@ These scripts generate their own synthetic inputs and need no downloaded data:
 
 | file | purpose |
 |---|---|
-| [`example_fODF_regularization.m`](example_fODF_regularization.m) | compare unregularized, Tikhonov, and non-negativity-constrained fODFs |
+| [`example_fODF_regularization.m`](example_fODF_regularization.m) | compare unregularized against non-negativity-constrained fODFs at two weights |
 | [`example_fODF_regularization_sweep.m`](example_fODF_regularization_sweep.m) | sweep regularization settings and produce comparison figures |
 
 The modulation and response-kernel viewers are retained as learning exercises,

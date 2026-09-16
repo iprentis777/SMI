@@ -118,8 +118,8 @@ for isnr = 1:numel(SNRs)
                 'D_FW',D_FW,'Lmax',Lmax_shell,'flag_fit_fODF',1);
   opts.compartments = {'IAS','EAS','FW'};
 
-  arms = {{'unregularized', struct('flag_nonneg',0,'lambda_tikhonov',0)}, ...
-          {'regularized',   struct('flag_nonneg',1,'lambda_nonneg',10,'lambda_tikhonov',0.3)}};
+  arms = {{'unregularized', struct('flag_nonneg',0)}, ...
+          {'regularized',   struct('flag_nonneg',1,'lambda_nonneg',10)}};
   for arm = 1:numel(arms)
       o = opts;
       o.fODF_regularization = arms{arm}{2};

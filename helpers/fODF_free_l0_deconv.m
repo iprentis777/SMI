@@ -55,30 +55,16 @@ end
 % =====================================================================
 function reg = reg_defaults(Lmax, reg)
 % Mirrors SMI.fODF_RegularizationDefaults, with one deliberate difference:
-% Gamma covers ALL coefficients including l = 0, and its l = 0 entry is always
-% zero. Tikhonov damping exists to suppress the high orders the kernel
-% attenuates most; shrinking p_00 would shrink the density estimate itself,
-% which is the quantity 'free' mode exists to measure.
+% init_full covers ALL coefficients including l = 0, because 'free' mode
+% estimates the density term rather than fixing it at p_00 = 1.
 if nargin < 2 || isempty(reg), reg = struct(); end
 d = struct('flag_nonneg',0,'lambda_nonneg',1,'tau',0.1,'Niter',50, ...
-           'Ndirs',300,'Lmax_init',4,'max_neg_fraction',0.9, ...
-           'lambda_tikhonov',0,'TikhonovMatrix','identity');
+           'Ndirs',300,'Lmax_init',4,'max_neg_fraction',0.9);
 fn = fieldnames(d);
 for ii = 1:numel(fn)
     if ~isfield(reg,fn{ii}) || isempty(reg.(fn{ii})), reg.(fn{ii}) = d.(fn{ii}); end
 end
 L_all = repelem(0:2:Lmax, 2*(0:2:Lmax)+1);
-switch lower(reg.TikhonovMatrix)
-    case 'identity'
-        g = ones(size(L_all));
-    case {'laplacebeltrami','laplace-beltrami','lb'}
-        g = L_all.*(L_all+1);
-        g = g/max(g);
-    otherwise
-        error('TikhonovMatrix must be ''identity'' or ''laplacebeltrami''');
-end
-g(L_all == 0) = 0;                       % never damp the density term
-reg.Gamma_full = diag(g);
 reg.L_all      = L_all;
 reg.init_full  = L_all <= reg.Lmax_init; % includes l = 0
 end
@@ -116,14 +102,6 @@ if ~isfinite(scale_A) || scale_A < eps
     info(3) = 0; return
 end
 
-G = reg.Gamma_full(idx, idx);
-if reg.lambda_tikhonov > 0
-    Tik = (reg.lambda_tikhonov*scale_A)*G;
-else
-    Tik = zeros(0, Nc);
-end
-rhs_tik = zeros(size(Tik,1),1);
-
 % ---- initial solution
 if reg.flag_nonneg
     im = reg.init_full(idx);
@@ -131,8 +109,7 @@ else
     im = true(1,Nc);
 end
 q = zeros(Nc,1);
-if size(Tik,1) > 0, Ti = Tik(im,im); else, Ti = zeros(0,sum(im)); end
-q(im) = [Ad(:,im); Ti] \ [yd; zeros(size(Ti,1),1)];
+q(im) = Ad(:,im) \ yd;
 
 if reg.flag_nonneg
     scale_Y = norm(Yd,'fro')/sqrt(size(Yd,1));
@@ -149,7 +126,7 @@ if reg.flag_nonneg
         if ~any(neg) || (it > 1 && isequal(neg, neg_prev)), conv = 1; break, end
         if sum(neg) > reg.max_neg_fraction*Ndirs, break, end
         L = w*Yd(neg,:);
-        q = [Ad; L; Tik] \ [yd; -w*c0(neg); rhs_tik];
+        q = [Ad; L] \ [yd; -w*c0(neg)];
         if free
             thr = reg.tau*mean(Yd*q);      % track the density as it changes
         end
