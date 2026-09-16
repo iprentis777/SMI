@@ -20,8 +20,8 @@ so it remains the provenance for those numbers.
 
 It is not the active comparison and its paths need repair before it can run from
 its archived location. New work should use
-[`deconv_comparison/notebooks/smi_manuscript_60deg.m`](../deconv_comparison/notebooks/smi_manuscript_60deg.m),
-which runs all three arms on the same simulated data in one script. See the
+[`deconv_comparison/notebooks/smi_wm_60deg.m`](../deconv_comparison/notebooks/smi_wm_60deg.m),
+which runs every arm on the same simulated data in one script. See the
 [`deconv_pipeline` README](deconv_pipeline/README.md) for the exact boundary.
 
 ## Retired: anisotropy modulation of the fODF
@@ -116,6 +116,45 @@ Artifacts:
 The example accepts a kernel from a real fit through
 `SMI_response_helpers().kernel_from_out`. It also checks its zonal
 reconstruction against SMI's own forward model before drawing anything.
+
+## Superseded simulations
+
+[`old_simulations/`](old_simulations/) holds every simulation built before
+`smi_wm_60deg.m`, including the previous manuscript source and the step-by-step
+walkthrough. Its README records the three measured defects that forced the
+rewrite: a fixed-grid peak finder that added +/-1.5 deg of orientation-dependent
+noise and inverted an arm ranking, a single crossing orientation that nearly
+doubled an apparent gap between methods, and arms that were recovering
+*different objects* because only one of them got a dispersion-matched response.
+
+## Experimental: free `l = 0` deconvolution
+
+[`free_l0/`](free_l0/) holds a fork of `SMI.m` that estimates `p_00` from the
+data instead of fixing it at 1, its single-solver comparison harness, and the
+experiment that drives them.
+
+SMI's `p_00 = 1` convention means the fODF carries **no density information** —
+a CSF voxel and a coherent white matter voxel have equal mass — and its
+isotropic floor of `1/(4*pi) = 0.0796` sits above MRtrix's default `iFOD2`
+cutoff of 0.05, so an SMI fODF survives tractography termination everywhere in
+the brain. This attacked that problem by lifting the constraint; anisotropy
+modulation attacked the same problem by reweighting the result instead. Neither
+shipped, and the problem is still open.
+
+It is archived because `SMI_freeL0.m` is a whole-file fork of a megabyte-scale
+solver — two copies of a solver is how a fix lands in one and not the other —
+and because nothing in the repository exercised it but a single experiment
+script. It never graduated from the "additive files only" status it landed
+with. The single-solver design of `fODF_free_l0_deconv.m`, which implements both
+conventions in one function with an exactness check against the shipped path, is
+the part worth reviving.
+
+## Patch history
+
+[`patch_history/`](patch_history/) holds the raw development history as patches,
+plus one subfolder per removed feature. New contributors do not need it; it
+exists so every number in the reports has a provenance and so a removed feature
+can be recovered rather than only described.
 
 ## Adding future exercises
 

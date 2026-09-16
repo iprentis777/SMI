@@ -11,6 +11,18 @@
 > `options.fODF_modulation`, `SMI.modulate_fODF`, `SMI.fODF_ModulationWeight`
 > and `SMI.fODF_ModulationDefaults` no longer exist. `helpers/fODF_modulation_helpers.m`
 > is now `helpers/fODF_sim_helpers.m`.
+>
+> **Files have also moved.** `Patches/` is now
+> [`Archive/patch_history/`](../../Archive/patch_history/). Every simulation
+> except `smi_wm_60deg.m` is now in
+> [`Archive/old_simulations/`](../../Archive/old_simulations/), including
+> `smi_manuscript_60deg.m`, `smi_simulation_walkthrough.m`,
+> `sweep_deconv_settings.m`,
+> `check_manuscript_static.m` and `measure_glyph_spread.m`. The free `l = 0`
+> work -- `SMI_freeL0.m`, `helpers/fODF_free_l0_deconv.m` and
+> `smi_free_l0_experiment.m` -- is now in
+> [`Archive/free_l0/`](../../Archive/free_l0/). Paths below that name any of
+> these files are stale; the findings attached to them still stand.
 
 Handoff for the next agent working on SMI fODF tractography through edema.
 

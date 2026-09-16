@@ -13,9 +13,9 @@ For a python implementation of SMI check our [TMI package here](https://nyu-diff
 | [`tests/`](tests/) | self-contained MATLAB/Octave tests and a single test runner |
 | [`Reports/`](Reports/) | indexed measurement reports and generated result tables |
 | [`Figures/`](Figures/) | generated figures used by the reports |
-| [`deconv_comparison/`](deconv_comparison/) | the active manuscript simulation comparing SMI, SSST-CSD, and MSMT-CSD |
-| [`Archive/`](Archive/) | semi-retired exercises and superseded workflows kept for provenance |
-| [`Patches/`](Patches/) | historical `git am --3way` patches for the measured changes |
+| [`Additions/`](Additions/) | **what this fork adds to stock NYU SMI**, one folder per feature |
+| [`deconv_comparison/`](deconv_comparison/) | the active simulation comparing SMI, SSST-CSD, and MSMT-CSD |
+| [`Archive/`](Archive/) | retired features, superseded simulations, and the full patch history |
 | [`docs/internal/`](docs/internal/) | detailed handoff material for coding agents |
 
 The examples and tests add the repository root and `helpers/` directory to the MATLAB/Octave path from their own locations, so they can be launched from any working directory.
@@ -28,9 +28,10 @@ contains opt-in deconvolution extensions and manuscript-oriented simulations:
 | status | where to start | purpose |
 |---|---|---|
 | Core toolbox | [`SMI.m`](SMI.m) and [`examples/example.m`](examples/example.m) | Standard Model parameter estimation |
+| **What this fork adds** | [`Additions/README.md`](Additions/README.md) | the two opt-in fODF features, both off by default |
 | Active research workflow | [`deconv_comparison/README.md`](deconv_comparison/README.md) | one-script SMI/SSST-CSD/MSMT-CSD manuscript simulation |
 | Supporting measurements | [`Reports/README.md`](Reports/README.md) | report status, provenance, and limitations |
-| Archived or semi-retired | [`Archive/README.md`](Archive/README.md) | learning exercises and superseded workflows |
+| Archived or retired | [`Archive/README.md`](Archive/README.md) | retired features, superseded simulations, patch history |
 
 All comparison results in this repository are simulation-only; none have been
 validated on a patient scan. To run the self-contained checks, use

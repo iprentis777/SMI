@@ -23,6 +23,6 @@ GNU Octave additionally needs the `statistics` and `image` packages. The test
 scripts add the compatibility shims from `deconv_comparison/stubs/`
 automatically.
 
-The active manuscript comparison has two additional checks in
-`deconv_comparison/`: `check_manuscript_static.m` and `test_csd_arms.m`. They
-are kept with that package because the latter requires MRtrix3.
+The active simulation has one additional check, `deconv_comparison/test_csd_arms.m`,
+kept with that package because it requires MRtrix3. It exercises the CSD arms
+alone in ~2 s and is the regression test for the `-neg_lambda` bug.

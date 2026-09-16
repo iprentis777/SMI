@@ -4,7 +4,7 @@
 > since been **removed from the toolbox**. Numbers and discussion below that
 > involve it are retained as the measured record that retired it -- read the
 > `lambda_tikhonov = 0` case as current behaviour. See
-> [`Archive/patch_history/fODF_tikhonov/`](../Archive/patch_history/fODF_tikhonov/).
+> [`Archive/patch_history/fODF_tikhonov/`](../fODF_tikhonov/).
 
 Measurement report for `SMI.fODF_ModulationWeight` and `SMI.modulate_fODF`.
 Everything below is measured, not assumed; the simulation is
