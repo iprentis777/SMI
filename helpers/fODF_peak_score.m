@@ -36,7 +36,7 @@ function H = fODF_peak_score()
 %
 % Lives in its own file rather than as a local function because MATLAB requires
 % local functions at the END of a script while Octave cannot call them there at
-% all. Same reasoning as helpers/fODF_modulation_helpers.m.
+% all. Same reasoning as helpers/fODF_sim_helpers.m.
 H = struct();
 H.setup = @setup_ctx;
 H.peaks = @row_peaks;

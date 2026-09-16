@@ -9,7 +9,7 @@
 % below are publish-style.
 %
 % *Nothing here is a reimplementation.* The forward model comes from
-% |helpers/fODF_modulation_helpers.m|, the fit is the real |SMI.fit|, and the
+% |helpers/fODF_sim_helpers.m|, the fit is the real |SMI.fit|, and the
 % experiment's constants come from |mc_config.m| -- the same file
 % |gen_montecarlo.m| reads. If a number here disagrees with the pipeline, the
 % pipeline is what is wrong.
@@ -55,7 +55,7 @@ LMAX_LIST = [4 6 8];            % angular orders to fit at -- see the next secti
                                 % the protocol itself is named in mc_config.m
 
 C = mc_config();                % conditions, kernel, dispersion, seeds
-H = fODF_modulation_helpers();
+H = fODF_sim_helpers();
 VERDICT = {'** FAILED **', 'ok'};             % VERDICT{1+condition}
 
 %% Which Lmax, and why the ground truth is stuck at 8

@@ -1,5 +1,17 @@
 # README for Claude
 
+> **Two features referenced throughout this document have been REMOVED.**
+> Tikhonov damping of the fODF deconvolution and anisotropy modulation of
+> the fODF are both archived, in
+> [`Archive/patch_history/fODF_tikhonov/`](../../Archive/patch_history/fODF_tikhonov/)
+> and
+> [`Archive/patch_history/fODF_modulation/`](../../Archive/patch_history/fODF_modulation/).
+> Findings about them below still stand as measurements -- several of them
+> are *why* the features were removed -- but `options.fODF_regularization.lambda_tikhonov`,
+> `options.fODF_modulation`, `SMI.modulate_fODF`, `SMI.fODF_ModulationWeight`
+> and `SMI.fODF_ModulationDefaults` no longer exist. `helpers/fODF_modulation_helpers.m`
+> is now `helpers/fODF_sim_helpers.m`.
+
 Handoff for the next agent working on SMI fODF tractography through edema.
 
 This is the **third** version of this file. Each version corrects conclusions the
@@ -454,7 +466,7 @@ Other traps, all hit at least once:
 
 - **Octave cannot call functions defined at the end of a script**, MATLAB
   requires them there. That is why `helpers/SMI_response_helpers.m` and
-  `helpers/fODF_modulation_helpers.m` are separate files returning function-handle
+  `helpers/fODF_sim_helpers.m` are separate files returning function-handle
   structs rather than local functions.
 - **`SMI.vectorize` takes a different branch if any spatial dimension is a
   singleton.** Always build simulation volumes with all three dims > 1.
@@ -530,7 +542,7 @@ force-pushed.
 | `Reports/REPORT_fODF_modulation.md` | the anisotropy weight measurement. **§3 is wrong on Tikhonov, see section 2.3**; Tikhonov has since been removed |
 | `Reports/REPORT_fODF_outlier_cap.md` | the cap measurement |
 | `examples/example_fODF_regularization*.m` | regularization examples and the sweep |
-| `examples/example_fODF_modulation.m` + `helpers/fODF_modulation_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
+| `examples/example_fODF_modulation.m` + `helpers/fODF_sim_helpers.m` | semi-retired 7-class learning exercise; retained for reproducibility, not current pipeline guidance |
 | `tests/test_fODF_outlier_cap.m`, `tests/test_SMI_outlier_cap.m` | the cap's tests. Self-contained |
 | `Patches/0001`-`Patches/0010*.patch` | one patch per measured change, `git am --3way`-able |
 

@@ -41,7 +41,7 @@ here = fileparts(mfilename('fullpath'));
 if isempty(here), here = pwd; end
 run(fullfile(here, 'oct_path.m'));
 
-MC = mc_config(); H = fODF_modulation_helpers();
+MC = mc_config(); H = fODF_sim_helpers();
 RH = SMI_response_helpers(); MR = mrtrix_io();
 
 % the manuscript settings, edema kernel -- the figure the question was about

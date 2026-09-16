@@ -78,7 +78,7 @@ Three properties of the real scheme, all checked rather than assumed:
 | `test_csd_arms.m` | the CSD arms alone in ~2 s, no `SMI.fit`. The regression test for the `-neg_lambda` bug |
 | `measure_glyph_spread.m` | how much the drawn fODF glyph radius varies between noise realisations vs across SNR, ~4 min. Behind "README for Claude" section 6.6 |
 
-The fODF machinery lives in `../helpers/`: `fODF_modulation_helpers.m` (forward
+The fODF machinery lives in `../helpers/`: `fODF_sim_helpers.m` (forward
 model, Watson, projection), `SMI_response_helpers.m` (kernel → zonal response,
 glyphs) and `fODF_peak_score.m` (the one peak finder every arm goes through).
 
