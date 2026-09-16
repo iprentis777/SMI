@@ -16,7 +16,6 @@ that question unanswerable.
 | `smi_manuscript_60deg.m` | the previous manuscript source. 60° crossing, two kernels (healthy + edema), SNR swept, all three arms in one file | **directly superseded by `smi_wm_60deg.m`.** See below for the three defects that forced the rewrite |
 | `smi_simulation_walkthrough.m` | the SMI arm taken apart step by step on a real HCP protocol. Single fibre plus 30/45/60°, one SNR, Lmax 4/6/8 | the teaching version. Its `CHECK`-per-step structure is what `smi_wm_60deg.m` inherited |
 | `sweep_deconv_settings.m` | one-at-a-time and grid sweeps over the deconvolution settings | superseded as a tuning tool; `lambda_nonneg` is the only weight left to tune |
-| `smi_free_l0_experiment.m` | the experimental free `l = 0` deconvolution, where `p_00` is estimated rather than fixed at 1 | pairs with `SMI_freeL0.m` and `helpers/fODF_free_l0_deconv.m`, **both of which are still in the active tree** |
 | `check_manuscript_static.m` | static checks on `smi_manuscript_60deg.m` — that it parses, that scoring arrays are subscripted correctly | bound to the file it checks |
 | `measure_glyph_spread.m` | how much drawn glyph radius varies between noise realisations vs across SNR | measures a figure of the archived file |
 | `NOTEBOOKS_README.md` | the 699-line notebook documentation | **read this before reusing anything here.** It holds the MRtrix convention findings, the CSD response derivation, and the non-reproducibility correction |
@@ -58,9 +57,9 @@ Their calls to the simulation helpers were updated when
 `helpers/fODF_modulation_helpers.m` was renamed to `helpers/fODF_sim_helpers.m`,
 so that part is current.
 
-## What stayed active for these files' sake
+## Moved elsewhere
 
-`SMI_freeL0.m` and `helpers/fODF_free_l0_deconv.m` are still in the active tree
-even though their only in-repo driver (`smi_free_l0_experiment.m`) is archived
-here. They were left alone deliberately rather than archived by association —
-the free `l = 0` question is independent of this cleanup.
+The free `l = 0` experiment is **not** here. It moved to
+[`../free_l0/`](../free_l0/) together with the two files it drives —
+`SMI_freeL0.m` and `fODF_free_l0_deconv.m` — so that the whole experiment sits
+in one place rather than being split across the archive and the active tree.

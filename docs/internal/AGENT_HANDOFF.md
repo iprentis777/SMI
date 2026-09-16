@@ -17,9 +17,12 @@
 > except `smi_wm_60deg.m` is now in
 > [`Archive/old_simulations/`](../../Archive/old_simulations/), including
 > `smi_manuscript_60deg.m`, `smi_simulation_walkthrough.m`,
-> `sweep_deconv_settings.m`, `smi_free_l0_experiment.m`,
-> `check_manuscript_static.m` and `measure_glyph_spread.m`. Paths below that
-> name those files are stale; the findings attached to them still stand.
+> `sweep_deconv_settings.m`,
+> `check_manuscript_static.m` and `measure_glyph_spread.m`. The free `l = 0`
+> work -- `SMI_freeL0.m`, `helpers/fODF_free_l0_deconv.m` and
+> `smi_free_l0_experiment.m` -- is now in
+> [`Archive/free_l0/`](../../Archive/free_l0/). Paths below that name any of
+> these files are stale; the findings attached to them still stand.
 
 Handoff for the next agent working on SMI fODF tractography through edema.
 
