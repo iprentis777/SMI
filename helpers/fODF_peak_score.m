@@ -10,7 +10,7 @@ function H = fODF_peak_score()
 %   H.score(SH, Ye, axes_true, ctx)   [nfound, aerr] for a block of fODFs
 %
 % This is the algorithm inline in Step 7 of
-% deconv_comparison/notebooks/smi_manuscript_60deg.m, unchanged:
+% Archive/old_simulations/smi_manuscript_60deg.m, unchanged:
 %
 %   * evaluate the fODF on a dense direction set;
 %   * keep every direction not smaller than any neighbour within `nbr_deg`;

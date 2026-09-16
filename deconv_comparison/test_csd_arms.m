@@ -8,7 +8,7 @@ function nfail = test_csd_arms(neg_sweep)
 %   >> test_csd_arms                 % the standard checks
 %   >> test_csd_arms(true)           % plus the -neg_lambda sensitivity sweep
 %
-% smi_manuscript_60deg.m runs all three arms, but its SMI arm costs 42 fits and
+% notebooks/smi_wm_60deg.m runs every arm, but its SMI arm is expensive and
 % hours at the manuscript settings, so it is the wrong instrument for "does the
 % MRtrix side still work". This file builds the same noise-free signal from the
 % same kernel and protocol, hands it to dwi2fod, and scores the peaks -- the
@@ -29,7 +29,7 @@ function nfail = test_csd_arms(neg_sweep)
 %    running both "at their defaults" compares a constrained arm against an
 %    effectively unconstrained one. At MRtrix's -neg_lambda default of 1e-10 the
 %    MSMT fODF comes back blunt and under-separates a 60 degree crossing by
-%    ~12 degrees. See the Configuration block of smi_manuscript_60deg.m.
+%    ~12 degrees. See the Configuration block of notebooks/smi_wm_60deg.m.
 % 5. *90 degrees works.* A method that cannot separate an orthogonal crossing
 %    noise-free is misconfigured, whatever it does at 60. This is the check that
 %    would have caught the bug immediately.
@@ -49,7 +49,7 @@ RH = SMI_response_helpers(); MR = mrtrix_io(); PK = fODF_peak_score();
 VERDICT = {'** FAILED **', 'ok'};
 nfail = 0;
 
-% ---- the same configuration smi_manuscript_60deg.m uses
+% ---- the same configuration notebooks/smi_wm_60deg.m uses
 K = [0.60 2.0 2.0 0.50 0.02]; KAPPA = 16; D_FW = 3; D_GM = 0.8;
 LGT = 8; CS = 0; Lf = 6; B0_SNAP = 0.05;
 NEG_LAMBDA = 1; NORM_LAMBDA = 1e-3;      % must match the manuscript file

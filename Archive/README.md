@@ -20,8 +20,8 @@ so it remains the provenance for those numbers.
 
 It is not the active comparison and its paths need repair before it can run from
 its archived location. New work should use
-[`deconv_comparison/notebooks/smi_manuscript_60deg.m`](../deconv_comparison/notebooks/smi_manuscript_60deg.m),
-which runs all three arms on the same simulated data in one script. See the
+[`deconv_comparison/notebooks/smi_wm_60deg.m`](../deconv_comparison/notebooks/smi_wm_60deg.m),
+which runs every arm on the same simulated data in one script. See the
 [`deconv_pipeline` README](deconv_pipeline/README.md) for the exact boundary.
 
 ## Retired: anisotropy modulation of the fODF
@@ -116,6 +116,23 @@ Artifacts:
 The example accepts a kernel from a real fit through
 `SMI_response_helpers().kernel_from_out`. It also checks its zonal
 reconstruction against SMI's own forward model before drawing anything.
+
+## Superseded simulations
+
+[`old_simulations/`](old_simulations/) holds every simulation built before
+`smi_wm_60deg.m`, including the previous manuscript source and the step-by-step
+walkthrough. Its README records the three measured defects that forced the
+rewrite: a fixed-grid peak finder that added +/-1.5 deg of orientation-dependent
+noise and inverted an arm ranking, a single crossing orientation that nearly
+doubled an apparent gap between methods, and arms that were recovering
+*different objects* because only one of them got a dispersion-matched response.
+
+## Patch history
+
+[`patch_history/`](patch_history/) holds the raw development history as patches,
+plus one subfolder per removed feature. New contributors do not need it; it
+exists so every number in the reports has a provenance and so a removed feature
+can be recovered rather than only described.
 
 ## Adding future exercises
 

@@ -5,11 +5,15 @@ synthesise noise-free signal vectors for crossing white matter fibres by forward
 convolution, add complex Gaussian noise so the magnitude is Rician, and
 deconvolve many independent realisations of each condition with each method.
 
-**Everything here serves one file**, `notebooks/smi_manuscript_60deg.m`. It runs
-all three arms — SMI, SSST-CSD and MSMT-CSD — on **one simulation, one noise
+**Everything here serves one file**, `notebooks/smi_wm_60deg.m`. It runs every
+arm — SMI, SSST-CSD and both MSMT-CSD settings — on **one simulation, one noise
 draw, one peak finder, in one scope**. There is no second forward model to keep
 in step and no question about whether the arms saw the same data: they are the
 same array.
+
+Earlier simulations are in
+[`../Archive/old_simulations/`](../Archive/old_simulations/), with the measured
+defects that replaced them.
 
 **CSD and MSMT-CSD are MRtrix3 3.0.4 itself.** `dwi2fod`, `dwiextract` and
 `mrinfo` are the binaries, called as subprocesses. The only MRtrix behaviour
@@ -23,22 +27,22 @@ patient scan.
 
 | arm | what it is |
 |---|---|
-| SMI constrained | `SMI.fit`, `fODF_regularization.flag_nonneg = 1`, `CS_phase = 0`. **Estimates its kernel per voxel** |
+| SMI fixed | `SMI.get_plm_from_S_and_kernel` with a **fixed** kernel, the same one the CSD arms get as a response. No Rician bias correction, so the same noise model as MRtrix |
+| SMI fitted | `SMI.fit`, estimating the kernel per voxel. Off by default — the expensive arm |
 | SSST-CSD | `dwi2fod csd` on the top shell |
-| MSMT-CSD | `dwi2fod msmt_csd` on all four shells, 3 tissues, `-neg_lambda 1` |
+| MSMT def | `dwi2fod msmt_csd` at MRtrix's shipped `-neg_lambda 1e-10 -norm_lambda 1e-10` |
+| MSMT tuned | the same, at `-neg_lambda 1 -norm_lambda 1e-3` |
 
-Two settings decide what "fair" means here, and both are documented at length in
-`Reports/REPORT_CSD_response_derivation.md`:
+**One response, built from one kernel, is handed unchanged to every arm.** That
+is what makes the comparison answerable: the arms differ in their deconvolution
+algorithm and in nothing else. The difference between the two SMI arms is
+therefore the cost of estimating the kernel, measured rather than asserted.
 
-- **`CSD_RESPONSE_KERNEL = 'healthy'`** — both tissues are deconvolved with the
-  healthy WM response, because that is what a population-averaged single-fibre
-  estimate is. This is the one place the arms are not on equal footing, and the
-  inequality is real: SMI re-estimates its kernel per voxel and adapts, CSD
-  cannot.
-- **`MSMT_NEG_LAMBDA = 1`** — MRtrix ships `1e-10`, which leaves `msmt_csd`
-  effectively unconstrained while `csd`'s constraint is at strength 1. Running
-  both "at their defaults" is not a like-for-like comparison and produced a
-  wrong result once already.
+Both MSMT settings run because the difference between them is **order
+dependent** — a finding, not a bug to hide. `dwi2fod csd` and `dwi2fod msmt_csd`
+do not ship comparable defaults (`-neg_lambda 1` against `1e-10`), so running
+both "at their defaults" is not a like-for-like comparison and produced a wrong
+result once already. See `Reports/REPORT_CSD_response_derivation.md`.
 
 **`CS_phase = 0` matters.** At SMI's default of 1 the SH basis differs from
 MRtrix's by `(-1)^m`, a 180 degree rotation about z of every fODF.
@@ -66,17 +70,14 @@ Three properties of the real scheme, all checked rather than assumed:
 
 | file | what |
 |---|---|
-| `notebooks/smi_manuscript_60deg.m` | **the manuscript simulation.** All three arms, two kernels, SNR swept, seven figures |
-| `notebooks/smi_simulation_walkthrough.m` | the SMI arm taken apart step by step, one SNR, 30/45/60 degrees |
-| `notebooks/README.md` | what every `CHECK` establishes and why it is not circular. **Read this before changing either file** |
+| `notebooks/smi_wm_60deg.m` | **the simulation.** Every arm, healthy WM, 60° crossing at 18 orientations, SNR swept, four figures |
+| `notebooks/README.md` | what it asks, what the `CHECK` lines establish, and the conventions that silently ruin a result |
 | `mc_config.m` | the shared geometry and protocol utilities: `pick_grid`, `rotate_about`, `load_protocol_file` |
 | `mrtrix_io.m` | read and write MRtrix `.mif` / `.mih` images |
 | `oct_path.m` | puts `SMI.m`, `helpers/` and the Octave shims on the path |
 | `protocol/hcp_real_3shell.txt` | the acquisition in use, as tracked text |
 | `stubs/` | Octave shims for `round(x,n)`, `discretize`, `datetime` |
-| `check_manuscript_static.m` | static checks on the manuscript file: it parses, the scoring arrays are subscripted correctly, every `RUN{}` field read is written |
 | `test_csd_arms.m` | the CSD arms alone in ~2 s, no `SMI.fit`. The regression test for the `-neg_lambda` bug |
-| `measure_glyph_spread.m` | how much the drawn fODF glyph radius varies between noise realisations vs across SNR, ~4 min. Behind "README for Claude" section 6.6 |
 
 The fODF machinery lives in `../helpers/`: `fODF_sim_helpers.m` (forward
 model, Watson, projection), `SMI_response_helpers.m` (kernel → zonal response,
@@ -86,17 +87,19 @@ glyphs) and `fODF_peak_score.m` (the one peak finder every arm goes through).
 
 ```
 cd notebooks
-octave-cli --no-gui -q smi_manuscript_60deg.m     # SMOKE_TEST = true: minutes
+octave-cli --no-gui -q smi_wm_60deg.m      # HOURS at the shipped default
 
 cd ..
-octave-cli --no-gui -q check_manuscript_static.m  # seconds, before any long run
-octave-cli --no-gui -q test_csd_arms.m            # the MRtrix side alone, ~2 s
+octave-cli --no-gui -q test_csd_arms.m     # the MRtrix side alone, ~2 s
 ```
 
-No Python and no data to download. MRtrix3 must be on the `PATH`. At its
-manuscript settings the simulation is 42 `SMI.fit` calls and runs in hours;
-`SMOKE_TEST = true` cuts it to one Lmax and three SNRs while still executing
-every `CHECK`.
+No Python and no data to download. MRtrix3 must be on the `PATH`.
+
+⚠️ **The simulation ships at full size and runs for hours** — 18 orientations ×
+50 reps × 16 SNR at Lmax 4, 6 and 8. Set `SMOKE_TEST = true` for a reduced run
+in minutes, with every `CHECK` still executed and indicative numbers only. See
+`notebooks/README.md` for why the full size is what the numbers were measured
+at.
 
 ## The older campaign
 
@@ -108,7 +111,8 @@ regenerating them on the real protocol is still an open task.
 
 It reached 10,000 realisations and four crossing angles by splitting the work
 across three languages and joining the arms by voxel index, which is exactly
-what the manuscript file replaced. Prefer the manuscript file for anything new.
+what the single-file simulation replaced. Prefer `notebooks/smi_wm_60deg.m` for
+anything new.
 
 An even earlier version ran CSD and MSMT-CSD through dipy and reimplemented
 `dwi2response dhollander`, `mrthreshold` and `amp2response` from the MRtrix
