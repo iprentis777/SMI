@@ -137,7 +137,7 @@ AXIS1     = [0.30 -0.50 0.81]; AXIS1 = AXIS1/norm(AXIS1);
 SEED_ORI  = 101;    % seed for the random orientations
 
 % ---------------------------------------------------------- the experiment
-SMOKE_TEST = true;  % true: minutes, indicative numbers only, every CHECK runs
+SMOKE_TEST = false;  % true: minutes, indicative numbers only, every CHECK runs
 if SMOKE_TEST
     NORIENT   = 6;  NREP = 8;
     SNR_LIST  = [10 20 30 Inf];
